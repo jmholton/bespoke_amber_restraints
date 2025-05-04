@@ -16,6 +16,7 @@ set maxkcal = 60
 set kT      = 0.6
 set pdbscale = 0.01
 set maxbombs = 10000
+set min_weight = 0
 set nofix   = 0
 set keepweak = 0
 set keepstrong = 1
@@ -75,6 +76,7 @@ refpoints = $refpoints
 maxdist = $maxdist
 maxbombs = $maxbombs
 maxkcal  = $maxkcal
+min_weight = $min_weight
 kT       = $kT
 nofix    = $nofix
 
@@ -104,7 +106,7 @@ awk '! /^ATOM|^HETAT/{print;next}\
   {print substr($0,1,60) "  0.00" substr($0,67)}' |\
 cat >! ${t}zeroB.pdb
 
-echo "$maxdist $maxkcal $kT $pdbscale" >! ${t}params.txt
+echo "$maxdist $maxkcal $kT $pdbscale $min_weight" >! ${t}params.txt
 
 cat $refpoints |\
 awk '{id=substr($0,12,15);\
@@ -112,25 +114,27 @@ awk '{id=substr($0,12,15);\
 
 rmsd -v debug=1 $refpoints ${t}zeroB.pdb |\
 cat ${t}params.txt ${t}matches.txt - |\
-awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4}\
+awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4;min_weight=$5}\
   $NF=="MATCHES"{id=substr($0,1,15);canbomb[id]=$(NF-2);teleported[id]=$(NF-1);next}\
   ! /moved/{next}\
     {id=substr($0,1,15);d=substr($0,25,9)+0;B=substr($0,53,9)+0;w=sqrt(B*B)*pdbscale;kcal=w*d*d;\
      bigdist=(d>maxdist);\
      bigkcal=(d>maxkcal);\
      weak=(w<kT);\
-     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] );\
-     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,"|"id"| BOMB"}' |\
+     inuse=(w>=min_weight);\
+     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] && inuse );\
+     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,inuse,"|"id"| BOMB"}' |\
 sort -k9gr |\
 tee ${t}all_challenges.txt |\
-awk '$1==1' |\
+awk '$1==1 && $10==1' |\
 cat >! ${t}bombers.txt
 
 echo "top challenges:"
 cat ${t}all_challenges.txt |\
 awk '{split($0,k,"|");id=k[2];\
-     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;\
+     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;inuse=$10;\
       key = bigdist bigkcal weak canbomb teleported;whynot=""}\
+  ! inuse{next}\
   ! bigdist{whynot=whynot" bigdist"}\
   ! bigkcal{whynot=whynot" bigkcal"}\
  # ! weak{whynot=whynot" weak"}\
@@ -219,15 +223,16 @@ cp ${t}newrefpoints.pdb "$outfile"
 echo "checking again..."
 rmsd -v debug=1 $outfile ${t}zeroB.pdb |\
 cat ${t}params.txt ${t}matches.txt - |\
-awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4}\
+awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4;min_weight=$5}\
   $NF=="MATCHES"{id=substr($0,1,15);canbomb[id]=$(NF-2);teleported[id]=$(NF-1);next}\
   ! /moved/{next}\
     {id=substr($0,1,15);d=substr($0,25,9)+0;B=substr($0,53,9)+0;w=sqrt(B*B)*pdbscale;kcal=w*d*d;\
      bigdist=(d>maxdist);\
      bigkcal=(d>maxkcal);\
      weak=(w<kT);\
-     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] );\
-     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,"|"id"| BOMB"}' |\
+     inuse=(w>=min_weight);\
+     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] && inuse );\
+     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,inuse,"|"id"| BOMB"}' |\
 sort -k9gr |\
 tee ${t}postgather_challenges.txt |\
 awk '$1==1' |\
@@ -241,7 +246,7 @@ endif
 
 cat ${t}postgather_bombers.txt |\
 awk '{split($0,k,"|");id=k[2];\
-     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;\
+     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;inuse=$10;\
       why="  "}\
   bigdist{why=why" bigdist"}\
   bigkcal{why=why" bigkcal"}\
@@ -261,15 +266,16 @@ endif
 echo "removing weak restraints below $kT kcal/A^2"
 rmsd -v debug=1 $outfile ${t}zeroB.pdb |\
 cat ${t}params.txt ${t}matches.txt - |\
-awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4}\
+awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4;min_weight=$5}\
   $NF=="MATCHES"{id=substr($0,1,15);canbomb[id]=$(NF-2);teleported[id]=$(NF-1);next}\
   ! /moved/{next}\
     {id=substr($0,1,15);d=substr($0,25,9)+0;B=substr($0,53,9)+0;w=sqrt(B*B)*pdbscale;kcal=w*d*d;\
      bigdist=(d>maxdist);\
      bigkcal=(d>maxkcal);\
      weak=(w<kT);\
-     isbomb=( bigdist && bigkcal && weak && canbomb[id] && ! teleported[id] );\
-     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,"|"id"| BOMB"}' |\
+     inuse=(w>=min_weight);\
+     isbomb=( bigdist && bigkcal && weak && canbomb[id] && ! teleported[id] && inuse );\
+     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,inuse,"|"id"| BOMB"}' |\
 awk '$1==1' |\
 sort -k9gr |\
 cat >! ${t}weak_bombers.txt
@@ -297,15 +303,16 @@ cp ${t}culled.pdb $outfile
 echo "checking again..."
 rmsd -v debug=1 $outfile ${t}zeroB.pdb |\
 cat ${t}params.txt ${t}matches.txt - |\
-awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4}\
+awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4;min_weight=$5}\
   $NF=="MATCHES"{id=substr($0,1,15);canbomb[id]=$(NF-2);teleported[id]=$(NF-1);next}\
   ! /moved/{next}\
     {id=substr($0,1,15);d=substr($0,25,9)+0;B=substr($0,53,9)+0;w=sqrt(B*B)*pdbscale;kcal=w*d*d;\
      bigdist=(d>maxdist);\
      bigkcal=(d>maxkcal);\
      weak=(w<kT);\
-     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] );\
-     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,"|"id"| BOMB"}' |\
+     inuse=(w>=min_weight);\
+     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] && inuse );\
+     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,inuse,"|"id"| BOMB"}' |\
 sort -k9gr |\
 tee ${t}postweak_challenges.txt |\
 awk '$1==1' |\
@@ -318,7 +325,7 @@ endif
 
 cat ${t}strong_bombers.txt |\
 awk '{split($0,k,"|");id=k[2];\
-     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;\
+     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;inuse=$10;\
       why="  "}\
   bigdist{why=why" bigdist"}\
   bigkcal{why=why" bigkcal"}\
@@ -359,15 +366,16 @@ cp ${t}strongculled.pdb $outfile
 echo "checking one last time..."
 rmsd -v debug=1 $outfile ${t}zeroB.pdb |\
 cat ${t}params.txt ${t}matches.txt - |\
-awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4}\
+awk 'NR==1{maxdist=$1;maxkcal=$2;kT=$3;pdbscale=$4;min_weight=$5}\
   $NF=="MATCHES"{id=substr($0,1,15);canbomb[id]=$(NF-2);teleported[id]=$(NF-1);next}\
   ! /moved/{next}\
     {id=substr($0,1,15);d=substr($0,25,9)+0;B=substr($0,53,9)+0;w=sqrt(B*B)*pdbscale;kcal=w*d*d;\
      bigdist=(d>maxdist);\
      bigkcal=(d>maxkcal);\
      weak=(w<kT);\
-     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] );\
-     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,"|"id"| BOMB"}' |\
+     inuse=(w>=min_weight);\
+     isbomb=( bigdist && bigkcal && canbomb[id] && ! teleported[id] && inuse );\
+     print isbomb,bigdist,bigkcal,weak,canbomb[id],teleported[id],w,d,kcal,inuse,"|"id"| BOMB"}' |\
 sort -k9gr |\
 tee ${t}final_challenges.txt |\
 awk '$1==1' |\
@@ -377,7 +385,7 @@ echo "$bombers bomb restraints remain."
 
 cat ${t}final_bombers.txt |\
 awk '{split($0,k,"|");id=k[2];\
-     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;\
+     bigdist=$2;bigkcal=$3;weak=$4;canbomb=$5;teleported=$6;w=$7;d=$8;kcal=$9;inuse=$10;\
      print kcal,"kcal",d "A w="w,id, whynot}' | head
 
 

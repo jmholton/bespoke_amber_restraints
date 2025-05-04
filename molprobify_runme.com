@@ -37,7 +37,7 @@
 #
 #   cbetadev - use 0.05 A as "sigma"
 #
-#   nonbonds:  use Leonard-Jones to convert to energy [-1:inf], but dont let "worst" or avg be negative
+#   nonbonds:  use Lennard-Jones to convert to energy [-1:inf], but dont let "worst" or avg be negative
 #
 #   omega twist: energy=((sin(omega)/0.07)^2+(1+cos(omega))^10)/(proxPRO*2+1)
 #      where proxPRO means a neighboring residue is proline
@@ -48,6 +48,8 @@
 set pdbfile = ""
 set mtzfile = ""
 set outprefix = "-"
+
+set ciffiles = ""
 
 set rstfile = ""
 set topfile = ""
@@ -66,6 +68,11 @@ set ignore = ARGH
 set sigma_fudge = 3
 # flag to write out restraint files for reducing outliers
 set writefudge = 0
+
+# const_shrink_donor_acceptor override
+set csda = 0.6
+# sigma of omega
+set sigomega = 4.01398721805631
 
 # flag to debug things
 set debug = 0
@@ -97,6 +104,7 @@ foreach arg ( $* )
       # no equal sign
       if("$Key" =~ *.pdb) set pdbfile = "$Key"
       if("$Key" =~ *.rst7) set rstfile = "$Key"
+      if("$Key" =~ *.cif) set ciffiles = ( $ciffiles "$Key" )
       if("$key" == "pdbfile") set pdbfile = "$Val"
       if("$key" == "outprefix") set outprefix = "$Val"
       if("$key" == "topfile") set topfile = "$Val"
@@ -271,14 +279,15 @@ echo "molprobity"
 set pwd = `pwd`
 cp $pdbfile $tmpdir/this.pdb
 ( cd $tmpdir ;\
-phenix.molprobity flip_symmetric_amino_acids=True \
+phenix.molprobity flip_symmetric_amino_acids=True $ciffiles \
     outliers_only=False output.probe_dots=False \
     output.coot=True this.pdb ) >&! ${outprefix}_molprobity.log
 cp ${tmpdir}/molprobity_coot.py ${t}molprobity_coot.py
 
 echo "geometry"
-phenix.geometry_minimization $pdbfile macro_cycles=0 \
+phenix.geometry_minimization $pdbfile $ciffiles macro_cycles=0 \
   stop_for_unknowns=false \
+  const_shrink_donor_acceptor=$csda \
   output_file_name_prefix=${t} >! ${outprefix}_geom.log
 # logfile is "greatest hits" only
 
@@ -343,6 +352,7 @@ awk '/nonbonded pdb=/{key="NONBOND";split($0,w,"\"");id1=w[2];\
  function lj(r,r0) {return lj0(r,r0)-lj0(6,r0)}' |\
 sort -k2gr |\
 cat >! ${t}_fullgeo.txt
+# format: key energy dev obs ideal sigma | atominfo
 
 echo $ignore |\
 cat - ${t}_fullgeo.txt |\
@@ -383,10 +393,10 @@ sort -k2,2 -k3g >! ${t}sequence.txt
 
 # convert other logs to parsable forms
 cat ${outprefix}_omegalyze.log |\
-awk -v modulo=$modulo -F ":" 'BEGIN{RTD=45/atan2(1,1)}\
+awk -v modulo=$modulo -v sigomega=$sigomega  -F ":" 'BEGIN{RTD=45/atan2(1,1);sigom=sigomega/RTD}\
    ! /^SUMMARY|^resid/{om=$3/RTD;\
    n=(substr($0,3,4)-1)%modulo+1;\
-   energy=(sin(om)/0.07)^2+(1+cos(om))^10;\
+   energy=(sin(om)/sin(sigom))^2+(1+cos(om))^10;\
    print "OMEGA",energy,n,$0}' |\
 sort -k2gr >! ${t}_omegalyze.txt
 # OMEGA energy resnum%64 otherstuff
@@ -394,11 +404,11 @@ sort -k2gr >! ${t}_omegalyze.txt
 # convert all omegas separately, noting prolines, treat "sigma" as 4 deg
 awk '/PRO/{print "isPRO",$3}' ${t}sequence.txt |\
 cat - ${t}_fullgeo.txt |\
-awk -v modulo=$modulo 'BEGIN{RTD=45/atan2(1,1)} \
+awk -v modulo=$modulo -v sigomega=$sigomega 'BEGIN{RTD=45/atan2(1,1);sigom=sigomega/RTD} \
   /isPRO/{isPRO[$2]=1;next}\
   /^TORS/ && $8=="CA" && $26=="CA"{n=($12-1)%modulo+1;om=$4/RTD;\
     proxPRO=isPRO[n-1]+isPRO[n+1];\
-    energy=((sin(om)/0.07)^2+(1+cos(om))^10)/(proxPRO*2+1);\
+    energy=((sin(om)/sin(sigom))^2+(1+cos(om))^10)/(proxPRO*2+1);\
     print "OMEGA",energy,n,proxPRO,"omega=",om*RTD}' |\
 sort -k2gr >! ${t}_allomegas.txt
 
@@ -451,6 +461,7 @@ tail -n 2 ${t}molprobity_coot.py |\
 sort -k2gr >! ${outprefix}_clashes.txt
 # CLASH ljenergy deltadist "clash |" atoms1 "|" atoms2
 #rm -f molprobity_coot.py
+cp ${outprefix}_clashes.txt ${t}clashes.txt
 
 
 # make potential override list
@@ -1222,7 +1233,7 @@ cat >! phenix_opts_fixplanes.txt
 
 
 foreach suff ( declash debump )
- egrep "^#extern" ${t}${suff}.txt |\
+ egrep "^#extern" refmac_opts_${suff}.txt |\
  awk -v deadband=1 '$2=="dist"{\
      c1=$5;r1=$7;a1=$9;f1=$11;\
      c2=$14;r2=$16;a2=$18;f2=$20;\

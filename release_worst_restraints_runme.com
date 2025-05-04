@@ -14,6 +14,7 @@ set radius = 2.2
 set radii = 2.2,1.8,1.8,1.8
 set keepcenter = 0
 set maxbad    = 10
+set ignore = "teleported,nonbomb"
 set pdbscale  = 0.01
 
 set debug = 0
@@ -66,11 +67,11 @@ set t = "$tempfile"
 
 # gather stats on restraints
 echo "gathering restraint challenge history"
-sort -k1.61gr $restraintpdb |\
- egrep  "^ATOM|^HETAT" |\
-tee sorted_weights.pdb |\
-awk -v pdbscale=$pdbscale '{print substr($0,61,6)*pdbscale}' |\
-cat >! sorted_weights.txt
+#sort -k1.61gr $restraintpdb |\
+# egrep  "^ATOM|^HETAT" |\
+#tee sorted_weights.pdb |\
+#awk -v pdbscale=$pdbscale '{print substr($0,61,6)*pdbscale}' |\
+#cat >! ${t}sorted_weights.txt
 
 # these are on amber scale
 set challenges = `ls -1rt restraints_challenge_vs_weight_*.txt | tail -n 200`
@@ -82,18 +83,21 @@ tail -n 3 sorted_iwr.txt
 set badB = `echo $tootight $pdbscale | awk '{print $1/$2}'`
 echo "finding challenged restraints with weight > $tootight"
 egrep "^CRYST" $restraintpdb >! worst.pdb
-cat sorted_iwr.txt |\
-cat - $restraintpdb |\
-awk -F "|" -v tootight=$tootight -v pdbscale=$pdbscale '\
+
+echo "$pdbscale | $ignore" |\
+cat - sorted_iwr.txt $restraintpdb |\
+awk -F "|" 'NR==1{pdbscale=$1+0;ignore=$2}\
  NF==2{id=substr($2,1,16);score[id]=$1+0;next}\
  ! /^ATOM|^HETAT/{next}\
- /NOT_A_BOMB| moved/{next}\
- {id=substr($0,12,16);w=substr($0,61,6)*pdbscale}\
- score[id] && w>tootight{print score[id],"|"$0}' |\
+ /NOT_A_BOMB/ && ignore ~ /nonbomb/{next}\
+ / moved/ && ignore ~ /teleport/{next}\
+ {id=substr($0,12,16)}\
+ score[id]{print score[id],"|"$0}' |\
 sort -gr |\
 awk -F "|" '{print $2}' |\
 cat >! sorted_worstchallenge.pdb
-head -n $maxbad sorted_worstchallenge.pdb |\
+awk -v minB=$badB '/^ATOM|^HETAT/ && substr($0,61,6)+0>minB' sorted_worstchallenge.pdb |\
+head -n $maxbad |\
 tee -a worst.pdb
 
 goto gotworst
@@ -169,7 +173,10 @@ awk 'NR==1{maxB=$1;tootight=$2/$3}\
 cat >! releaseme.pdb
 
 combine_pdbs_runme.com printref=1 releaseme.pdb $restraintpdb outfile=$outfile | head -n 1
-rmsd -v debug=1 $restraintpdb $outfile | grep -v "  0.00 (B)" | sort -k1.53g
+rmsd -v debug=1 $restraintpdb $outfile | grep -v "  0.00 (B)" | sort -k1.53g |\
+awk '{gsub("   moved   0.0000 (XYZ)   0.00 (occ)","");\
+  gsub("(B) at cen_","dB ");\
+  print}'
 
 
 exit:

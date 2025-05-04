@@ -11,6 +11,7 @@ set doprotein = 0
 set breakbonds = 0
 set bychain = 0
 set byter = 0
+set slop = 0
 
 set logfile = wrap_details.log
 set tempfile = /dev/shm/${USER}/suckin_$$_
@@ -30,6 +31,7 @@ foreach arg ( $* )
     if("$key" == "outfile") set outfile = "$Val"
     if("$key" == "output") set outfile = "$Val"
     if("$key" == "doprotein" && "$val" != "") set doprotein = "$Val"
+    if("$key" == "slop" && "$val" != "") set slop = "$Val"
     if("$key" == "notprotein") then
         set doprotein = 0
     endif
@@ -57,6 +59,7 @@ doprotein= $doprotein
 breakbonds= $breakbonds
 bychain= $bychain
 byter= $byter
+slop= $slop
 outfile= $outfile
 
 logfile= $logfile
@@ -84,6 +87,13 @@ else
     cat >> ${tempfile}.pdb
 endif
 
+set test = `egrep "^ATOM|^HETAT" ${tempfile}.pdb | wc -l`
+if( "$test" == "0" ) then
+  echo "nothing to do."
+  cp $pdbfile $outfile
+  goto exit
+endif
+
 coordconv xyzin ${tempfile}.pdb xyzout ${tempfile}.xyz << EOF >> $logfile
 CELL $CELL
 INPUT PDB
@@ -92,13 +102,13 @@ END
 EOF
 
 # rescue long residue numbers
-echo "$doprotein $breakbonds $bychain $byter $?DEBUG" |\
+echo "$doprotein $breakbonds $bychain $byter $slop $?DEBUG" |\
 cat - ${tempfile}.pdb |\
 awk 'NR==1{print;next}\
      /^ATOM|^HETAT/{print ++n,substr($0,23,8)+0,"ORIG"}\
      /^TER/{print "TER",++terchain}' |\
 cat - ${tempfile}.xyz |\
-awk 'NR==1{doprotein=$1;breakbonds=$2;bychain=$3;byter=$4;debug=$NF;next}\
+awk 'NR==1{doprotein=$1;breakbonds=$2;bychain=$3;byter=$4;slop=$5;debug=$NF;next}\
      $NF=="ORIG"{i=$1;resn[i]=$2;tc[i]=terchain+0;next}\
      /^TER/{terchain=$2;next}\
      {++n;atn[n]=$1;x[n]=$2;y[n]=$3;z[n]=$4;B[n]=$5;occ[n]=$6;Z[n]=$7;\
@@ -110,12 +120,12 @@ awk 'NR==1{doprotein=$1;breakbonds=$2;bychain=$3;byter=$4;debug=$NF;next}\
      if(byter)cr=tc[n];\
      if(breakbonds)cr=n;\
      dx=dy=dz=0;\
-     while(x[n]+dx<0)++dx;\
-     while(x[n]+dx>1)--dx;\
-     while(y[n]+dy<0)++dy;\
-     while(y[n]+dy>1)--dy;\
-     while(z[n]+dz<0)++dz;\
-     while(z[n]+dz>1)--dz;\
+     while(x[n]+dx<0-slop)++dx;\
+     while(x[n]+dx>1+slop)--dx;\
+     while(y[n]+dy<0-slop)++dy;\
+     while(y[n]+dy>1+slop)--dy;\
+     while(z[n]+dz<0-slop)++dz;\
+     while(z[n]+dz>1+slop)--dz;\
      if(Z[n]>1)++votes[cr,dx,dy,dz];\
      if(dx==0 && dy==0 && dz==0)votes[cr,dx,dy,dz]+=1e-6;\
      if(debug)print "DEBUG",atom[n],"voting for",cr,dx,dy,dz,"->",votes[cr,dx,dy,dz]}\
@@ -135,6 +145,7 @@ printf("%5d%10.5f%10.5f%10.5f%10.5f%5.2f%5d%10d%-5s%3s %1s\n", \
       resn[i],atom[i],typ[i],chain[i])}}' |\
 tee ${tempfile}new.xyz.raw |\
 egrep -v "^DEBUG" >! ${tempfile}new.xyz
+
 
 coordconv xyzin ${tempfile}new.xyz xyzout ${tempfile}new.pdb << EOF >> $logfile
 CELL $CELL
@@ -158,6 +169,11 @@ awk '$NF=="ORIG"{n=$(NF-1);\
 cat >! $outfile
 
 
+exit:
+if( $?BAD ) then
+  echo "ERROR: $BAD"
+  exit 9
+endif
 
 if($?DEBUG || "$tempfile" == "") exit
 

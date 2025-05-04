@@ -16,6 +16,7 @@ set pdbfile = ""
 set newparm = resized.parm7
 set neworig = new_orignames.pdb
 
+set include_ep = 1
 set make_new_orig = 0
 
 set quiet = 0
@@ -91,6 +92,7 @@ rstfile = $rstfile
 parmfile = $parmfile
 orignames = $orignames
 
+include_ep = $include_ep
 tempfile = $tempfile
 outfile = ${outprefix}.pdb
 EOF
@@ -123,7 +125,10 @@ if( $?BAD && -e "$paddedparm") then
   if( "$rstatoms" == "" ) then
    set rstatoms = `awk '/Error: Number of atoms in /{gsub("[)(]","");print $(NF-2);exit}' ${t}cpptraj_error1.log`
   endif
-  set maxatoms = `echo list | cpptraj -p $paddedparm | awk '$4=="atoms,"{print $3}' | head -n 1`
+  set maxatoms = `awk '/in associated topology/{gsub("[)(]"," ");print $5;exit}' ${t}cpptraj_error1.log`
+  if( "$maxatoms" == "" || "$parmfile" != "$paddedparm" ) then
+    set maxatoms = `echo list | cpptraj -p $paddedparm | awk '$4=="atoms,"{print $3}' | head -n 1`
+  endif
   set stripmask = `echo $rstatoms $maxatoms | awk '{print $1+1"-"$2}'`
   set parmfile = $newparm
   echo "new parmfile: $newparm"
@@ -187,6 +192,16 @@ cat >> ${t}out.pdb
 grep "WARNING" ${t}out.pdb
 if( ! $status ) set MISSING
 
+if( "$Bfactors" =~ [0-9]* ) then
+   echo "setting B factors to $Bfactors"
+   cat ${t}out.pdb |\
+   awk -v B=$Bfactors '! /^ATOM|^HETAT/{print;next}\
+     {pre=substr($0,1,60);post=substr($0,67);\
+      printf("%s%6.2f%s\n",pre,B,post)}' |\
+   cat >! ${t}newB.pdb
+   cp ${t}newB.pdb ${t}out.pdb
+endif
+
 if(-e "$Bfactors" ) then
     echo "applying B factors from $Bfactors"
     egrep "^SSBOND|^LINK|^CISP|^CRYST" $Bfactors >! ${t}Bfac.pdb
@@ -216,6 +231,12 @@ else
     cp ${t}out.pdb ${outprefix}.pdb
 endif
 
+if( ! $include_ep ) then
+  cp ${outprefix}.pdb ${t}withEP.pdb
+  cat ${t}withEP.pdb |\
+  awk 'substr($0,77,2)=="XP"{next} {print}' |\
+  cat >! ${outprefix}.pdb
+endif
 
 if( $?RESIZE || $?MISSING ) then
 echo "suggestions:"

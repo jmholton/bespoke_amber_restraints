@@ -1,0 +1,119 @@
+#! /usr/bin/awk -f
+#
+#   Calculate RMSD of atoms with the same name in several PDB files               -James Holton 11-18-22
+#   use this RMSD to calculate a new B-factor
+#
+#        The PDB feild:
+#           |<--- here -->|
+#ATOM      1  N   ALA A 327      40.574  34.523  43.012  1.00 34.04
+#
+#        is used to determine if two atoms are a "pair"
+#
+BEGIN {
+    if(!scale) scale = 79/3
+    if(!maxB) maxB = 999.99
+    average = 1
+    if(noaverage) average = 0
+    if(! WEIGHT) WEIGHT = 1
+}
+
+/^CRYS/ && ! cp {++cp; print}
+/^SCALE/ || /^REMARK/ {print}
+
+/^WEIGHT/ {
+    # user may insert relative weights in between concatenated files
+    WEIGHT = $2
+}
+
+/^ATOM|^HETAT/{
+    # save everything
+    ++n;
+    atom[n] = $0
+
+    # read in values
+    ID = substr($0,12,15)
+    Occ  = substr($0, 55, 6)+0
+    Bfac = substr($0, 61, 6)+0
+    rest = substr($0, 67)
+    ++count[ID]
+
+    if(count[ID] == 1)
+    {
+        # not initialized yet
+        ++firsts
+        order[firsts]=ID
+        R[firsts]=rest
+    }
+    # establish a weight for each atom
+    weight[ID,count[ID]] = 1
+    if(WEIGHT != "") weight[ID,count[ID]] = WEIGHT
+    if(WEIGHT == "byB" && Bfac) weight[ID,count[ID]] = 1/Bfac
+  
+    X[ID,count[ID]] = substr($0, 31, 8)+0
+    Y[ID,count[ID]] = substr($0, 39, 8)+0
+    Z[ID,count[ID]] = substr($0, 47, 8)+0
+    O[ID,count[ID]] = substr($0, 55, 6)+0
+    B[ID,count[ID]] = substr($0, 61, 6)+0
+    
+
+    meanX[ID] = meanX[ID]+weight[ID,count[ID]]*X[ID,count[ID]]
+    meanY[ID] = meanY[ID]+weight[ID,count[ID]]*Y[ID,count[ID]]
+    meanZ[ID] = meanZ[ID]+weight[ID,count[ID]]*Z[ID,count[ID]]
+    meanO[ID] = meanO[ID]+weight[ID,count[ID]]*O[ID,count[ID]]
+    meanB[ID] = meanB[ID]+weight[ID,count[ID]]*B[ID,count[ID]]
+    
+    norm[ID]  = norm[ID]+weight[ID,count[ID]]
+
+}
+
+
+END{
+    
+    for(ID in count)
+    {
+        # finish positional average
+        meanX[ID] = meanX[ID] / norm[ID];
+        meanY[ID] = meanY[ID] / norm[ID];
+        meanZ[ID] = meanZ[ID] / norm[ID];
+        meanO[ID] = meanO[ID] / norm[ID];
+        meanB[ID] = meanB[ID] / norm[ID];
+        
+        # add upp square deviates
+        for(i=1;i<=count[ID];++i)
+        {
+            rmsd[ID]=rmsd[ID]+weight[ID,i]*(\
+                       (meanX[ID]-X[ID,i])^2 \
+                +(meanY[ID]-Y[ID,i])^2 \
+                +(meanZ[ID]-Z[ID,i])^2)
+        }
+        # finish root-mean-square deviate calculation
+        rmsd[ID]=sqrt( rmsd[ID] / norm[ID] )
+    }
+    
+    if(average)
+    {
+        # print out the "average" pdb
+        for(i=1;i<=firsts;++i)
+        {
+            ID=order[i];
+            rest=R[i]
+            Bfac = scale*rmsd[ID]^2;
+            if(Bfac>maxB) Bfac=maxB
+        
+            # override if averaging of B factors was selected
+            if(averageB) Bfac=meanB[ID]
+
+            printf("ATOM  %5d%14s    %8.3f%8.3f%8.3f%6.2f%6.2f%s%20d\n",i,ID,meanX[ID],meanY[ID],meanZ[ID],meanO[ID],Bfac,rest,count[ID]);        
+        }
+    } else {
+        # print out the same PDB, but with B-factor labels
+        for(i=1;i<=n;++i)
+        {
+            ID=substr(atom[i],12,15)
+            Bfac = scale*rmsd[ID]^2;
+            if(Bfac>maxB) Bfac=maxB
+
+            printf("%s%6.2f%s\n",substr(atom[i],1,60),Bfac,substr(atom[i],67));
+        }
+    }
+}

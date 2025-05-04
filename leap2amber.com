@@ -1,5 +1,5 @@
 #! /bin/tcsh -f
-#                                                                   -James Holton 7-14-24
+#                                                                   -James Holton 3-16-25
 #   Script for standard amber rigamrol given:
 #    leap input file (will be copied and edited by command-line options)
 #    original names PDB
@@ -23,9 +23,11 @@ mkdir -p /dev/shm/${USER}
 mkdir -p ${CCP4_SCR}
 
 set logfile = debuglog.log
-
+set debug = 0
 
 set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+set pmemin = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_DPFP"
+set sander = "srun --partition=xds sander.OMP"
 
 set Stages = ""
 
@@ -49,12 +51,16 @@ set ntpr   = 100 # print out every ntpr
 set ntf    = 1   # 1= no shake ; 2=shake ; 3= no bond energy ; 4= no H angle
 set ntc    = 1   # 1= no shake ; 2=fixed C-H ; 3=fixed bonds 
 
+# reduce step size for some things
+set cool_slowdown = 10
+set heat_slowdown = 4
+set equi_slowdown = 2
+
 # add and then delete dummy waters
 set padwater = 0
 
 # use reduced charges - not supported anymore?
 set redq = 0
-
 
 # allow providing per-atom restraints in format: atom ordinalresid weight
 set restraint_file = ""
@@ -65,6 +71,7 @@ set protons_files = ""
 # defaults for single-line overall restraints
 set restrainedatoms = "@C=,N=,O=,S="
 set restrainedatoms = "! @H= & ! @EP="
+set restrainedatoms = "! @H= & ! @EP= & ! :WAT"
 set restraint_range = "all"
 
 set restraint_mult = 1
@@ -81,6 +88,11 @@ set nsymops = ""
 # simulation temperature target
 set temperature = 287
 set barostat = 1
+
+# extra weight for proper side of barriers
+set chiral_weight = 10
+set omega_weight = 5
+set restrain_omega = 0
 
 echo "command-line arguments: $* "
 
@@ -143,7 +155,7 @@ foreach Arg ( $* )
     if("$key" == "pdbfile") set pdbfile = "$Val"
     if("$key" == "outprefix") set outprefix = "$Val"
     if("$key" == "tempfile") set tempfile = "$Val"
-    if("$key" == "debug") set DEBUG = 1
+    if("$key" == "debug") set debug = 1
 
     if("$key" == "pmemd") set pmemd = "$Val"
     if("$key" == "stages") set Stages = ( $Stages $Csv )
@@ -170,7 +182,7 @@ endif
 # ntb=2,ntp=4             -> pressure regulation to preserve volume
 
 
-if( $?DEBUG ) then
+if( $debug ) then
     set tempfile = tempfile
 endif
 
@@ -183,8 +195,6 @@ Stages = $Stages
 pdbfile = $pdbfile
 refpoints = $refpointspdb
 protons = $protons_files
-
-redq = $redq
 
 outprefix = $outprefix
 tempfile = $tempfile
@@ -225,9 +235,9 @@ endif
 
 # get the disulfides from refmac output
 egrep "^SSBOND" $pdbfile |\
-awk '{print $5,$8}' | sort -u | sort -g >! ${t}disulfides.txt
-
+awk '{print $4,$5,$7,$8}' | sort -u | sort -g >! ${t}disulfides.txt
 set test = `cat ${t}disulfides.txt | wc -l`
+echo "found $test disulfides in $pdbfile" 
 if("$test" == "0") then
     # do something clever?
     echo "looking for S-S bonds..."
@@ -248,6 +258,8 @@ EOF
     sort -u |\
     awk '! seen[$1,$2,$3,$4]{print;++seen[$1,$2,$3,$4];++seen[$3,$4,$1,$2]}' |\
     sort -k2g >! ${t}disulfides.txt
+    set test = `cat ${t}disulfides.txt | wc -l`
+    echo "found $test disulfides with distang" 
 endif
 
 cat ${t}disulfides.txt |\
@@ -314,6 +326,7 @@ source $leaprc
 # reduced charges
 #source leaprc.ff14SB.redq
 source leaprc.water.${watertype}
+set default FlexibleWater on
 EOF
 
 if(-e "$leapfile") then
@@ -348,6 +361,7 @@ EOF
 egrep -v "^END" ${t}renumbered_orig.pdb >! ${t}tleapme.pdb
 if( $padwater > 0 ) then
 
+  echo "padding with $padwater extra waters"
   echo $padwater |\
   awk '{for(i=1;i<=$1;++i){\
     j=i%10000;\
@@ -378,10 +392,14 @@ endif
 touch ${t}new_waters.pdb
 
 
-rm -f ${t}tleaped.rst7 > /dev/null
-#if(! -e leap.log) ln -sf /dev/null leap.log
-echo "running tleap"
-tleap -f ${t}tleap.in $leapinclude >&! ${t}tleap.out 
+if( $debug && -e ${t}tleaped.rst7 && -e ${t}xtal.prmtop ) then
+  echo "WARNING: re-using ${t}tleaped.rst7 and ${t}xtal.prmtop"
+else
+  rm -f ${t}tleaped.rst7 > /dev/null
+  #if(! -e leap.log) ln -sf /dev/null leap.log
+  echo "running tleap"
+  tleap -f ${t}tleap.in $leapinclude >&! ${t}tleap.out 
+endif
 
 # make sure full cell is in there?
 #ChBox -c ${t}tleaped.crd -o ${t}celled.crd -X $CELL[1] -Y $CELL[2] -Z $CELL[3] \
@@ -438,7 +456,7 @@ convert_pdb.awk -v fixEe=1 \
 #awk -v stage=tleaped '{gsub("tleaped",stage);print}' ${t}cpptraj_stage.in |\
 #cpptraj >> $logfile
 #convert_pdb.awk -v renumber=ordinal,w4,watS,chain,chainrestart -v fixEe=1 \
-#  -v append=ordresnum ${t}tleaped.pdb >! ${t}tleaped_labeled.pdb
+#  -v append=ordresnum ${t}tleaped.pdb >! ${t}tleaped_renumbered.pdb
 
 
 echo "mapping original atom labels onto amber coordinates in orignames.pdb"
@@ -588,7 +606,7 @@ cat >> ${t}ref_orignames.pdb
 echo "ref vs start:"
 awk 'substr($0,77,2)!=" H"' ${t}ref_orignames.pdb ${t}start_orignames.pdb |\
   rmsd | grep -v Bfac
-convert_pdb.awk -v dedupe=0 -v only=protein -v skip=H ${t}ref_orignames.pdb ${t}start_orignames.pdb |\
+filter_pdb.awk -v only=protein -v skip=H ${t}ref_orignames.pdb ${t}start_orignames.pdb |\
     rmsd | awk '/MAXD.all/{print $0,"protein"}'
 
 
@@ -610,7 +628,7 @@ set all_range = `echo $ranges | awk '{gsub(" ",",");print}' `
 
 # residue number of last protein atom    
 egrep "^ATOM|^HETAT" ${t}start_orignames.pdb |\
- convert_pdb.awk -v only=protein,atoms |\
+ filter_pdb.awk -v only=protein,atoms |\
  awk '/^ATOM|^HETAT/{print $NF}' | sort -u | sort -g |\
  awk 'NR==1{s=e=$1;next} $1==e+1{e=$1;next} {print s"-"e;s=e=$1} END{print s"-"e}' |\
  sort -u | sort -g >! ${t}ranges.txt 
@@ -656,6 +674,20 @@ endif
 # set up restraints
 if(! -e "$restraint_file") then
     echo "using single restraint weight of $restraint_wt on $restrainedatoms atoms in residues $restraint_range"
+    set align_mask = ":${restraint_range}${restrainedatoms}"
+else
+    echo "building alignment mask..."
+    awk '/^ATOM|^HETAT/{print $0,++n}' ${t}start_orignames.pdb >! ${t}atomnums.pdb
+    combine_pdbs_runme.com $restraint_file ${t}atomnums.pdb savesuff=1 outfile=${t}new.pdb >> /dev/null
+    awk '/^ATOM|^HETAT/{print $NF}' ${t}new.pdb >! alignment_atnums.txt
+    cat alignment_atnums.txt |\
+    awk 'NR==1{s=e=$1;next}\
+          $1==e+1{e=$1;next} \
+          {print s"-"e;s=e=$1}\
+          END{print s"-"e}' |\
+    awk -F "-" '$1==$2{print $1;next} {print}' >! align_ranges.txt 
+    set align_ranges = `cat align_ranges.txt `
+    set align_mask = `echo $align_ranges | awk '{gsub(" ",",");print "@" $0}'`
 endif
 
 
@@ -667,6 +699,9 @@ set ntwr      = `echo 0.2 $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
 set ntwr      = 1
 set ntpr      = `echo $timesteps 100 $ntwr 100 | awk '{ts=int($1/$2);nt=int($3/$4)} nt<ts{ts=nt} {print ts}'`
 set ntpr = 1
+
+if( $debug ) set ntwr = $ntpr
+if( $debug ) set ntwx = $ntwr
 
 cat << EOF >! ${t}Cpu.in
 Minimize
@@ -682,7 +717,7 @@ Minimize
   ntpr=${ntpr},
   ntwr=${ntwr},
   ntwx=0,
-  nsnb=1,
+  !nsnb=1,
   ntr=1,
   restraintmask=':${restraint_range}${restrainedatoms}',
   restraint_wt=${restraint_wt},
@@ -692,9 +727,13 @@ EOF
 
 
 set timesteps = `echo $min_ns $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+#set timesteps = 100
 set ntwr      = `echo $timesteps 10 | awk '{print int($1/$2+1)}'`
 set ntpr      = `echo $timesteps 100 $ntwr 100 | awk '{ts=int($1/$2);nt=int($3/$4)} nt<ts{ts=nt} {print ts}'`
 set ntpr = 10
+
+if( $debug ) set ntwr = $ntpr
+if( $debug ) set ntwx = $ntwr
 
 cat << EOF >! ${t}Min.in
 Minimize
@@ -717,11 +756,15 @@ EOF
 
 
 
-set timesteps = `echo $cool_ns $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
-set ntwr      = `echo 0.002 $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
-set sdt       = `echo $dt 10 | awk '{print $1/$2}'`
+set sdt       = `echo $dt $cool_slowdown | awk '{print $1/$2}'`
+set timesteps = `echo $cool_ns $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+set ntwr      = `echo 0.002 $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
 set ntpr      = `echo $timesteps 10 $ntwr 10 | awk '{ts=int($1/$2);nt=int($3/$4)} nt<ts{ts=nt} {print ts}'`
 set ntpr = 10
+
+set ntwx = 0
+if( $debug ) set ntwr = $ntpr
+if( $debug ) set ntwx = $ntwr
 
 cat << EOF >! ${t}Cool.in
 Cool
@@ -736,35 +779,40 @@ Cool
   tempi=0.0,
   temp0=0.0,
   ntpr=${ntpr},
-  ntwx=0,
+  ntwx=${ntwx},
   ntwr=${ntwr},
   cut=$cut,
   ${ntb},
-  !taup=99999999999,
+  !ntb=2,ntp=1,taup=99999999999,
   ntt=3,
-  gamma_ln=100.0,
+  gamma_ln=10.0,
+  !ntt=2,vrand=${ntpr},
   nmropt=1,
-  nsnb=1,
+  !nsnb=1,
   ig=-1,
-  ntr=1,
   restraintmask=':${restraint_range}${restrainedatoms}',
   restraint_wt=${restraint_wt},
- /
-&wt type='TEMP0', istep1=0, istep2=${timesteps}, value1=0.0, value2=0.0 /
+  ntr=1 /
+&wt type='TEMP0', istep1=0, istep2=${timesteps}, value1=0.0, value2=1.0 /
 &wt type='END' /
 EOF
 
 
 
 
-set timesteps = `echo $heat_ns $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+set sdt       = `echo $dt $heat_slowdown | awk '{print $1/$2}'`
+set timesteps = `echo $heat_ns $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
 set tenth     = ( $timesteps / 10 )
-set ntwr      = `echo 0.02 $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+set ntwr      = `echo 0.02 $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
 set ntpr      = `echo $timesteps 100 $ntwr 100 | awk '{ts=int($1/$2);nt=int($3/$4)} nt<ts{ts=nt} {print ts}'`
 @ step2     = ( $tenth )
 @ step3     = ( $step2 + 1 )
 @ step4     = ( $timesteps - $tenth )
 @ step5     = ( $step4 + 1 )
+
+set ntwx = 0
+if( $debug ) set ntwr = $ntpr
+if( $debug ) set ntwx = $ntwr
 
 cat << EOF >! ${t}Heat.in
 Heat
@@ -773,36 +821,81 @@ Heat
   ntx=5,
   irest=0,
   nstlim=${timesteps},
-  dt=$dt,
+  dt=$sdt,
   ntf=2,
   ntc=2,
   tempi=0.0,
   temp0=${temperature},
   ntpr=${ntpr},
-  ntwx=0,
+  ntwx=${ntwx},
   ntwr=${ntwr},
   cut=$cut,
   ${ntb},
-  !taup=99999999999,
+  !ntb=2,ntp=1,taup=99999999999,
   ntt=3,
   gamma_ln=2.0,
-  nmropt=1,
+  !ntt=2,vrand=10,
   ig=-1,
+  nmropt=1,
   ntr=1,
   restraintmask=':${restraint_range}${restrainedatoms}',
   restraint_wt=${restraint_wt},
- /
-&wt type='TEMP0', istep1=0, istep2=${step2}, value1=0.0, value2=1.0 /
-&wt type='TEMP0', istep1=${step3}, istep2=${step4}, value1=1.0, value2=${temperature} /
+  /
+&wt type='TEMP0', istep1=0, istep2=${step2}, value1=1.0, value2=10.0 /
+&wt type='TEMP0', istep1=${step3}, istep2=${step4}, value1=10.0, value2=${temperature} /
 &wt type='TEMP0', istep1=${step5}, istep2=${timesteps}, value1=${temperature}, value2=${temperature} /
 &wt type='END' /
 EOF
 
 
-set timesteps = `echo $equi_ns $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
-set ntwx      = `echo $timesteps  10 | awk '{print int($1/$2)}'`
-set ntwr      = `echo 0.2 $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+# REMEMBER: DISANG must come after &wt
+cat << EOF >! HeatOmega.in
+Heat
+ &cntrl
+  imin=0,
+  ntx=5,
+  irest=0,
+  nstlim=${timesteps},
+  dt=$sdt,
+  ntf=2,
+  ntc=2,
+  tempi=0.0,
+  temp0=0.0,
+  ntpr=${ntpr},
+  ntwx=${ntwx},
+  ntwr=${ntwr},
+  cut=$cut,
+  ${ntb},
+  !ntb=2,ntp=1,taup=99999999999,
+  ntt=3,
+  gamma_ln=2.0,
+  !ntt=2,vrand=10,
+  ig=-1,
+  nmropt=1,
+  ntr=1,
+  restraintmask=':${restraint_range}${restrainedatoms}',
+  restraint_wt=${restraint_wt},
+  /
+&wt type='TEMP0', istep1=0, istep2=${step2}, value1=1.0, value2=10.0 /
+&wt type='TEMP0', istep1=${step3}, istep2=${step4}, value1=10.0, value2=${temperature} /
+&wt type='TEMP0', istep1=${step5}, istep2=${timesteps}, value1=${temperature}, value2=${temperature} /
+&wt type='END' /
+DISANG=chir_omega.rst
+ &dummy  i=1, 
+ /
+EOF
+
+
+
+set sdt       = `echo $dt $equi_slowdown | awk '{print $1/$2}'`
+set timesteps = `echo $equi_ns $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+#set ntwx      = `echo $timesteps  10 | awk '{print int($1/$2)}'`
+set ntwx      = `echo 0.02 $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+set ntwr      = `echo 0.02 $sdt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
 set ntpr      = `echo $timesteps 10 $ntwr 10 | awk '{ts=int($1/$2);nt=int($3/$4)} nt<ts{ts=nt} {print ts}'`
+
+set ntpr = `echo $ntwx $ntpr | awk '$2>$1{$2=$1} {print $2}'`
+set ntpr = `echo $ntwr $ntpr | awk '$2>$1{$2=$1} {print $2}'`
 
 cat << EOF >! ${t}Equi.in
 Equilibrate
@@ -811,7 +904,7 @@ Equilibrate
   ntx=5,
   irest=1,
   nstlim=${timesteps},
-  dt=$dt,
+  dt=$sdt,
   ntf=2,
   ntc=2,
   temp0=${temperature},
@@ -829,9 +922,47 @@ Equilibrate
  /
 EOF
 
+
+set half     = ( $timesteps / 2 )
+
+# this does not seem to work, weights dont change
+cat << EOF >! Invert.in
+Fix wrong chiral and omega
+ &cntrl
+  imin=0,
+  ntx=5,
+  irest=1,
+  nstlim=${timesteps},
+  dt=0.0001,
+  ntf=2,
+  ntc=2,
+  temp0=${temperature},
+  ntpr=${ntpr},
+  ntwx=${ntwx},
+  ntwr=${ntwr},
+  cut=$cut,
+  ${ntb},
+  ntt=3,
+  gamma_ln=${gamma_ln},
+  ig=-1,
+  restraintmask=':${restraint_range}${restrainedatoms}',
+  restraint_wt=${restraint_wt},
+  nmropt=1,
+  ntr=1 /
+&wt type='REST', istep1=0, istep2=${half}, value1=0.0, value2=1.0 /
+&wt type='REST', istep1=${half}, istep2=${timesteps}, value1=1.0, value2=0 /
+&wt type='END' /
+DISANG=chir_omega.rst
+ &dummy  i=1, 
+ /
+EOF
+
 set timesteps = `echo $prod_ns $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
-set ntwx      = `echo 0.2 $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
-set ntpr      = `echo $timesteps 10 $ntwx | awk '{ts=int($1/$2)} $3<ts{ts=$3} {print ts}'`
+set ntwx      = `echo 0.02 $dt | awk '{print int(($1*1e-9)/($2*1e-12))}'`
+set ntpr      = `echo $timesteps 10 | awk '{ts=int($1/$2)} {print ts}'`
+
+set ntpr = `echo $ntwx $ntpr | awk '$2>$1{$2=$1} {print $2}'`
+set ntpr = `echo $ntwr $ntpr | awk '$2>$1{$2=$1} {print $2}'`
 
 cat << EOF >! ${t}Prod.in
 Production
@@ -860,6 +991,57 @@ EOF
 
 
 
+echo "making chirality and peptide omega restraints"
+echo | cpptraj -p ${t}xtal.prmtop -y ${t}start.rst7 -x ${t}cpptraj.pdb >> $logfile
+
+convert_pdb.awk -v renumber=ordinal,w8 -v CHAIN=" " -v only=protein,atoms ${t}cpptraj.pdb |\
+  awk '{post=substr($0,12);\
+  printf("ATOM %76d%s\n",++n,post)}' >! ${t}makeCR.pdb
+
+makeCHIR_RST ${t}makeCR.pdb chir_omega0.rst
+
+echo "adjusting chiral/omega weights in chir_omega.rst : $chiral_weight $omega_weight"
+echo $chiral_weight $omega_weight |\
+cat - chir_omega0.rst |\
+awk 'NR==1{cw=$1;ow=$2;next}\
+  /chirality/{type="chiral"}\
+  /trans-omega/{type="omega"}\
+  ! / rk2 /{print;next}\
+  type=="chiral"{print "   r1=50., r2=60.,  r3=80.,  r4=90., rk2 ="cw", rk3="cw",  &end"}\
+  type=="omega" {print "   r1=134., r2=135., r3=225., r4=226., rk2 ="ow", rk3="ow",  &end"}' |\
+cat >! chir_omega.rst
+
+cat << EOF >! omegafix_stub.in
+  nmropt=1, /
+ &wt type='END'  /
+DISANG=chir_omega.rst
+ &dummy  i=1, 
+EOF
+
+if ( $restrain_omega ) then
+  echo "applying chiral and omega restraints in chir_omega.rst"
+  foreach Stage ( Cpu Min Cool Heat Equi )
+    echo -n "$Stage  "
+    cp ${t}${Stage}.in ${t}${Stage}_old.in
+    set hasnmr = `grep ' nmropt=1' ${t}${Stage}.in | wc -l`
+    if( ! $hasnmr ) then
+      echo "adding nmropt=1"
+      cat ${t}${Stage}.in |\
+      awk '{print} /gamma_ln=/{print "  nmropt=1,"}' |\
+      cat >! ${t}.in
+      mv ${t}.in ${t}${Stage}.in 
+    endif
+    cat ${t}${Stage}.in >! ${t}.in
+    set haswt = `egrep '^&wt ' ${t}${Stage}.in | wc -l`
+    if( ! $haswt ) then
+      grep "wt type" omegafix_stub.in >> ${t}.in
+    endif
+    egrep "DISA|dummy" omegafix_stub.in >> ${t}.in
+    echo '  /' >> ${t}.in
+#xxdiff ${t}${Stage}_old.in ${t}.in
+    mv ${t}.in ${t}${Stage}.in
+  end
+endif
 
 if(-e "$restraint_file") then
  echo "applying $restraint_mult x $pdbscale x restraints from $restraint_file"
@@ -897,7 +1079,7 @@ minimize:
 set laStage = start
 foreach Stage ( $Stages )
 
-  if("$Stage" =~ *Min && "$Stage" != "Min") then
+  if("$Stage" =~ *Min* && "$Stage" != "Min") then
       echo "copying Min.in -> ${Stage}.in"
      cp ${t}Min.in ${t}${Stage}.in
   endif
@@ -910,7 +1092,10 @@ foreach Stage ( $Stages )
   endif
 
   set pmemdx = "$pmemd"
-  if("$Stage" == "Cpu" ) set pmemdx = sander
+  if("$Stage" == "Heat" ) set pmemdx = "$pmemin"
+  if("$Stage" == "Cool" ) set pmemdx = "$pmemin"
+  if("$Stage" == "Min" ) set pmemdx = "$pmemin"
+  if("$Stage" == "Cpu" ) set pmemdx = "$sander"
 try2:
   echo "running $laStage -> $Stage"
   rm -f ${t}${Stage}.rst7
@@ -923,10 +1108,21 @@ try2:
    -inf ${t}${Stage}.mdinfo
 
   if(! -e ${t}${Stage}.rst7 ) then
-      echo "did that not work? ..."
+      echo "rst7 file missing, did that not work? ..."
       ls -lrt ${t}* > /dev/null
       ls -l ${t}${Stage}.rst7
       if(-e ${t}${Stage}.rst7 ) then
+          echo "oh, yes it did."
+      endif
+  endif
+  echo list | cpptraj -p ${t}xtal.prmtop -y ${t}${Stage}.rst7 >&! check1.log
+  if( $status ) then
+      echo "rst7 file unreadable, did that not work? ..."
+      ls -lrt ${t}* > /dev/null
+      ls -l ${t}${Stage}.rst7
+      cat ${t}${Stage}.rst7 > /dev/null
+      echo list | cpptraj -p ${t}xtal.prmtop -y ${t}${Stage}.rst7 >&! check2.log
+      if( ! $status ) then
           echo "oh, yes it did."
       endif
   endif
@@ -954,6 +1150,32 @@ try2:
   
   if(-e ${t}${Stage}.rst7) then
 
+    # now quick check of geometry
+    rm -f chircheck.txt geocheck.txt omega.txt
+    cpptraj -p ${t}xtal.prmtop -y ${t}${Stage}.rst7 << EOF >&! checks.log
+    checkchirality chir out chircheck.txt
+    strip @EPW
+    check reportfile geocheck.txt
+    multidihedral omega omega out omega.txt range360
+EOF
+    set ninv = `awk '$2!=1 && $1+0>0' chircheck.txt | wc -l`
+    set worstomega = `tail -n 1 omega.txt | awk '{for(i=2;i<=NF;++i)print int(sqrt(($i-180)^2))}' | sort -gr | head -n 1`
+    set ncis = `tail -n 1 omega.txt | awk '{for(i=2;i<=NF;++i)if(sqrt(($i-180)^2)>90) print i}' | wc -l`
+    set geoproblems = `cat geocheck.txt | wc -l`
+    echo "$ninv inverted chiral centers, $ncis cis peptides ( $worstomega deg) and $geoproblems geometry problems"
+
+    echo "removing any rigid-body motion"
+    rm -f rmsd.txt vecsout.txt >& /dev/null
+    cpptraj -p xtal.prmtop -y ${t}${Stage}.rst7 -c ${t}ref.crd << EOF >! align_${Stage}.log
+    rmsd rmsd reference norotate $align_mask out rmsd.txt savevectors combined vecsout vecsout.txt
+    trajout aligned.rst7
+EOF
+    cat rmsd.txt vecsout.txt >> align_${Stage}.log
+    set drift = `tail -n 1 vecsout.txt | awk '{print sqrt($2*$2+$3*$3+$4*$4)}'`
+    cp aligned.rst7 ${t}${Stage}.rst7
+    echo "removed $drift A shift"
+
+
     awk -v stage=${Stage} '{gsub("tleaped",stage);print}' ${t}cpptraj_stage.in |\
     cpptraj >> $logfile
 
@@ -969,8 +1191,33 @@ try2:
 
     awk 'substr($0,77,2)!~/ H|XP/' ${t}${laStage}_orignames.pdb ${t}${Stage}_orignames.pdb |\
      rmsd | grep -v Bfac
-    convert_pdb.awk -v dedupe=0 -v only=protein -v skip=H ${t}${laStage}_orignames.pdb ${t}${Stage}_orignames.pdb |\
+    filter_pdb.awk -v only=protein -v skip=H ${t}${laStage}_orignames.pdb ${t}${Stage}_orignames.pdb |\
        rmsd | awk '/MAXD.all/{print $0,"protein"}'
+
+    gemmi contact -d 1.2 --sort ${t}${Stage}_orignames.pdb >! ${t}bad_contacts.txt
+    set test = `cat ${t}bad_contacts.txt | wc -l`
+    echo "$test non-bond contacts < 1.2A"
+    if( $test > 0 && $Stage != Cpu ) then
+       set badclash = `head -n 1 ${t}bad_contacts.txt`
+       set BAD = "bad clash: $badclash"
+       goto exit
+    endif
+
+    filter_pdb.awk -v only=protein ${t}${Stage}_orignames.pdb >! ${t}geotest.pdb
+    gemmi rmsz --cutoff=6 ${t}geotest.pdb >! ${t}bad_geo.txt
+    set badomegas = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | wc -l`
+    #echo "$badomegas peptide omega outliers"
+    set wrongomegas = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | awk -F "=" '$2>(90./5)'| wc -l`
+    set worstomega = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | head -n 1`
+    echo "$badomegas peptide omega outliers ($worstomega)"
+    set wrongchiral = `awk '/wrong chirality:/{print $3}' ${t}bad_geo.txt`
+    if("$wrongchiral" == "") set wrongchiral = "unknown"
+    echo "$wrongchiral inverted chirals"
+    if( "$wrongomegas" != "0" || "$wrongchiral" != "0" ) then
+       set badgeo = `egrep "torsion CA-C-N-CA:|chiral" ${t}bad_geo.txt | head -n 1`
+       set BAD = "bad geometry: $badgeo"
+       goto exit
+    endif
 
 #    wrap_into_cell.com ${t}${Stage}_orignames.pdb outfile=${t}wrapped.pdb >> $logfile
     convert_pdb.awk \
@@ -1001,12 +1248,12 @@ try2:
       {++n;a=substr($0,1,13);gsub("[^0-9]","",a)}\
       a==bad || n==bad{print;exit}'
 
-  convert_pdb.awk -v only=water -v skip=H -v dedupe=0 \
+  filter_pdb.awk -v only=water -v skip=H \
      ${outprefix}${laStage}_orignames.pdb ${outprefix}${Stage}_orignames.pdb |\
    rmsd -v debug=1 |\
    awk '/moved/{print substr($0,11,1),substr($0,12,4)+0,substr($0,25,10)}' |\
    cat >! ${outprefix}${Stage}_water_wander.txt
-  convert_pdb.awk -v only=protein -v dedupe=0 -v skip=H \
+  filter_pdb.awk -v only=protein -v skip=H \
      ${outprefix}${laStage}_orignames.pdb ${outprefix}${Stage}_orignames.pdb |\
   rmsd -v debug=1 |\
   awk '/moved/{dx=substr($0,25,10);\
@@ -1028,14 +1275,14 @@ end
 
 # make the solvent map?
 if(-e ${outprefix}Prod.nc && $?didProd ) then
-    solmapme2.com ${outprefix}Prod.nc
+#    solmapme2.com ${outprefix}Prod.nc
 endif
 
 exit:
 
 if("$tempfile" == "") set  tempfile = "./"
 set tempdir = `dirname $tempfile`
-if(! $?DEBUG && ! ( "$tempdir" == "." || "$tempdir" == "" ) ) then
+if(! $debug && ! ( "$tempdir" == "." || "$tempdir" == "" ) ) then
     rm -f ${tempfile}*
 endif
 

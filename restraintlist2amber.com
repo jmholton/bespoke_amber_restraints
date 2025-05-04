@@ -11,22 +11,24 @@ set tempfile = /dev/shm/${USER}/temp_r2a$$_
 mkdir -p /dev/shm/${USER}
 
 set logfile = debuglog.log
-
+set quiet = 0
 
 set infile = msander.in
 set suffixfile = restraint_suffix.in
 set outfile = new.in
-set restraint_list = all_restraint_weights.txt
+set restraint_list = current_restraints.pdb
 set out_restraint_list = current_restraints.txt
 set orignames  = ""
 set scale = 1
 set pdbscale = 0.01
 set minwt = 1e-6
 set allatom_weight = 0
+set unrest = toolow
 set binthresh = 1.1
+set pdbout = actual_restraints.pdb
+set refcrd = ref.crd
 
-
-echo "command-line arguments: $* "
+if(! $quiet) echo "command-line arguments: $* "
 
 foreach Arg ( $* )
     set arg = `echo $Arg | awk '{print tolower($0)}'`
@@ -48,6 +50,7 @@ foreach Arg ( $* )
       if("$key" == "infile") set infile = "$Val"
       if("$key" == "list") set restraint_list = "$Val"
       if("$key" == "scale") set scale = "$Val"
+      if("$key" == "pdb_scale") set pdbscale = "$Val"
       if("$key" == "restraint_minwt") set minwt = "$Val"
       if("$key" == "thresh") set binthresh = "$Val"
     else
@@ -63,9 +66,11 @@ if( $?debug ) then
 endif
 touch $logfile
 
+if(! $quiet) then
 cat << EOF
 list       $restraint_list
 infile     $infile
+pdbscale   $pdbscale
 binthresh  $binthresh
 scale      $scale
 minwt      $minwt
@@ -77,6 +82,7 @@ suffixfile $suffixfile
 tempfile   $tempfile
 debug      $?debug
 EOF
+endif
 
 set t = "$tempfile"
 
@@ -107,11 +113,20 @@ if("$restraint_list" =~ *.pdb) then
   convert_pdb.awk -v append=ordresnum -v skip=H |\
   cat >! ${t}ordresnum.pdb
 
+  # filter out too-small weights
+  set minB = `echo $minwt $pdbscale | awk '{print $1/$2}'`
+  echo "filtering out restraint atoms with B < $minB"
+  echo $minB | cat - $restraint_list |\
+  awk 'NR==1{minB=$1;next} ! /^ATOM|^HETAT/{print;next}\
+    {B=substr($0,61,6)+0}\
+    B>=minB{print}' |\
+  cat >! ${t}restraint_list.pdb 
+
   # combine partial-list B factors with ordinal residue numbers as new partial list
   # extracts only atom IDs named in refpointspdb
   echo "extracting atoms named in $restraint_list"
   combine_pdbs_runme.com saveBfac=1 ${t}ordresnum.pdb \
-     $restraint_list outfile=${t}restme.pdb >> $logfile
+     ${t}restraint_list.pdb outfile=${t}restme.pdb >> $logfile
 
   echo "using $pdbscale x B factors in $restraint_list as restraint weights"
   # use B factors in reference points PDB as restraint weights
@@ -123,9 +138,17 @@ if("$restraint_list" =~ *.pdb) then
 
   touch ${t}allother.txt
   if ( "$allatom_weight" != "0" ) then
-    echo "extracting every non-H atom not mentioned in restraint list"
-    combine_pdbs_runme.com xor=1 $restraint_list ${t}ordresnum.pdb \
-      outfile=${t}unrestrained.pdb >> $logfile
+    if( "$unrest" == "toolow" ) then
+      echo "extracting every non-H atom that would not otherwise be restrained"
+      # all non-H atoms will be given at least allatom_weight 
+      combine_pdbs_runme.com xor=1 ${t}restme.pdb ${t}ordresnum.pdb \
+        outfile=${t}unrestrained.pdb >> $logfile
+    else
+      echo "extracting all non-H atoms not mentioned in $restraint_list"
+      # atoms given a weight less than minwt will not be restrained
+      combine_pdbs_runme.com xor=1 $restraint_list ${t}ordresnum.pdb \
+        outfile=${t}unrestrained.pdb >> $logfile 
+    endif
     cat ${t}unrestrained.pdb |\
     awk '/^ATOM|^HETAT/{\
       print substr($0,12,5),$NF,substr($0,18,5),substr($0,23,8),"w"}' |\
@@ -145,6 +168,7 @@ generate:
 # allow variable number of columns, last one is the weight
 set NF = `awk '{print NF;exit}' $restraint_list`
 
+echo "applying overall scale: $scale"
 echo $scale $minwt |\
 cat - $restraint_list |\
 awk 'NR==1{scale=$1;minwt=$2;next}\
@@ -238,6 +262,8 @@ end
 echo "END" >> "$suffixfile"
 
 echo "amber restraints written to $suffixfile"
+
+# now convert it back to a pdb?  need ref.crd
 
 if( -e "$infile" && $outfile != "" ) then
 #     / ntr=1,/ && allatom_weight!=0{\

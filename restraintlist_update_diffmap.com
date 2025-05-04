@@ -100,8 +100,14 @@ set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc 
 if ( $test ) then
   echo "using slurm"
   set srun = "srun -w $thishost"
-  set test = `echo $tempfile | awk '{print ( ! /\/dev\/shm/ )}'`
-  if( $test ) then
+  set trajdir = `echo ${trajectory} | awk '{gsub("/$","");print}'`
+  set trajdir = `ls -ld ${trajdir} | awk '{print $NF}'`
+  if( "$trajdir" != "" && -e "$trajdir" ) then
+    echo "actual trajectory: $trajdir"
+    set trajtest = `echo $trajdir | awk '{print ( ! /\/dev\/shm/ )}'`
+  endif
+  set temptest = `echo $tempfile | awk '{print ( ! /\/dev\/shm/ )}'`
+  if( $trajtest && $temptest ) then
     echo "full cluster"
     set srun = "srun"
   endif
@@ -279,7 +285,7 @@ awk '! /^ATOM|^HETAT/{next}\
 cat << EOF >! ${t}job.csh
 #! /bin/tcsh -f
 set n = "\$1"
-set t = ${t}_\$\$_
+set t = ${t}_\$\$_\${n}_
 set pdb = ${trajectory}/md.\${n}.pdb
 awk '{print \$NF}' ${t}hasref_atomnums.pdb |\
     cat - \$pdb |\
@@ -292,7 +298,8 @@ awk '{print \$NF}' ${t}hasref_atomnums.pdb |\
 EOF
 chmod a+x ${t}job.csh
 
-foreach pdb ( ${trajectory}/md.*.pdb )
+set pdbs = ( ${trajectory}/md.*.pdb )
+foreach pdb ( $pdbs )
     set n = `echo $pdb | awk -F "." '{print $2}'`
     echo "peek $pdb"
     $srun ${t}job.csh $n >! ${t}peek_${n}.txt &
@@ -303,11 +310,23 @@ foreach pdb ( ${trajectory}/md.*.pdb )
     endif
 end
 wait
+# check that they worked
+
 echo "averaging results"
 cat ${t}peek_*.txt |\
 awk '{sum[$1]+=$2;++count[$1]}\
   END{max=$1;for(n=1;n<=max;++n)if(count[n])print n,sum[n]/count[n],count[n],"FOFCxyz"}' |\
 cat >! ${t}fofc_xyz.txt
+
+set test = `awk '{print $3}' ${t}fofc_xyz.txt | sort -u`
+if( $#test != 1 ) then
+  set BAD = "non-equal xyz peek counts"
+  goto exit
+endif
+if( $test != $#pdbs ) then
+  set BAD = "non-equal peek and pdb counts do not match"
+  goto exit
+endif
 
 skiptraj:
 

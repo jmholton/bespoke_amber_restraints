@@ -3,22 +3,71 @@
 # phased sum of a stack of MTZ files
 #
 #
-set mtzs = ( $* )
+set mtzs = ( )
 
+set tempdir = /dev/shm/${USER}/temp_$$_mtzsum/
 set outfile = sum.mtz
 
-# cannot migrate hosts because of temp files
+set srun = "auto"
 set thishost = `hostname -s`
-set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | wc -l`
-if ( $test ) then
-  echo "using slurm"
-  set srun = "srun -w $thishost"
-else
-  set srun = ""
+set CPUs = `grep proc /proc/cpuinfo | wc -l | awk '{print int($1/4)}'`
+if( "$CPUs" == "" ) set CPUs = 1
+
+# read the command line to update variables and other settings
+foreach Arg ( $* )
+#    set arg = `echo $Arg | awk '{print tolower($0)}'`
+    set assign = `echo $Arg | awk '{print ( /=/ )}'`
+    set Key = `echo $Arg | awk -F "=" '{print $1}'`
+    set Val = `echo $Arg | awk '{print substr($0,index($0,"=")+1)}'`
+#    set Csv = `echo $Val | awk 'BEGIN{RS=","} {print}'`
+#    set key = `echo $Key | awk '{print tolower($1)}'`
+#    set num = `echo $Val | awk '{print $1+0}'`
+#    set int = `echo $Val | awk '{print int($1+0)}'`
+
+    if( $assign ) then
+      # re-set any existing variables
+      set test = `set | awk -F "\t" '{print $1}' | egrep "^${Key}"'$' | wc -l`
+      if ( $test ) then
+          set $Key = $Val
+          echo "$Key = $Val"
+          continue
+      endif
+      # synonyms
+    else
+      # no equal sign
+      if("$Arg" =~ *.mtz ) set mtzs = ( $mtzs $Arg )
+    endif
+    if("$Key" == "debug") set debug = "1"
+end
+
+
+# cannot migrate hosts because of temp files
+if( "$srun" == "auto" ) then
+  set thishost = `hostname -s`
+  set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
+  if ( $test ) then
+    # we have slurm
+    set CPUs = 1000
+    if( "$tempdir" =~ /dev/shm/*  ) then
+      echo "using slurm on local node"
+      set srun = "srun -w $thishost"
+    else
+      echo "using slurm on cluster"
+      set srun = "srun"
+    endif
+  else
+    set srun = ""
+  endif
 endif
 
-set t = /dev/shm/jamesh/temp_$$_mtzsum/
+# shorthand for temp stuff
+set t = $tempdir
 mkdir -p ${t}
+if( ! -w "${t}" ) then
+  set BAD = "cannot write to temp directory: $t"
+  goto exit
+endif
+
 
 cat << EOF >! ${t}mergemtz.csh
 #! /bin/tcsh -f
@@ -71,6 +120,12 @@ EOF
     unset done
     echo "$mtz1 + $mtz2 = $newmtz"
     $srun ${t}mergemtz.csh $mtz1 $mtz2 $newmtz >&! ${t}/merge.${a}-${b}.log &
+    if( "$srun" == "" ) then
+      if( ! $?n ) set n = 0
+      @ n = ( $n + 1 )
+      @ m = ( $n % $CPUs )
+      if( $m == 0 ) wait
+    endif
   endif
   set nextmtzs = ( $nextmtzs $newmtz )
   @ i = ( $i + 2 )
@@ -84,6 +139,7 @@ if( $#mtzs != 1 ) then
   goto exit
 endif
 
+# should now be one file
 cp $mtzs $outfile
 ls -l $outfile
 

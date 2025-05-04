@@ -398,7 +398,7 @@ echo "..."
 egrep -v DEBUG  ${t}unique_selections.txt | tail -n 3
 
 
-set Zns = `grep ZN $pdbfile | egrep "^ATOM|^HETAT" | wc -l`
+set Zns = `grep ZN $pdbfile | egrep "^ATOM|^HETAT" | awk '{typ=substr($0,18,3);gsub(typ," ","")} typ=="ZN"' | wc -l`
 if( $Zns ) then
   echo "$Zns Zn atoms in $pdbfile"
   set Zns = `grep ZN ${t}unique_selections.txt | wc -l`
