@@ -1,6 +1,6 @@
 #! /bin/tcsh -f
 #
-#	report "sigma" values of atoms in a map
+#	report "rho" values of atoms in a map     - James Holton 9-3-25
 #
 #
 
@@ -81,6 +81,9 @@ if("$test" == "0") then
         phenix.map_to_structure_factors ${tempfile}P1.map \
            d_min=0.5 b_blur=0 scale_max=None \
            output_file_name=${tempfile}test.mtz >>& ${tempfile}phenix.log
+        cad hklin1 ${tempfile}test.mtz hklout ${tempfile}onecol.mtz << EOF >>& ${tempfile}cad.log
+        labin file 1 E1=F E2=PHI
+EOF
         phenix.map_value_at_point ${tempfile}test.mtz ${tempfile}_probe.pdb \
           label=F scale=volume |\
         tee -a ${tempfile}phenix.log |\
