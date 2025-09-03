@@ -13,7 +13,7 @@ rm -f chircheck.txt geocheck.txt omega.txt
 cpptraj -p xtal.prmtop << EOF >&! checks.log
 trajin $rstfile lastframe
 checkchirality chir out chircheck.txt
-strip @EPW
+strip :WAT,HOH@Y1,EPW
 check reportfile geocheck.txt
 multidihedral omega omega out omegaline.txt range360
 EOF
