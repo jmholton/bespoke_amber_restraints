@@ -1,0 +1,118 @@
+#! /bin/tcsh -f
+#
+#	report "sigma" values of atoms in a map
+#
+#
+
+
+set MAPMAN =  /programs/rave/lx_mapman
+if(! -e "$MAPMAN") set MAPMAN = mapman
+
+set pdbfile = ""
+set mapfile = fofc.map
+
+set tempfile = /dev/shm/tempfile$$_
+
+foreach arg ( $* )
+    if("$arg" =~ *.pdb) set pdbfile = "$arg"
+    if("$arg" =~ *.map) set mapfile = "$arg"
+    if("$arg" =~ tempfile=*) then
+        set tempfile = `echo "$arg" | awk -F "=" '{print $2}'`
+        setenv DEBUG
+    endif
+end
+
+if(! -e "$pdbfile" || ! -e "$mapfile") then
+    cat << EOF
+usage: $0 atoms.pdb density.map
+
+the spline-interpolated electron density at each atom position will be 
+printed out in the order of the atoms in the PDB file
+
+EOF
+    exit 9
+endif
+
+cat ${pdbfile} |\
+awk '/^ATOM|^HETAT/{print substr($0,1,55),"1.00 15.00"}' |\
+cat >! ${tempfile}_probe.pdb
+
+set test = `cat ${tempfile}_probe.pdb | wc -l`
+if( $test == 0 ) then
+   set BAD = "no atoms in $pdbfile"
+   goto exit
+endif
+
+echo border 3  |\
+  mapmask xyzin ${tempfile}_probe.pdb \
+  mapin $mapfile mapout ${tempfile}_probeme.map >&! ${tempfile}mapmask.log
+if( $status ) then
+echo xyzlim cell | mapmask mapin $mapfile mapout ${tempfile}_P1.map >! ${tempfile}mapmask.log
+
+mapmask xyzin ${tempfile}_probe.pdb \
+  mapin ${tempfile}_P1.map mapout ${tempfile}_probeme.map << EOF >> ${tempfile}mapmask.log
+extend xtal
+symm 1
+border 3
+EOF
+endif
+
+
+setenv MAPSIZE `ls -l ${tempfile}_probeme.map | awk '{printf "%d", $5/3.5}'`
+$MAPMAN -b mapsize $MAPSIZE << mapman-end >&! ${tempfile}mapman.log
+read map1 ${tempfile}_probeme.map ccp4
+peek value map1 ${tempfile}_probe.pdb ${tempfile}_probed.pdb spline ;
+quit
+mapman-end
+
+
+awk '/PEEK-A-BOO/{print $NF+0}' ${tempfile}mapman.log | tee ${tempfile}peeks
+
+# maybe this version of mapman doesnt peek-a-boo 
+set test = `cat ${tempfile}peeks | wc -l`
+if("$test" == "0") then
+    set test = `grep "Command not found" ${tempfile}mapman.log  | wc -l`
+    if( $test ) then
+        # try using phenix?
+        echo xyzlim cell |\
+        mapmask mapin ${mapfile} mapout ${tempfile}cell.map >&! ${tempfile}phenix.log
+        echo symm 1 |\
+        mapmask mapin ${tempfile}cell.map mapout ${tempfile}P1.map >&! ${tempfile}phenix.log
+        phenix.map_to_structure_factors ${tempfile}P1.map \
+           d_min=0.5 b_blur=0 scale_max=None \
+           output_file_name=${tempfile}test.mtz >>& ${tempfile}phenix.log
+        phenix.map_value_at_point ${tempfile}test.mtz ${tempfile}_probe.pdb \
+          label=F scale=volume |\
+        tee -a ${tempfile}phenix.log |\
+        awk '/Map value:/{print $NF}' | tee ${tempfile}phenixpeeks
+    endif
+    set test = `cat ${tempfile}phenixpeeks | wc -l`
+    if( $test ) then
+        set BAD = "neither $MAPMAN nor phenix.map_value_at_point are working."
+        goto exit
+    endif
+endif
+set test = `cat ${tempfile}peeks | wc -l`
+if("$test" == "0") then
+    echo "WARNING: no peeks! "
+    cat ${tempfile}mapman.log
+    cat ${tempfile}phenix.log
+    stat ${tempfile}_probeme.map
+    stat ${tempfile}_probe.pdb
+    awk '/^ATOM|^HETAT/{print substr($0,61)}' ${tempfile}_probed.pdb
+endif
+
+if(! $?DEBUG) rm -f ${tempfile}*
+
+exit:
+
+if( $?BAD ) then
+    echo "ERROR: $BAD"
+    exit 9
+endif
+
+
+exit
+
+
+
