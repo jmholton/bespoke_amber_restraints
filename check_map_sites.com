@@ -82,9 +82,9 @@ if("$test" == "0") then
            d_min=0.5 b_blur=0 scale_max=None \
            output_file_name=${tempfile}test.mtz >>& ${tempfile}phenix.log
         cad hklin1 ${tempfile}test.mtz hklout ${tempfile}onecol.mtz << EOF >>& ${tempfile}cad.log
-        labin file 1 E1=F E2=PHI
+        labin file 1 E1=F E2=PHIF
 EOF
-        phenix.map_value_at_point ${tempfile}test.mtz ${tempfile}_probe.pdb \
+        phenix.map_value_at_point ${tempfile}onecol.mtz ${tempfile}_probe.pdb \
           label=F scale=volume |\
         tee -a ${tempfile}phenix.log |\
         awk '/Map value:/{print $NF}' | tee ${tempfile}phenixpeeks
