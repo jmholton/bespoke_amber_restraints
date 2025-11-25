@@ -210,7 +210,8 @@ EOF
 
 # ignore hydrogens here
 #convert_pdb.awk -v skip=H,EP $pdbfile >! ${t}noH.pdb
-awk 'substr($0,77,2) !~ / H|XP/' $pdbfile >! ${t}noH.pdb
+#awk 'substr($0,77,2) !~ / H|XP/'
+filter_pdb.awk -v skip=H $pdbfile >! ${t}noH.pdb
 
 # extract atoms that have restraints ... aka are listed in the refpoints file
 # but make sure they appear in the order that they appear in the refpoints file
@@ -290,7 +291,7 @@ set pdb = ${trajectory}/md.\${n}.pdb
 awk '{print \$NF}' ${t}hasref_atomnums.pdb |\
     cat - \$pdb |\
     awk 'NF==1{++sel[\$1]} ! /^ATOM|^HETAT/{next}\
-      /EPW/{next}\
+      /EPW|Y1  HOH|Y 1  HOH/{next}\
       {++n} sel[n]{print}' |\
     cat >! \${t}peekme.pdb
     check_map_sites.com \${t}peekme.pdb $diffmap |\

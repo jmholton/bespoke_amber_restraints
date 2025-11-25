@@ -200,6 +200,8 @@ water && skip ~ /,water,/{next}
 ligand && skip ~ /,ligand/{next}
 Ee=="XP" && skip ~ /,EP,|,H,/{next}
 atm=="EPW" && skip ~ /,EP,|,H,/{next}
+Ee=="Y" && water && skip ~ /,EP,|,H,/{next}
+atm=="Y1" && water && skip ~ /,EP,|,H,/{next}
 Ee=="H" && occ==0 && skip ~ /,zeroH,/{next}
 Ee=="H" && skip ~ /,H,/{next}
 
@@ -211,6 +213,7 @@ protein && only ~ /notprotein|nonprotein/ {next}
 ligand && only ~ /notligand|nonligand/ {next}
 water && only ~ /notwater|nonwater/ {next}
 Ee=="XP" && only ~ /noEP|notEP|nonEP/{next}
+atm=="Y1" && water && only ~ /noEP|notEP|nonEP/{next}
 Ee=="H" && occ==0 && only ~ /nonzeroH|nozeroH|notzeroH/{next}
 
 debug > 5 {print "DEBUG: not skipped"}

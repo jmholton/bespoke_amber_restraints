@@ -27,6 +27,7 @@ set minB = 2
 set wrap = 0
 set keeptraj = 0
 set domaps = 1
+set domtzs = 0
 
 set debug = 0
 
@@ -70,6 +71,8 @@ foreach Arg ( $* )
     endif
     if("$key" == "debug") set debug = "$Val"
 end
+
+if( $domtzs ) set domaps = 1
 
 mkdir -p ${tempfile}
 if($status) then
@@ -132,6 +135,7 @@ set image = ""
 if( $wrap ) set image = "image byatom"
 cat << EOF >! ${t}cpptraj.in
 $image
+strip :WAT,HOH@Y1,EPW
 outtraj ${outtraj}/md.pdb pdb multi pdbv3 keepext sg "P 1"
 go
 EOF
@@ -179,6 +183,7 @@ foreach chunk ( `seq 1 $chunks` )
   echo "chunk $chunk is $s - $f"
   cat << EOF >! ${t}cpptraj_${chunk}.in
 $image
+strip :WAT,HOH@Y1,EPW
 outtraj ${outtraj}/md.pdb pdb multi pdbv3 keepext sg "P 1" onlyframes ${s}-${f}
 go
 EOF
@@ -241,7 +246,7 @@ if(-e "$orignames") then
   foreach n ( $ns )
     set pdb = ${outtraj}/md.${n}.pdb
     egrep "^CRYST1" ${t}cell.pdb >! ${t}out.pdb
-    awk '/^ATOM|^HETAT/ && ! /EPW/{print $0,"ORIG"}' $orignames |\
+    awk '/^ATOM|^HETAT/ && ! /EPW|Y1  HOH|Y 1  HOH/{print $0,"ORIG"}' $orignames |\
     cat - $pdb |\
     awk '$NF=="ORIG"{++o;pre[o]=substr($0,1,30);post[o]=substr($0,55,length($0)-55-4);next}\
       ! /^ATOM|^HETAT/{next}\
@@ -372,10 +377,10 @@ rm -f ${outfile}
 gemmi map2sf -v --dmin=$reso $outmap ${outfile} FCavg PHICavg
 
 
-goto cleanup
+if( ! $domtzs ) goto cleanup
 
 addmtzs:
-${pdir}/addup_mtzs_runme.com $mtzs
+${pdir}/addup_mtzs_diffuse.com $mtzs
 
 cleanup:
 if( ! $keeptraj ) then

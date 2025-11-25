@@ -68,6 +68,8 @@ set ignore = ARGH
 set sigma_fudge = 3
 # flag to write out restraint files for reducing outliers
 set writefudge = 0
+# flag to keep the full geometry file (it can be big)
+set keepgeo = 0
 
 # const_shrink_donor_acceptor override
 set csda = 0.6
@@ -96,27 +98,22 @@ foreach arg ( $* )
       endif
       # synonyms
       if("$key" == "outprefix") set outprefix = "$Val"
-      if("$key" == "topfile") set topfile = "$Val"
+      if("$key" == "parmfile") set topfile = "$Val"
       if("$key" =~ override*) set overridefile = "$Val"
       if("$key" == "ignarg") set ignore = ( $ignore ARGH )
-      if("$key" == "keepgeo") set keepgeo = "$Val"
     else
       # no equal sign
       if("$Key" =~ *.pdb) set pdbfile = "$Key"
       if("$Key" =~ *.rst7) set rstfile = "$Key"
       if("$Key" =~ *.cif) set ciffiles = ( $ciffiles "$Key" )
-      if("$key" == "pdbfile") set pdbfile = "$Val"
-      if("$key" == "outprefix") set outprefix = "$Val"
-      if("$key" == "topfile") set topfile = "$Val"
       if("$key" =~ override*) set overridefile = "$Val"
-      if("$key" == "modulo") set modulo = "$Val"
       if("$key" == "ignarg") set ignore = ( $ignore ARGH )
       if("$key" == "keepgeo") set keepgeo = "$Val"
-      if("$key" == "tempfile") set tempfile = "$Val"
-      if("$key" == "debug") set debug = "$int"
     endif
-    if("$arg" == "debug") set debug = "1"
+    if("$arg" == "keepgeo") set keepgeo = 1
+    if("$arg" == "debug") set debug = 1
 end
+
 
 # check for dependencies
 set test = `gnuplot --version | grep "gnuplot " | grep -v "Command not found" |wc -l`
@@ -834,7 +831,9 @@ echo "weighted energy (wE): $energy"
 awk '! /^NONBON/ && $2>4' ${t}_fullgeo.txt |\
 cat >! ${outprefix}_worstgeo.txt
 
-if( $?keepgeo ) then
+echo "GOTHERE $keepgeo"
+if( $keepgeo ) then
+  echo "keeping ${outprefix}_fullgeo.txt"
   cat ${t}_fullgeo.txt |\
   awk '{atoms="";for(i=8;$i!="";i+=6){a=$i"_"$(i+4);atoms=atoms" "a};\
     print $1,$2,$3,$4,$5,$6,$7,atoms}' |\

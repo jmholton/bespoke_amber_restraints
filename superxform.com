@@ -6,22 +6,8 @@
 set mono_map = monomer_rot_trans.txt
 set asu_centers = asu_centers.pdb
 set pdir = `dirname $0`
-if(! -e "$mono_map") set mono_map = monomer_rot_trans.txt
-if(! -e "$mono_map") set mono_map = ../alignment/$mono_map
-if(! -e "$mono_map") set mono_map = ../$mono_map
-if(! -e "$mono_map") set mono_map = ../$mono_map
-if(! -e "$mono_map") set mono_map = ../$mono_map
-if(! -e "$mono_map") set mono_map = ${pdir}/alignment/$mono_map
-if(! -e "$mono_map") then
-    set BAD = "cannot find monomer_rot_trans.txt"
-    goto exit
-endif
-if(! -e "$asu_centers") set asu_centers = `dirname $mono_map`/asu_centers.pdb
-set mono_step = `awk 'NR==2{print $NF-1;exit}' $mono_map`
-set super_mult  = ( 2 2 3 )
+set super_mult  = 2,2,3
 set smallSG = P212121
-set smallSGnum = `awk -v sg=$smallSG '$4==sg{print $1;exit}' ${CLIBD}/symop.lib`
-set nsymops = `awk -v n=$smallSGnum '$1==n{print $3;exit}' ${CLIBD}/symop.lib`
 
 set tempfile = /dev/shm/${USER}/supercellme$$
 mkdir -p /dev/shm/${USER}/
@@ -41,40 +27,76 @@ set keepocc = 1
 set newocc = "no"
 set scale4map = 1
 set blabel = 0
+set supercell = auto
 set debug = 0
+
+if(-e xtal_properties.sourceme) then
+   echo "found xtal_properties.sourceme"
+   source xtal_properties.sourceme
+endif
 
 echo "command-line arguments: $* "
 
-foreach arg ( $* )
-    set key = `echo $arg | awk -F "=" '{print $1}'`
-    set val = `echo $arg | awk -F "=" '{print $2}'`
-    set csv = `echo $val | awk -F "," '{gsub(","," ");print}'`
+foreach Arg ( $* )
+    set arg = `echo $Arg | awk '{print tolower($0)}'`
+    set assign = `echo $arg | awk '{print ( /=/ )}'`
+    set Key = `echo $Arg | awk -F "=" '{print $1}'`
+    set Val = `echo $Arg | awk '{print substr($0,index($0,"=")+1)}'`
+    set Csv = `echo $Val | awk 'BEGIN{RS=","} {print}'`
+    set key = `echo $Key | awk '{print tolower($1)}'`
+    set num = `echo $Val | awk '{print $1+0}'`
+    set int = `echo $Val | awk '{print int($1+0)}'`
 
-    if("$arg" =~ *.pdb && "$val" == "") set pdbfile = "$arg"
-    if("$arg" =~ *.mtz && "$val" == "") set mtzfile = "$arg"
-    if("$key" == "pdbfile") set pdbfile = "$val"
-    if("$key" == "mtzfile") set mtzfile = "$val"
-    if("$key" == "outfile" || "$key" == "output" || "$key" == "outpdb") set outfile = "$val"
-    if("$key" == "outmtz" || "$key" == "mtzout") set outputmtz = "$val"
-    if("$key" == "confseq") set confseq = "$val"
-    if("$key" == "mono_step") set mono_step = "$val"
-    if("$key" == "super_mult") set super_mult = ( $csv )
-    if("$key" == "smallSG") set smallSG = "$val"
-    if("$key" == "keepconf") set keepconf = "$val"
-    if("$key" == "keepchain") set keepchain = "$val"
-    if("$key" == "keepresnum") set keepresnum = "$val"
-    if("$key" == "keepocc") set keepocc = "$val"
-    if("$key" == "occ") set newocc = "$val"
-    if("$key" == "scale4map") set scale4map = "$val"
-    if("$key" == "blabel") set blabel = "$val"
-    if("$key" == "tempfile") set tempfile = "$val"
-    if("$key" == "debug") set debug = "$val"
+    if( $assign ) then
+      # re-set any existing variables
+      set test = `set | awk -F "\t" '{print $1}' | egrep "^${Key}"'$' | wc -l`
+      if ( $test ) then
+          set $Key = $Val
+          echo "$Key = $Val"
+          continue
+      endif
+      # synonyms
+      if("$key" == "output" || "$key" == "outpdb") set outfile = "$val"
+      if("$key" == "super_mult") set super_mult = ( $Csv )
+      if("$key" == "outmtz" || "$key" == "mtzout") set outputmtz = "$val"
+      if("$key" == "occ") set newocc = "$val"
+    else
+      # no equal sign
+      if("$Arg" =~ *.pdb ) set pdbfile = "$Arg"
+      if("$Arg" =~ *.mtz ) set mtzfile = "$Arg"
+    endif
+    if("$arg" == "debug") set debug = "1"
 end
 
 if(! -e "$pdbfile") then
     set BAD = "pdbfile $pdbfile does not exist."
     goto exit
 endif
+
+set smallSGnum = `awk -v sg=$smallSG '$4==sg{print $1;exit}' ${CLIBD}/symop.lib`
+set nsymops = `awk -v n=$smallSGnum '$1==n{print $3;exit}' ${CLIBD}/symop.lib`
+
+if(! -e "$mono_map") set mono_map = monomer_rot_trans.txt
+if(! -e "$mono_map") set mono_map = ../alignment/$mono_map
+if(! -e "$mono_map") set mono_map = ../$mono_map
+if(! -e "$mono_map") set mono_map = ../$mono_map
+if(! -e "$mono_map") set mono_map = ../$mono_map
+if(! -e "$mono_map") set mono_map = ${pdir}/alignment/$mono_map
+if(! -e "$mono_map") then
+    set BAD = "cannot find monomer_rot_trans.txt"
+    goto exit
+endif
+set monomers = `cat $mono_map | wc -l`
+set mono_step = `awk 'NR==2{print $NF-1;exit}' $mono_map`
+echo "$monomers monomers of length $mono_step found in $mono_map"
+
+if(! -e "$asu_centers") set asu_centers = `dirname $mono_map`/asu_centers.pdb
+if(! -e "$asu_centers") then
+    echo "WARNING: cannot find asu_centers.pdb"
+    set asu_centers = ""
+endif
+
+set super_mult = `echo $super_mult | awk -F "," '{print $1,$2,$3}'`
 
 echo "confseq=$confseq"
 
@@ -83,8 +105,10 @@ set unitcell = `awk '/^CRYST1/{print $2,$3,$4,$5,$6,$7;exit}' $pdbfile`
 set chains = `awk '/^ATOM/{c=substr($0,22,1)} ! seen[c]{print c;++seen[c]}' $pdbfile`
 set cellsize = `awk '/^CRYST/{print int(($2*$3*$4)**(1./3));exit}' $pdbfile`
 
-set supercell = 1
-if( $cellsize < 50 || "$pdbfile" =~ *_small.pdb ) set supercell = 0
+if( "$supercell" == "auto" ) then
+    set supercell = 1
+    if( $cellsize < 50 || "$pdbfile" =~ *_small.pdb ) set supercell = 0
+endif
 
 
 if( $supercell ) goto collapse
@@ -100,12 +124,12 @@ echo $unitcell $super_mult |\
    printf("CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f P 1\n",a,b,c,al,be,ga);}' |\
 cat >! $tempfile
 
-echo $confseq $mono_step $keepconf $keepchain $keepresnum $keepocc $newocc $blabel |\
+echo $confseq $mono_step $monomers $keepconf $keepchain $keepresnum $keepocc $newocc $blabel |\
 cat - $mono_map $pdbfile |\
-awk 'NR==1{confseq=$1;modulo=$2;\
-        keepconf=$3;keepchain=$4;keepresnum=$5;keepocc=$6;newocc=$7;blabel=$8;\
+awk 'NR==1{confseq=$1;modulo=$2;monomers=$3;\
+        keepconf=$4;keepchain=$5;keepresnum=$6;keepocc=$7;newocc=$8;blabel=$9;\
      next}\
-  NR<=49{a=$1;c[a]=substr(confseq,a,1);asu[c[a]]=a;\
+  NR<=monomers+1{a=$1;c[a]=substr(confseq,a,1);asu[c[a]]=a;\
     xx[a]=$2;xy[a]=$3;xz[a]=$4;\
     yx[a]=$5;yy[a]=$6;yz[a]=$7;\
     zx[a]=$8;zy[a]=$9;zz[a]=$10;\
@@ -183,23 +207,25 @@ echo space $smallSG | pdbset xyzin ${tempfile}.pdb xyzout ${tempfile}sg.pdb >> $
 egrep "^CRYST" ${tempfile}sg.pdb >! ${tempfile}
 rm -f ${tempfile}.pdb ${tempfile}sg.pdb >> $logfile
 
-echo $confseq $mono_step $keepconf $keepchain $keepresnum $keepocc $newocc $blabel $debug |\
+echo $confseq $mono_step $monomers $keepconf $keepchain $keepresnum $keepocc $newocc $blabel $debug |\
 cat - $mono_map $asu_centers $pdbfile |\
-awk 'NR==1{confseq=$1;modulo=$2;\
-        keepconf=$3;keepchain=$4;keepresnum=$5;keepocc=$6;newocc=$7;blabel=$8;\
+awk 'NR==1{confseq=$1;modulo=$2;monomers=$3;\
+        keepconf=$4;keepchain=$5;keepresnum=$6;keepocc=$7;newocc=$8;blabel=$9;\
         debug=$NF;\
      next}\
-  NR<=49{a=$1;c[a]=substr(confseq,a,1);asu[c[a]]=a;\
+  NR<=monomers+1{a=$1;c[a]=substr(confseq,a,1);asu[c[a]]=a;\
     xx[a]=$2;xy[a]=$3;xz[a]=$4;\
     yx[a]=$5;yy[a]=$6;yz[a]=$7;\
     zx[a]=$8;zy[a]=$9;zz[a]=$10;\
     tx[a]=$11;ty[a]=$12;tz[a]=$13;\
-    dresnum[a]=$14-1;asu[dresnum[a]]=a;next}\
+    dresnum[a]=$14-1;\
+    schain[a]=$15;scres[a]=$16;\
+    asu[schain[a],scres[a]]=a;next}\
   /^TER/{print "TER"}\
   ! /^ATOM|^HETAT/{next}\
   /^ATOM|^HETAT/{pre=substr($0,1,16);post=substr($0,61);typ=substr($0,18,4);\
           conf=substr($0,17,1);chain=substr($0,22,1);\
-          resnum=substr($0,23,4)+0;\
+          resnum=substr($0,23,8)+0;\
           occ=substr($0,55,6)+0;B=substr($0,61,6);\
           solv=( /^HETAT/ || typ~/HOH|ACY|NH4/ );\
           ins=substr($0,27,4);\
@@ -208,9 +234,15 @@ awk 'NR==1{confseq=$1;modulo=$2;\
           Z=substr($0,47,8)+0;\
           if($NF=="ASUCENTER"){++asuc;\
               Xc[asuc]=X;Yc[asuc]=Y;Zc[asuc]=Z;next}\
-          newresnum=((resnum-1)%modulo)+1;\
-          a=asu[resnum-newresnum];\
-          if(a+0<=0 || solv){newresnum=resnum;\
+          # maybe an heuristic acceleration here \
+          for(a=1;a<=monomers;++a){\
+            if(chain==schain[a] && resnum>=scres[a] && resnum<scres[a]+modulo){\
+              break;\
+            }\
+          }\
+          if(! ( chain==schain[a] && resnum>=scres[a] && resnum<scres[a]+modulo))a=0;\
+          newresnum=resnum-scres[a]+1;\
+          if(a==0 || solv){newresnum=resnum;\
             min=-1;for(i=1;i<=asuc;++i){\
             dsq=(X-Xc[i])^2+(Y-Yc[i])^2+(Z-Zc[i])^2;\
             if(dsq<min || min<0){a=i;min=dsq};\

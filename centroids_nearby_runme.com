@@ -1,6 +1,6 @@
 #! /bin/tcsh -f
 #
-#  make new restraints pdb file based on atoms near centroids             -James Holton 4-19-24
+#  make new restraints pdb file based on atoms near centroids             -James Holton 5-28-25
 #
 #  needs convert_pdb.awk scipt and ccp4
 #
@@ -112,10 +112,9 @@ echo "$changes changes"
 echo "encoding atom names"
 egrep "^CRYST" $reffile        | head -n 1 >! ${t}temp.pdb
 
-egrep "^ATOM|^HETAT" $pdbfile |\
+filter_pdb.awk -v skip=H -v only=atoms $pdbfile |\
   awk 'BEGIN{ABC="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";\
        ci=1;c=substr(ABC,ci,1)}\
-      substr($0,77,2)~/ H|XP/{next}\
       {origid=substr($0,12,19);xyz=substr($0,31,24);pre=substr($0,1,12);\
        resid=substr($0,22,9);\
        gsub(" ","_");\

@@ -100,11 +100,21 @@ if( $status ) then
    goto exit
 endif
 
+# make sure we have a copy with B=0
 cat ${t}checkme.pdb |\
 awk '! /^ATOM|^HETAT/{print;next}\
-  substr($0,77,2)~/ H|XP/{next}\
+  substr($0,77,2)~/ H|XP|Y1/{next}\
   {print substr($0,1,60) "  0.00" substr($0,67)}' |\
 cat >! ${t}zeroB.pdb
+
+# just in case restraints file lost its cell
+set test = `head $refpoints | egrep "^CRYST1" | wc -l`
+if( ! $test ) then
+  echo "WARNING: adding unit cell to atoms in $refpoints"
+  head ${t}checkme.pdb | egrep "^CRYST" | head -n 1 >! ${t}cell_n_refpoints.pdb
+  cat $refpoints >> ${t}cell_n_refpoints.pdb
+  set refpoints = ${t}cell_n_refpoints.pdb
+endif
 
 echo "$maxdist $maxkcal $kT $pdbscale $min_weight" >! ${t}params.txt
 
@@ -173,7 +183,8 @@ awk '$NF=="BOMB"{split($0,k,"|");id=k[2];++sel[id];next}\
 # extract named atoms from restraint list
 cat ${t}bombers.txt $refpoints |\
 awk '$NF=="BOMB"{split($0,k,"|");id=k[2];++sel[id];next}\
-  /^CRYST/{print} ! /^ATOM|^HETAT/{next} {id=substr($0,12,15)}\
+  /^CRYST/{print} ! /^ATOM|^HETAT/{next}\
+  {id=substr($0,12,15)}\
   sel[id]{print}' >! ${t}wrongrest.pdb
 
 # gather the refpoints as close as possible to flying atoms

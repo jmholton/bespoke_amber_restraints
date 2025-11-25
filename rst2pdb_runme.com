@@ -59,7 +59,7 @@ foreach Arg ( $* )
     if("$arg" == "debug") set debug = "1"
 end
 
-if( $debug && $tempfile =~ /dev/shm/* ) set tempfile = ./tempfile_r2p_
+#if( $debug && $tempfile =~ /dev/shm/* ) set tempfile = ./tempfile_r2p_
 if( $tempfile =~ /dev/shm/$USER/* ) mkdir -p /dev/shm/$USER/
 
 if(! -e "$rstfile") then

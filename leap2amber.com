@@ -1,5 +1,5 @@
 #! /bin/tcsh -f
-#                                                                   -James Holton 3-16-25
+#                                                                   -James Holton 5-8-25
 #   Script for standard amber rigamrol given:
 #    leap input file (will be copied and edited by command-line options)
 #    original names PDB
@@ -32,6 +32,7 @@ set sander = "srun --partition=xds sander.OMP"
 set Stages = ""
 
 set watertype = opc
+set flexwater = 1
 
 set pdbfile = refmacout.pdb
 set refpointspdb = ""
@@ -202,6 +203,7 @@ EOF
 
 if("$refpointspdb" != "" && ! -e "$refpointspdb") then
   set BAD = "refpointspdb: $refpointspdb does not exist"
+  goto exit
 endif
 
 
@@ -237,7 +239,7 @@ endif
 egrep "^SSBOND" $pdbfile |\
 awk '{print $4,$5,$7,$8}' | sort -u | sort -g >! ${t}disulfides.txt
 set test = `cat ${t}disulfides.txt | wc -l`
-echo "found $test disulfides in $pdbfile" 
+echo "found $test SSBONDs in $pdbfile" 
 if("$test" == "0") then
     # do something clever?
     echo "looking for S-S bonds..."
@@ -323,11 +325,16 @@ endif
 # use tleap to set up force field
 cat << EOF >! ${t}tleap.in
 source $leaprc
-# reduced charges
-#source leaprc.ff14SB.redq
 source leaprc.water.${watertype}
-set default FlexibleWater on
 EOF
+
+if( $watertype == opc3 || $watertype == spce || $watertype == spceb || $watertype == tip3p ) then
+   set flexwater = 0
+endif
+
+if( $flexwater ) then
+   echo "set default FlexibleWater on" >> ${t}tleap.in
+endif
 
 if(-e "$leapfile") then
   cat $leapfile |\
@@ -336,6 +343,11 @@ if(-e "$leapfile") then
        tolower($0) ~ /^source/ && /water/{$0="#"$0}\
     {print}' |\
   cat >> ${t}tleap.in
+endif
+
+if( ! $flexwater ) then
+   egrep -vi "FlexibleWater on" ${t}tleap.in >! ${t}.txt
+   mv ${t}.txt ${t}tleap.in
 endif
 
 # remove duplicates
@@ -399,6 +411,7 @@ else
   #if(! -e leap.log) ln -sf /dev/null leap.log
   echo "running tleap"
   tleap -f ${t}tleap.in $leapinclude >&! ${t}tleap.out 
+  awk -v t=$t '{gsub(t,"");print}' ${t}tleap.in >! tleap.in
 endif
 
 # make sure full cell is in there?
@@ -411,6 +424,7 @@ if(! -e ${t}tleaped.rst7 ) then
 endif
 
 set charge = `awk '/unperturbed charge/{gsub("[)(]","");print $7}' ${t}tleap.out | tail -n 1`
+if( "$charge" == "" ) set charge = 0
 echo "net charge: $charge"
 
 set test = `awk '/Added missing heavy atom/' ${t}tleap.out | wc -l`
@@ -482,7 +496,7 @@ awk '/^TER/{print "TER";next}\
       orig_conf[id]=conf;orig_B[id]=B;\
       if(! zeroxyz){orig_id[xyz]=id;orig_id[x,y,z]=id};next}\
     {ordresnum=$NF;pre=substr($0,1,12);rest=substr($0,67,12);\
-      isH=(atm ~ /^H/ || atm == "EPW");inherit=0;\
+      isH=(atm ~ /^H/ || atm == "EPW" || atm == "Y1");inherit=0;\
       if(orig_id[xyz]!=""){id=orig_id[xyz]}\
       if(orig_id[x,y,z]!=""){id=orig_id[x,y,z]}\
       if( zeroxyz ){oorn=ordresnum;id=repid[oorn]}\
@@ -674,7 +688,8 @@ endif
 # set up restraints
 if(! -e "$restraint_file") then
     echo "using single restraint weight of $restraint_wt on $restrainedatoms atoms in residues $restraint_range"
-    set align_mask = ":${restraint_range}${restrainedatoms}"
+    set align_mask = ":${restraint_range} & ${restrainedatoms}"
+    set align_mask = `echo $align_mask | awk '{gsub("! ","!");print}'`
 else
     echo "building alignment mask..."
     awk '/^ATOM|^HETAT/{print $0,++n}' ${t}start_orignames.pdb >! ${t}atomnums.pdb
@@ -1154,7 +1169,7 @@ try2:
     rm -f chircheck.txt geocheck.txt omega.txt
     cpptraj -p ${t}xtal.prmtop -y ${t}${Stage}.rst7 << EOF >&! checks.log
     checkchirality chir out chircheck.txt
-    strip @EPW
+    strip :WAT,HOH@Y1,EPW
     check reportfile geocheck.txt
     multidihedral omega omega out omega.txt range360
 EOF
@@ -1167,7 +1182,7 @@ EOF
     echo "removing any rigid-body motion"
     rm -f rmsd.txt vecsout.txt >& /dev/null
     cpptraj -p xtal.prmtop -y ${t}${Stage}.rst7 -c ${t}ref.crd << EOF >! align_${Stage}.log
-    rmsd rmsd reference norotate $align_mask out rmsd.txt savevectors combined vecsout vecsout.txt
+    rmsd rmsd reference norotate "$align_mask" out rmsd.txt savevectors combined vecsout vecsout.txt
     trajout aligned.rst7
 EOF
     cat rmsd.txt vecsout.txt >> align_${Stage}.log
