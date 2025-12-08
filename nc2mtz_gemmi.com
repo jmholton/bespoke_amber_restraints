@@ -414,7 +414,7 @@ foreach maxB ( 10 20 50 100 200 500 1000 )
  set nc2log = nc2mtz_${minB}_${maxB}.log
 
  echo "B: $minB $maxB"
- nc2mtz_gemmi_new.com amber_${itr}.nc P212121 \
+ nc2mtz_gemmi.com amber_${itr}.nc P212121 \
    Bfac_file=rmsd2B minB=$minB maxB=$maxB |& tee $nc2log | tail -n 1
 
  diff.com reference.mtz avg.mtz |& tee diff_${minB}_${maxB}.log | grep correct

@@ -1,3 +1,245 @@
+#! /bin/tcsh -f
+#
+#        perform some c function on an electron density map
+#        using the "float_func.c" program                                -James Holton 10-26-25
+#
+#
+
+# defaults
+set mapfile1 = signal.map
+set mapfile2 = noise.map
+set func     = divide
+set param    = ""
+set seed     = ""
+set outfile  = output.map
+
+set tempfile = ${CCP4_SCR}/map_func$$
+set logfile = /dev/null
+
+set tempfile = tempfile_mapfunc_
+#set logfile = /dev/tty
+set logfile = debuglog.log
+#echo -n "" >! $logfile
+
+set debug = 0
+
+set i = 0
+set user_maps = 0
+while( $i < $#argv )
+    @ i = ( $i + 1 )
+    set Arg = "$argv[$i]"
+    set assign = `echo $Arg | awk '{print ( /=/ )}'`
+    set arg = `echo $Arg | awk '{print tolower($1)}'`
+    set Key = `echo $Arg | awk -F "=" '{print $1}'`
+    set Val = `echo $Arg | awk -F "=" '{print $2}'`
+    set key = `echo $Key | awk '{print tolower($1)}'`
+    set val = `echo $Val | awk '{print tolower($1)}'`
+    set num = `echo $Val | awk '{print $1+0}'`
+    set int = `echo $Val | awk '{print int($1+0)}'`
+
+    set mapfile = ""
+    if( $assign ) then
+      # re-set any existing variables
+      set test = `set | awk -F "\t" '{print $1}' | egrep "^${Key}"'$' | wc -l`
+      if ( $test ) then
+          set $Key = $Val
+          echo "$Key = $Val"
+          continue
+      endif
+      # synonyms
+      if("$key" == "mapfile") set mapfile = "$Val"
+      if("$key" == "output") set outfile = "$Val"
+      if("$key" == "mapout") set outfile = "$Val"
+    else
+      # no equal sign
+      if("$Key" =~ *.map && "$val" == "") set mapfile = $Key
+    endif
+    
+    if( "$mapfile" != "" ) then
+        # found a map
+        @ user_maps = ( $user_maps + 1 )
+        if($user_maps == 1) then
+            set mapfile1 = "$mapfile"
+            set mapfile2 = ""
+        endif
+        if($user_maps == 2) set mapfile2 = "$mapfile"
+        if($user_maps == 3) set outfile  = "$mapfile"
+    endif
+    # support dash-arg format
+    if( "$arg" =~ "-func" && $i < $#argv ) then
+        @ i = ( $i + 1 )
+        set func  = "$argv[$i]"
+    endif
+    if( "$arg" =~ "-seed" && $i < $#argv ) then
+        @ i = ( $i + 1 )
+        set seed  = "$argv[$i]"
+    endif
+    if( "$arg" =~ "-param" && $i < $#argv ) then
+        @ i = ( $i + 1 )
+        set param  = "-param $argv[$i]"
+    endif
+    if( ( "$arg" =~ "-output" || "$arg" =~ "-outfile" ) && $i < $#argv ) then
+        @ i = ( $i + 1 )
+        set outfile  = "$argv[$i]"
+    endif
+    if("$key" == "debug") then
+        set debug = 1
+    endif
+end
+
+if("$*" == "" || "$*" =~ "-h"* ) then
+    cat << EOF
+usage $0 signal.map [noise.map] -param 1 -func divide [-seed seed] [output.map]
+
+where:
+signal.map   is a CCP4 format electron density map
+noise.map    is an optional second map for binary functions
+param        a value to serve as the second map, or a third argument to a ternary function
+func         one of:
+       sqrt, cbrt, ceil, floor, fabs,
+       sin, asin, sinh, asinh, 
+       cos, acos, cosh, acosh,
+       tan, atan, tanh, atanh,
+       erf, erfc, exp, log, log10,
+       j0, j1, jn, y0, y1, yn, gamma, lgamma,
+       pow, erfpow where erfpow is erf(rho)^n
+       norm  the normal distribution
+       urand, grand, lrand, prand, erand, trand for uniform, gaussian, lorentz, poisson, exponential or triangle-random values
+       set = for the output map to have all one value
+       add, subtract, multiply, divide, inverse, negate,
+       maximum, minimum, nanzero,
+       thresh output 1 or 0 if first map is greather than second
+       maxradius avgradius
+EOF
+    exit 9
+endif
+
+# synonyms
+if("$func" == "mult") set func = "multiply"
+if("$func" == "sub") set func = "subtract"
+
+echo "selected $func function with parameters: $param"
+
+if("$func" == "add" || "$func" == "subtract" || "$func" == "multiply" || "$func" == "divide" || "$func" == "max" || "$func" == "min"  || "$func" == "pow") then
+    # two maps are expected?
+else
+    if($user_maps == 2) then
+        set outfile = "$mapfile2"
+        set mapfile2 = ""
+    endif
+endif
+
+# use local copy if its there
+if(-x ./float_func) then
+    set path = ( . $path )
+endif
+
+if(! -e "$mapfile1") then
+    set BAD = "$mapfile1 does not exist."
+    goto exit
+endif
+
+echo go | mapdump mapin $mapfile1 | tee ${tempfile}mapdump.log |\
+awk '/Grid sampling on x, y, z/{gx=$8;gy=$9;gz=$10}\
+     /Maximum density /{max=$NF}\
+     /Cell dimensions /{xs=$4/gx;ys=$5/gy;zs=$6/gz}\
+     /Number of columns, rows, sections/{nc=$7;nr=$8;ns=$9}\
+ END{print xs,ys,zs,nc,nr,ns,max}' >! ${tempfile}mapstuff.txt
+echo "$mapfile1 :"
+egrep dens ${tempfile}mapdump.log
+if(-e "$mapfile2") then
+    echo "$mapfile2 :"
+    echo go | mapdump mapin $mapfile2 | egrep dens
+else
+    if("$mapfile2" != "") then
+        echo "WARNING: $mapfile2 does not exist."
+    endif
+endif
+
+set xsize = `awk '{print $4}' ${tempfile}mapstuff.txt`
+set ysize = `awk '{print $5}' ${tempfile}mapstuff.txt`
+set zsize = `awk '{print $6}' ${tempfile}mapstuff.txt`
+
+set voxels = `awk '{print $4*$5*$6}' ${tempfile}mapstuff.txt`
+set size = `echo $voxels | awk '{print 4*$1}'`
+set head = `ls -l $mapfile1 | awk -v size=$size '{print $5-size}'`
+set skip = `echo $head | awk '{print $1+1}'`
+
+if("$param" == "-param voxels") then
+    echo "$voxels voxels"
+    set power = `echo "$voxels" | awk '{printf("%d",$1)}'`
+    set param = "-param $power"
+endif
+if( "$seed" != "" ) then
+   set param = ( $param -seed $seed )
+endif
+echo "params to float_func: $param"
+
+# now perform the function on the map data
+func:
+rm -f ${outfile} ${tempfile}output.bin
+head -c $head $mapfile1 >! ${tempfile}temp.map
+tail -c +$skip $mapfile1 >! ${tempfile}input1.bin
+if(-e "$mapfile2") then
+    tail -c +$skip $mapfile2 >! ${tempfile}input2.bin
+    set map2 = ${tempfile}input2.bin
+else
+    set map2 = ""
+endif
+ls -l ${tempfile}input1.bin $map2 >& $logfile
+echo "float_func ${tempfile}input1.bin $map2 ${tempfile}output.bin -func $func $param -xsize $xsize -ysize $ysize -zsize $zsize" >> $logfile
+float_func ${tempfile}input1.bin $map2 -output ${tempfile}output.bin -func $func $param -xsize $xsize -ysize $ysize -zsize $zsize >> $logfile
+if(-e ${tempfile}output.bin) then
+    echo "success! "
+    od -w4 --read-bytes=64 -f ${tempfile}input1.bin >! ${tempfile}before.txt
+    od -w4 --read-bytes=64 -f ${tempfile}output.bin >! ${tempfile}after.txt
+    cat ${tempfile}before.txt ${tempfile}after.txt |\
+    awk '! bef[$1]{bef[$1]=$2;next} {print bef[$1],"->",$2}'
+    cat ${tempfile}output.bin >> ${tempfile}temp.map
+    echo "scale factor 1 0" | mapmask mapin ${tempfile}temp.map mapout $outfile >> $logfile
+    #rm -f ${tempfile}output.bin
+    set map2 = ""
+    if(-e "$mapfile2") set map2 = ",$mapfile2"
+    set pparm = `echo $param | awk '{print $2}'`
+    if("$pparm" != "" ) set pparm = ",$pparm"
+    echo "$outfile = ${func}(${mapfile1}${map2}${pparm}) "
+else
+    echo "ack! "
+    if(! -e float_func.c) goto compile_float_func
+    set BAD = "unable to run float_func"
+    goto exit
+endif
+
+
+echo "$outfile :"
+echo "go" | mapdump mapin $outfile | egrep density
+
+
+exit:
+if($?BAD) then
+    echo "ERROR: $BAD"
+    exit 9
+endif
+
+if("$tempfile" == "") set  tempfile = "./"
+set tempdir = `dirname $tempfile`
+if( $debug && "$tempfile" != "./") then
+    #echo "cleaning up..."
+    rm -f ${tempfile}* >& /dev/null
+endif
+
+
+
+exit
+
+
+#############################################################################
+#############################################################################
+
+
+compile_float_func:
+echo "attempting to generate float_func utility ..."
+cat << EOF >! float_func.c
 
 /* apply a C function to each value in a raw "float" input file                -James Holton               8-24-25
 
@@ -17,7 +259,7 @@ char *infile1name = NULL;
 char *infile2name = NULL;
 FILE *infile1 = NULL;
 FILE *infile2 = NULL;
-char *outfilename = "output.bin\0";
+char *outfilename = "output.bin\\0";
 FILE *outfile = NULL;
 
 typedef enum { UNKNOWN, SQRT, CBRT, CEIL, FLOOR, FABS,
@@ -105,7 +347,7 @@ int main(int argc, char** argv)
         {
             if(strstr(argv[i]+strlen(argv[i])-4,".bin") || strstr(argv[i]+strlen(argv[i])-4,".map"))
             {
-                printf("filename: %s\n",argv[i]);
+                printf("filename: %s\\n",argv[i]);
                 if(infile1name == NULL){
                     infile1name = argv[i];
                 }
@@ -233,7 +475,7 @@ int main(int argc, char** argv)
                 if(strstr(argv[i+1],"/")) func = DIVIDE;
                 if(strstr(argv[i+1],"1/")) {func = INVERSE ; param = 1.0; user_param=1;};
                 if(strstr(argv[i+1],"1-")) {func = NEGATE ; param = 1.0; user_param=1;};
-                if(func == UNKNOWN) printf("WARNING: unknown function: %s\n",argv[i+1]);
+                if(func == UNKNOWN) printf("WARNING: unknown function: %s\\n",argv[i+1]);
             }
             if(strstr(argv[i], "-param") && (argc >= (i+1)))
             {
@@ -338,153 +580,153 @@ int main(int argc, char** argv)
         }
     }
     if(infile1 == NULL){
-        printf("ERROR: unable to open %s as input 1\n", infile1name);
+        printf("ERROR: unable to open %s as input 1\\n", infile1name);
         perror("");
     }
     if(infile1 == NULL || func == UNKNOWN){
-        printf("usage: float_func file.bin [file2.bin] [outfile.bin] -func jn -param 1.0 -ignore 0\n");
-        printf("options:\n");
-        printf("\tfile.bin\t binary file containing the arguments to the desired function\n");
-        printf("\tfile2.bin\t binary file containing second argument to the desired function\n");
-        printf("\t-func\t may be one of:\n");
-        printf("\t sqrt cbrt ceil floor abs sign\n");
-        printf("\t zero one set (one output value)\n");
-        printf("\t add subtract multiply divide inverse negate maximum minimum \n");
-        printf("\t thresh (1-or-0 threshold)\n");
-        printf("\t nanzero (set all NaN and Inf values to zero)\n");
-        printf("\t sin asin sinh asinh cos acos cosh acosh tan atan tanh atanh (trigonometry)\n");
-        printf("\t pow erf erfpow norm erfc (power and error functions)\n");
-        printf("\t exp log log10 (natural or base-10 log)\n");
-        printf("\t safexp (safe exponential, wont over/underflow)\n");
-        printf("\t j0 j1 jn y0 y1 yn gamma lgamma (Bessel and gamma functions)\n");
-        printf("\t urand grand lrand prand erand trand (uniform gaussian lorentzian poisson exponential or triangle randomness)\n");
-        printf("\t fft invfft realfft invrealfft (complex or real FFT - base 2)\n");
-        printf("\t ab2phif phif2ab (cartesian to amplitude-phase conversion)\n");
-        printf("\t swab4 swab2 (swap bytes)\n");
-        printf("\t odd even oddeven evenodd (extract or interleave values)\n");
-        printf("\t reverse (re-order 4-byte floats in file)\n");
-        printf("\t stride (skip blocks of size param)\n");
-        printf("\t stitch (interleave blocks from different files)\n");
-        printf("\t flip (reverse data in interleaved blocks)\n");
-        printf("\t flop (reverse data as interleaved blocks)\n");
-        printf("\t flipflop (reverse x and y data with -xsize or -param xsize)\n");
-        printf("\t swapxy (swap x and y axes with -xsize)\n");
-        printf("\t maxpool (maximum value within box with -param edge pixels)\n");
-        printf("\t avgbox (average value of box with -param edge pixels)\n");
-        printf("\t edge (find rising/falling edges, return 0,1,or -1)\n");
-        printf("\t feather (find edges and soften them)\n");
-        printf("\t maxradius (maximum value within radius xrad, yrad, zrad pixels no down-sampling)\n");
-        printf("\t avgradius (local average within radius xrad, yrad, zrad  pixels, no down-sampling)\n");
-        printf("\t medradius (local median within radius xrad, yrad, zrad  pixels, no down-sampling)\n");
-        printf("\t-param\t second value for add, subtract, set, etc. or parameter needed by the function (such as jn)\n");
-        printf("\t-xsize\t fast dimension when treating data as 2D or 3D array\n");
-        printf("\t-ysize\t 2nd fastest dimension when treating data as 2D or 3D array\n");
-        printf("\t-zsize\t slowest dimension when treating data as 3D array\n");
-        printf("\t-xrad\t max radial extent for gaussblur maxradius avgradius and medradius functions\n");
-        printf("\t-yrad -zrad\t radial extent in y and directions\n");
-        printf("\t-seed\t seed for random number functions\n");
-        printf("\t-ignore\t value found in either input file will pass through\n");
-        printf("\t-header \tnumber of bytes to ignore in header of each file\n");
-        printf("\t-outheader \tnumber of bytes of the header to pass on to output file\n");
-        printf("\toutput.bin\t output binary file containing the results to the desired function\n");
+        printf("usage: float_func file.bin [file2.bin] [outfile.bin] -func jn -param 1.0 -ignore 0\\n");
+        printf("options:\\n");
+        printf("\\tfile.bin\\t binary file containing the arguments to the desired function\\n");
+        printf("\\tfile2.bin\\t binary file containing second argument to the desired function\\n");
+        printf("\\t-func\\t may be one of:\\n");
+        printf("\\t sqrt cbrt ceil floor abs sign\\n");
+        printf("\\t zero one set (one output value)\\n");
+        printf("\\t add subtract multiply divide inverse negate maximum minimum \\n");
+        printf("\\t thresh (1-or-0 threshold)\\n");
+        printf("\\t nanzero (set all NaN and Inf values to zero)\\n");
+        printf("\\t sin asin sinh asinh cos acos cosh acosh tan atan tanh atanh (trigonometry)\\n");
+        printf("\\t pow erf erfpow norm erfc (power and error functions)\\n");
+        printf("\\t exp log log10 (natural or base-10 log)\\n");
+        printf("\\t safexp (safe exponential, wont over/underflow)\\n");
+        printf("\\t j0 j1 jn y0 y1 yn gamma lgamma (Bessel and gamma functions)\\n");
+        printf("\\t urand grand lrand prand erand trand (uniform gaussian lorentzian poisson exponential or triangle randomness)\\n");
+        printf("\\t fft invfft realfft invrealfft (complex or real FFT - base 2)\\n");
+        printf("\\t ab2phif phif2ab (cartesian to amplitude-phase conversion)\\n");
+        printf("\\t swab4 swab2 (swap bytes)\\n");
+        printf("\\t odd even oddeven evenodd (extract or interleave values)\\n");
+        printf("\\t reverse (re-order 4-byte floats in file)\\n");
+        printf("\\t stride (skip blocks of size param)\\n");
+        printf("\\t stitch (interleave blocks from different files)\\n");
+        printf("\\t flip (reverse data in interleaved blocks)\\n");
+        printf("\\t flop (reverse data as interleaved blocks)\\n");
+        printf("\\t flipflop (reverse x and y data with -xsize or -param xsize)\\n");
+        printf("\\t swapxy (swap x and y axes with -xsize)\\n");
+        printf("\\t maxpool (maximum value within box with -param edge pixels)\\n");
+        printf("\\t avgbox (average value of box with -param edge pixels)\\n");
+        printf("\\t edge (find rising/falling edges, return 0,1,or -1)\\n");
+        printf("\\t feather (find edges and soften them)\\n");
+        printf("\\t maxradius (maximum value within radius xrad, yrad, zrad pixels no down-sampling)\\n");
+        printf("\\t avgradius (local average within radius xrad, yrad, zrad  pixels, no down-sampling)\\n");
+        printf("\\t medradius (local median within radius xrad, yrad, zrad  pixels, no down-sampling)\\n");
+        printf("\\t-param\\t second value for add, subtract, set, etc. or parameter needed by the function (such as jn)\\n");
+        printf("\\t-xsize\\t fast dimension when treating data as 2D or 3D array\\n");
+        printf("\\t-ysize\\t 2nd fastest dimension when treating data as 2D or 3D array\\n");
+        printf("\\t-zsize\\t slowest dimension when treating data as 3D array\\n");
+        printf("\\t-xrad\\t max radial extent for gaussblur maxradius avgradius and medradius functions\\n");
+        printf("\\t-yrad -zrad\\t radial extent in y and directions\\n");
+        printf("\\t-seed\\t seed for random number functions\\n");
+        printf("\\t-ignore\\t value found in either input file will pass through\\n");
+        printf("\\t-header \\tnumber of bytes to ignore in header of each file\\n");
+        printf("\\t-outheader \\tnumber of bytes of the header to pass on to output file\\n");
+        printf("\\toutput.bin\\t output binary file containing the results to the desired function\\n");
         exit(9);
     }
 
     printf("selected function: ");
     switch(func){
-        case AB2PHIF: printf("AB2PHIF\n"); break;
-        case PHIF2AB: printf("PHIF2AB\n"); break;
-        case ACOS: printf("ACOS\n"); break;
-        case ACOSH: printf("ACOSH\n"); break;
-        case ADD: printf("ADD\n"); break;
-        case ASIN: printf("ASIN\n"); break;
-        case ASINH: printf("ASINH\n"); break;
-        case ATAN: printf("ATAN\n"); break;
-        case ATANH: printf("ATANH\n"); break;
-        case CBRT: printf("CBRT\n"); break;
-        case CEIL: printf("CEIL\n"); break;
-        case COS: printf("COS\n"); break;
-        case COSH: printf("COSH\n"); break;
-        case DIVIDE: printf("DIVIDE\n"); break;
-        case ERAND: printf("ERAND\n"); break;
-        case ERF: printf("ERF\n"); break;
-        case ERFC: printf("ERFC\n"); break;
-        case ERFPOW: printf("ERFPOW\n"); break;
-        case EVEN: printf("EVEN\n"); break;
-        case EXP: printf("EXP\n"); break;
-        case SAFEXP: printf("SAFEXP\n"); break;
-        case FABS: printf("FABS\n"); break;
-        case SIGN: printf("SIGN\n"); break;
-        case FFT: printf("FFT\n"); break;
-        case INVFFT: printf("INVFFT\n"); break;
-        case REALFFT: printf("REALFFT\n"); break;
-        case INVREALFFT: printf("INVREALFFT\n"); break;
-        case FLOOR: printf("FLOOR\n"); break;
-        case GAMMA: printf("GAMMA\n"); break;
-        case GRAND: printf("GRAND\n"); break;
-        case INVERSE: printf("INVERSE\n"); break;
-        case J0: printf("J0\n"); break;
-        case J1: printf("J1\n"); break;
-        case JN: printf("JN\n"); break;
-        case LGAMMA: printf("LGAMMA\n"); break;
-        case LOG: printf("LOG\n"); break;
-        case LOG10: printf("LOG10\n"); break;
-        case LRAND: printf("LRAND\n"); break;
-        case MAXIMUM: printf("MAXIMUM\n"); break;
-        case MINIMUM: printf("MINIMUM\n"); break;
-        case MULTIPLY: printf("MULTIPLY\n"); break;
-        case NANZERO: printf("NANZERO\n"); break;
-        case NEGATE: printf("NEGATE\n"); break;
-        case NORM: printf("NORM\n"); break;
-        case ODD: printf("ODD\n"); break;
-        case ODDEVEN: printf("ODDEVEN\n"); break;
-        case EVENODD: printf("EVENODD\n"); break;
-        case REVERSE: printf("REVERSE\n"); break;
-        case STRIDE: printf("STRIDE\n"); break;
-        case STITCH: printf("STITCH\n"); break;
-        case FLIP: printf("FLIP\n"); break;
-        case FLOP: printf("FLOP\n"); break;
-        case FLIPFLOP: printf("FLIPFLOP\n"); break;
-        case SWAPXY: printf("SWAPXY\n"); break;
-        case MAXPOOL: printf("MAXPOOL\n"); break;
-        case AVGBOX: printf("AVGBOX\n"); break;
-        case POW: printf("POW\n"); break;
-        case SEGMENT: printf("SEGMENT %f\n",param); break;
-        case EDGE: printf("EDGE %f\n",param); break;
-        case FEATHER: printf("FEATHER %f\n",param); break;
-        case GAUSSBLUR: printf("GAUSSBLUR %f  %f %f %f\n",param,xrad,yrad,zrad); break;
-        case AVGRADIUS: printf("AVGRADIUS %f %f %f\n",xrad,yrad,zrad); break;
-        case MEDRADIUS: printf("MEDRADIUS %f %f %f\n",xrad,yrad,zrad); break;
-        case PRAND: printf("PRAND\n"); break;
-        case SET: printf("SET\n"); break;
-        case SIN: printf("SIN\n"); break;
-        case SINH: printf("SINH\n"); break;
-        case SQRT: printf("SQRT\n"); break;
-        case SUBTRACT: printf("SUBTRACT\n"); break;
-        case SWAB2: printf("SWAB2\n"); break;
-        case SWAB4: printf("SWAB4\n"); break;
-        case TAN: printf("TAN\n"); break;
-        case TANH: printf("TANH\n"); break;
-        case THRESH: printf("THRESH\n"); break;
-        case TRAND: printf("TRAND\n"); break;
-        case UNKNOWN: printf("UNKNOWN\n"); break;
-        case URAND: printf("URAND\n"); break;
-        case Y0: printf("Y0\n"); break;
-        case Y1: printf("Y1\n"); break;
-        case YN: printf("YN\n"); break;
+        case AB2PHIF: printf("AB2PHIF\\n"); break;
+        case PHIF2AB: printf("PHIF2AB\\n"); break;
+        case ACOS: printf("ACOS\\n"); break;
+        case ACOSH: printf("ACOSH\\n"); break;
+        case ADD: printf("ADD\\n"); break;
+        case ASIN: printf("ASIN\\n"); break;
+        case ASINH: printf("ASINH\\n"); break;
+        case ATAN: printf("ATAN\\n"); break;
+        case ATANH: printf("ATANH\\n"); break;
+        case CBRT: printf("CBRT\\n"); break;
+        case CEIL: printf("CEIL\\n"); break;
+        case COS: printf("COS\\n"); break;
+        case COSH: printf("COSH\\n"); break;
+        case DIVIDE: printf("DIVIDE\\n"); break;
+        case ERAND: printf("ERAND\\n"); break;
+        case ERF: printf("ERF\\n"); break;
+        case ERFC: printf("ERFC\\n"); break;
+        case ERFPOW: printf("ERFPOW\\n"); break;
+        case EVEN: printf("EVEN\\n"); break;
+        case EXP: printf("EXP\\n"); break;
+        case SAFEXP: printf("SAFEXP\\n"); break;
+        case FABS: printf("FABS\\n"); break;
+        case SIGN: printf("SIGN\\n"); break;
+        case FFT: printf("FFT\\n"); break;
+        case INVFFT: printf("INVFFT\\n"); break;
+        case REALFFT: printf("REALFFT\\n"); break;
+        case INVREALFFT: printf("INVREALFFT\\n"); break;
+        case FLOOR: printf("FLOOR\\n"); break;
+        case GAMMA: printf("GAMMA\\n"); break;
+        case GRAND: printf("GRAND\\n"); break;
+        case INVERSE: printf("INVERSE\\n"); break;
+        case J0: printf("J0\\n"); break;
+        case J1: printf("J1\\n"); break;
+        case JN: printf("JN\\n"); break;
+        case LGAMMA: printf("LGAMMA\\n"); break;
+        case LOG: printf("LOG\\n"); break;
+        case LOG10: printf("LOG10\\n"); break;
+        case LRAND: printf("LRAND\\n"); break;
+        case MAXIMUM: printf("MAXIMUM\\n"); break;
+        case MINIMUM: printf("MINIMUM\\n"); break;
+        case MULTIPLY: printf("MULTIPLY\\n"); break;
+        case NANZERO: printf("NANZERO\\n"); break;
+        case NEGATE: printf("NEGATE\\n"); break;
+        case NORM: printf("NORM\\n"); break;
+        case ODD: printf("ODD\\n"); break;
+        case ODDEVEN: printf("ODDEVEN\\n"); break;
+        case EVENODD: printf("EVENODD\\n"); break;
+        case REVERSE: printf("REVERSE\\n"); break;
+        case STRIDE: printf("STRIDE\\n"); break;
+        case STITCH: printf("STITCH\\n"); break;
+        case FLIP: printf("FLIP\\n"); break;
+        case FLOP: printf("FLOP\\n"); break;
+        case FLIPFLOP: printf("FLIPFLOP\\n"); break;
+        case SWAPXY: printf("SWAPXY\\n"); break;
+        case MAXPOOL: printf("MAXPOOL\\n"); break;
+        case AVGBOX: printf("AVGBOX\\n"); break;
+        case POW: printf("POW\\n"); break;
+        case SEGMENT: printf("SEGMENT %f\\n",param); break;
+        case EDGE: printf("EDGE %f\\n",param); break;
+        case FEATHER: printf("FEATHER %f\\n",param); break;
+        case GAUSSBLUR: printf("GAUSSBLUR %f  %f %f %f\\n",param,xrad,yrad,zrad); break;
+        case AVGRADIUS: printf("AVGRADIUS %f %f %f\\n",xrad,yrad,zrad); break;
+        case MEDRADIUS: printf("MEDRADIUS %f %f %f\\n",xrad,yrad,zrad); break;
+        case PRAND: printf("PRAND\\n"); break;
+        case SET: printf("SET\\n"); break;
+        case SIN: printf("SIN\\n"); break;
+        case SINH: printf("SINH\\n"); break;
+        case SQRT: printf("SQRT\\n"); break;
+        case SUBTRACT: printf("SUBTRACT\\n"); break;
+        case SWAB2: printf("SWAB2\\n"); break;
+        case SWAB4: printf("SWAB4\\n"); break;
+        case TAN: printf("TAN\\n"); break;
+        case TANH: printf("TANH\\n"); break;
+        case THRESH: printf("THRESH\\n"); break;
+        case TRAND: printf("TRAND\\n"); break;
+        case UNKNOWN: printf("UNKNOWN\\n"); break;
+        case URAND: printf("URAND\\n"); break;
+        case Y0: printf("Y0\\n"); break;
+        case Y1: printf("Y1\\n"); break;
+        case YN: printf("YN\\n"); break;
     }
 /*
-awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin_stuff/float_func.c |\
- sort -u | awk '{ print "\tcase "$1": printf(\""$1"\\n\"); break;"}'
+awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/bin_stuff/float_func.c |\\
+ sort -u | awk '{ print "\\tcase "\$1": printf(\\""\$1"\\\\n\\"); break;"}'
 */
 
     for(k=1;k<=ignore_values;++k)
     {
-        printf("ignoring value %g in both files\n",ignore_value[k]);
+        printf("ignoring value %g in both files\\n",ignore_value[k]);
     }
 
     /* load first float-image */
-    printf("header = %d bytes\n",header);
+    printf("header = %d bytes\\n",header);
     if(header)
     {
         headerstuff = calloc(header+10,1);
@@ -495,7 +737,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     n = ftell(infile1)-header;
     inimage1 = calloc(n+10,1);
     invalid_pixel = calloc(n+10,1);
-    printf("reading %u floats from %s\n",n/sizeof(float),infile1name);
+    printf("reading %u floats from %s\\n",n/sizeof(float),infile1name);
     fseek(infile1,header,SEEK_SET);
     fread(inimage1,n,1,infile1);
     fclose(infile1);
@@ -514,7 +756,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     if(ysize <= 0) ysize = 1;
     zsize = pixels/xsize/ysize;
     if(zsize <= 0) zsize = 1;
-    printf("array dimensions: x %d y %d z %d\n",xsize,ysize,zsize);
+    printf("array dimensions: x %d y %d z %d\\n",xsize,ysize,zsize);
 
     /* if the function takes two args ... */
     if( func == ADD || func == SUBTRACT || func == MULTIPLY || func == DIVIDE || func == POW ||
@@ -545,7 +787,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     if(infile2name != NULL){
         infile2 = fopen(infile2name,"r");
         if(infile2 == NULL){
-            printf("ERROR: unable to open %s as input 2\n", infile2name);
+            printf("ERROR: unable to open %s as input 2\\n", infile2name);
             perror("");
             exit(9);
         }            
@@ -558,18 +800,18 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     outfile = fopen(outfilename,"wb");
     if(outfile == NULL)
     {
-        printf("ERROR: unable to open %s for output\n", outfilename);
+        printf("ERROR: unable to open %s for output\\n", outfilename);
         perror("");
         exit(9);
     }
-    printf("input1 is: %s\n",infile1name);
+    printf("input1 is: %s\\n",infile1name);
     if(map_param)
     {
-        printf("input2 is: %s\n",infile2name);
+        printf("input2 is: %s\\n",infile2name);
     }else{
-        printf("input2 is: %g\n",param);
+        printf("input2 is: %g\\n",param);
     }
-    printf("output to: %s\n",outfilename);
+    printf("output to: %s\\n",outfilename);
     
     /* just to keep track */
     outimage = NULL;
@@ -582,7 +824,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
         valid_pixels = (int) ceil(pow(2.0,floor(log(pixels)/log(2))));
         if(valid_pixels != pixels){
             pixels = outpixels = xsize = valid_pixels;
-            printf("truncating data to %d floats\n",pixels);
+            printf("truncating data to %d floats\\n",pixels);
         }
         valid_pixels = 0;
     }
@@ -592,7 +834,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
         valid_pixels = 2+(int) ceil(pow(2.0,floor(log(pixels-2)/log(2))));
         if(valid_pixels != pixels){
             pixels = outpixels = xsize = valid_pixels;
-            printf("truncating data to %d floats\n",pixels);
+            printf("truncating data to %d floats\\n",pixels);
         }
         valid_pixels = 0;
     }
@@ -727,7 +969,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
         if( xrad > xosize-1 ) xrad = xosize-1;
         if( yrad > yosize-1 ) yrad = yosize-1;
         if( zrad > zosize-1 ) zrad = zosize-1;
-        printf("filter radii: xrad=%d yrad=%d zrad=%d\n",xrad,yrad,zrad);
+        printf("filter radii: xrad=%d yrad=%d zrad=%d\\n",xrad,yrad,zrad);
 
         /* output file is same size */
         outpixels = xosize*yosize*zosize;
@@ -739,7 +981,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
         if(yrad > radius) radius = yrad;
         if(zrad > radius) radius = zrad;
         fwidthsq = param*param/radius/radius/log(2);
-        printf("fractional width = %f  %f\n",sqrt(fwidthsq),radius);
+        printf("fractional width = %f  %f\\n",sqrt(fwidthsq),radius);
     }
     if( func == MEDRADIUS ){
         /* allocate enough to hold the sphere to be median-ed */
@@ -759,13 +1001,13 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     if(xosize <= 0 ) xosize = 1;
     if(yosize <= 0 ) yosize = 1;
     if(zosize <= 0 ) zosize = 1;
-    printf("output array dimensions: x %d y %d z %d\n",xosize,yosize,zosize);
+    printf("output array dimensions: x %d y %d z %d\\n",xosize,yosize,zosize);
     outpixels = xosize*yosize*zosize;
 
     
     /* see if we need to allocate memory for output image */
     if( outimage == NULL ) {
-        printf("allocating %ld pixels\n",pixels);
+        printf("allocating %ld pixels\\n",pixels);
         outimage = calloc(outpixels+10,sizeof(float));
     }
 
@@ -773,7 +1015,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     for(i=0;i<pixels;++i)
     {
         j=i;
-        if(debug > 2) printf("inimage1[%d] = %f\n",i,inimage1[i]);
+        if(debug > 2) printf("inimage1[%d] = %f\\n",i,inimage1[i]);
 
         /* skip any invalid values, propagate to output */
         for(k=1;k<=ignore_values;++k)
@@ -1019,7 +1261,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
         if( func == DIVIDE ){
             if(map_param) param=inimage2[i];
             outimage[j] = inimage1[i]/param;
-            if(debug) printf("divide: %d %f / %f = %f\n",i,inimage1[i],param,outimage[j]);
+            if(debug) printf("divide: %d %f / %f = %f\\n",i,inimage1[i],param,outimage[j]);
         }
         if( func == INVERSE ){
             if(map_param) param=inimage2[i];
@@ -1098,7 +1340,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
             x = i % xsize;
             y = i / xsize;
             j = x*ysize+y;
-            if(debug) printf("flipflop: %d %d -> %d %d   %f\n",x,y,i,j,inimage1[j]);
+            if(debug) printf("flipflop: %d %d -> %d %d   %f\\n",x,y,i,j,inimage1[j]);
             outimage[j] = inimage1[i];
         }
         if( func == SWAPXY ){
@@ -1109,7 +1351,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
             yo = x;
             zo = z;
             j = xo + xosize*yo + zo*xosize*yosize;
-            if(debug )printf("swapxy: %d %d -> %d %d   %f\n",x,y,i,j,inimage1[i]);
+            if(debug )printf("swapxy: %d %d -> %d %d   %f\\n",x,y,i,j,inimage1[i]);
             outimage[j] = inimage1[i];
         }
         if( func == MAXPOOL ){
@@ -1121,7 +1363,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
             zo = (int) z / param;
             j = xo + xosize*yo + zo*xosize*yosize;
             if( inimage1[i] > outimage[j]) outimage[j] = inimage1[i];
-            if(debug)printf("maxpool: %d %d %d -> %d %d   %f %f\n",x,y,z,i,j,inimage1[i],outimage[j]);
+            if(debug)printf("maxpool: %d %d %d -> %d %d   %f %f\\n",x,y,z,i,j,inimage1[i],outimage[j]);
         }
         if( func == AVGBOX ){
             x = i % xsize;
@@ -1133,7 +1375,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
             j = xo + xosize*yo + zo*xosize*yosize;
             outimage[j] += inimage1[i];
             ++count[j];
-            if(debug)printf("avgbox: %d %d %d -> %d %d   %f %f\n",x,y,z,i,j,inimage1[i],outimage[j]);
+            if(debug)printf("avgbox: %d %d %d -> %d %d   %f %f\\n",x,y,z,i,j,inimage1[i],outimage[j]);
         }
         if( func == GAUSSBLUR ){
             /* skip over zeroes for speed */
@@ -1160,7 +1402,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
               outimage[j] += inimage1[i]*exp(-fradsq/fwidthsq);
               ++count[j];
             }
-            if(debug)printf("gaussblur: %d %d %d -> %d %d   %f %f\n",x,y,z,i,j,inimage1[i],outimage[j]);
+            if(debug)printf("gaussblur: %d %d %d -> %d %d   %f %f\\n",x,y,z,i,j,inimage1[i],outimage[j]);
         }
         if( func == EDGE || func == FEATHER ){
             int up=0, down=0, same=0;
@@ -1199,7 +1441,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
                outimage[i] = inimage1[i]-0.25*outimage[i];
             }
 
-            if(debug)printf("up: %d down: %d same: %d -> %f at: %d %d %d\n",up,down,same,outimage[i],x,y,z);
+            if(debug)printf("up: %d down: %d same: %d -> %f at: %d %d %d\\n",up,down,same,outimage[i],x,y,z);
         }
         if( func == SEGMENT ){
             if( inimage1[i] == 0.0 ) continue;
@@ -1226,22 +1468,22 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
                  if( segment != (int) outimage[j] ) {
                    /* hmm, a conflict */
                    k = (int) outimage[j];
-                   if(k > pixels) printf("PANIC: segment %d > pixels (%d) \n",k,pixels);
+                   if(k > pixels) printf("PANIC: segment %d > pixels (%d) \\n",k,pixels);
                    joins[k] = (int) segment;
                    if(njoins<k)njoins=k;
                  }
               }
-              if(debug)printf("segment: %d %d %d -> %d %d   %d   %f %f\n",x,y,z,i,j,segment,inimage1[i],outimage[j]);
+              if(debug)printf("segment: %d %d %d -> %d %d   %d   %f %f\\n",x,y,z,i,j,segment,inimage1[i],outimage[j]);
             }
             if( segment == 0.0) {
               /* we must be the first? */
               ++nsegments;
               segment = nsegments;
-              if(debug)printf("new segment %d at: %d %d %d\n",segment,x,y,z);
+              if(debug)printf("new segment %d at: %d %d %d\\n",segment,x,y,z);
             }
             /* label the output image with this assigned segment */
             outimage[i] = (float) segment;
-            if(debug)printf("output at: %d %d %d = %f\n",x,y,z,outimage[i]);
+            if(debug)printf("output at: %d %d %d = %f\\n",x,y,z,outimage[i]);
         }
         if( func == MAXRADIUS ){
             xo = i % xosize;
@@ -1264,7 +1506,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
               if( z < 0 || z >= zsize ) continue;
               j = x + xsize*y + z*xsize*ysize;
               if( inimage1[i] > outimage[j]) outimage[j] = inimage1[i];
-              if(debug)printf("maxradius: %d %d %d -> %d %d  %d   %f %f\n",x,y,z,i,j,parami,inimage1[i],outimage[j]);
+              if(debug)printf("maxradius: %d %d %d -> %d %d  %d   %f %f\\n",x,y,z,i,j,parami,inimage1[i],outimage[j]);
             }
         }
         if( func == AVGRADIUS ){
@@ -1290,7 +1532,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
               outimage[j] += inimage1[i];
               ++count[j];
             }
-            if(debug)printf("avgradius: %d %d %d -> %d %d   %f %f\n",xo,yo,zo,i,j,inimage1[i],outimage[j]);
+            if(debug)printf("avgradius: %d %d %d -> %d %d   %f %f\\n",xo,yo,zo,i,j,inimage1[i],outimage[j]);
         }
         if( func == MEDRADIUS ){
             j=i;
@@ -1320,7 +1562,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
               if( invalid_pixel[k] ) continue;
               ++narr;
               scratch[narr] = inimage1[k];
-              //printf("debug: %d %d %d -> %d %d %d   %f %f\n",xo,yo,zo,x,y,z,inimage1[i],outimage[i]);
+              //printf("debug: %d %d %d -> %d %d %d   %f %f\\n",xo,yo,zo,x,y,z,inimage1[i],outimage[i]);
             }
             if(narr) {
               outimage[j] = fmedian(narr,scratch);
@@ -1347,7 +1589,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
                 ++count[j];
               }
             }
-            if(debug)printf("medradius: %d %d %d -> %d %d   %f %f\n",xo,yo,zo,i,j,inimage1[i],outimage[i]);
+            if(debug)printf("medradius: %d %d %d -> %d %d   %f %f\\n",xo,yo,zo,i,j,inimage1[i],outimage[i]);
         }
     }
 //    if( func == AB2PHIF || func == PHIF2AB || func == EVENODD || func == ODDEVEN || func == STITCH )
@@ -1369,11 +1611,11 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     }
 
     if( func == SEGMENT ) {
-        printf("%d segment discoveries\n",nsegments);
+        printf("%d segment discoveries\\n",nsegments);
         for(k=0;k<njoins;++k)
         {
           if(joins[k] == 0) continue;
-          printf("merging segment %d with segment %d\n",joins[k],k);
+          printf("merging segment %d with segment %d\\n",joins[k],k);
           for(j=0;j<outpixels;++j)
           {
             if(outimage[j] == (float) k) outimage[j] = (float) joins[k];
@@ -1396,17 +1638,17 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     if(ignore_values) printf("%d invalid of ",outpixels-valid_pixels);
     printf("%d pixels ",outpixels);
     if(ignore_values) printf("( %d left)",valid_pixels);
-    printf("\n");
+    printf("\\n");
     for(j=0;j<outpixels;++j)
     {
         sumd   += outimage[j] - avg;
         sumdsq += (outimage[j] - avg) * (outimage[j] - avg);
     }
     rmsd = sqrt(sumdsq/outpixels);
-    printf("max = %g min = %g\n",max,min);
-    printf("mean = %g rms = %g rmsd = %g\n",avg,rms,rmsd);
+    printf("max = %g min = %g\\n",max,min);
+    printf("mean = %g rms = %g rmsd = %g\\n",avg,rms,rmsd);
 
-    printf("writing %s as a %d-byte header and %u %u-byte floats\n",outfilename,outheader,outpixels,sizeof(float));
+    printf("writing %s as a %d-byte header and %u %u-byte floats\\n",outfilename,outheader,outpixels,sizeof(float));
     outfile = fopen(outfilename,"wb");
     if(outheader)
     {
@@ -1645,7 +1887,7 @@ float fmedian(unsigned long n, float arr[])
         {
           SWAP(arr[l],arr[ir]);
         }
-        //for(i=1;i<=n;++i) printf("arr[%d]=%f\n",i,arr[i]);
+        //for(i=1;i<=n;++i) printf("arr[%d]=%f\\n",i,arr[i]);
         return arr[k];
       } else {
         mid=(l+ir) >> 1;
@@ -1824,4 +2066,9 @@ float *Fourier(float *data, unsigned long length, int direction)
 
         return data;
 }
+EOF
+gcc -o float_func float_func.c -lm 
+set path = ( . $path )
+goto func
+
 
