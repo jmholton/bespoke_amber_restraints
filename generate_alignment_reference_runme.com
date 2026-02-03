@@ -1,0 +1,499 @@
+#! /bin/tcsh -fe
+#
+# prune off everything that might not be correctly placed protein
+#
+#
+set mtzfile = ../refme_small.mtz
+set pdbfile = ""
+
+set repulse_scale = 0.1
+set crush_scale = 10
+set repulse_nb = 512
+set crush_nb = 512
+set reorg_water = 0
+
+set repulse_cycles = 3
+set crush_cycles = 10
+
+set minrho = 0.8
+set maxgeo = 10
+set bigmove = 1.5
+set maxBsig = 3
+set maxbaddies = 10
+set min_CAs = 2
+set topbad = 10
+
+set ciffiles = ""
+
+set itr = ""
+
+set tempfile = tempfile
+set debug = 0
+
+if(-e xtal_properties.sourceme) source xtal_properties.sourceme
+
+# read the command line to update variables and other settings
+foreach Arg ( $* )
+    set arg = `echo $Arg | awk '{print tolower($0)}'`
+    set assign = `echo $arg | awk '{print ( /=/ )}'`
+    set Key = `echo $Arg | awk -F "=" '{print $1}'`
+    set Val = `echo $Arg | awk '{print substr($0,index($0,"=")+1)}'`
+    set Csv = `echo $Val | awk 'BEGIN{RS=","} {print}'`
+    set key = `echo $Key | awk '{print tolower($1)}'`
+    set num = `echo $Val | awk '{print $1+0}'`
+    set int = `echo $Val | awk '{print int($1+0)}'`
+
+    if( $assign ) then
+      # re-set any existing variables
+      set test = `set | awk -F "\t" '{print $1}' | egrep "^${Key}"'$' | wc -l`
+      if ( $test ) then
+          set $Key = $Val
+          echo "$Key = $Val"
+          continue
+      endif
+      # synonyms
+    else
+      # no equal sign
+      if("$Arg" =~ *.pdb ) set pdbfile = $Arg
+      if("$Arg" =~ *.cif ) set ciffiles = ( $ciffiles $Arg )
+      if("$Arg" =~ *.mtz ) set mtzfile = $Arg
+      if("$Arg" == "$num" ) set itr = $Arg
+    endif
+    if("$key" == "debug") set debug = "1"
+end
+
+# shorthand for temporary file
+set t = $tempfile
+
+
+if( "$itr" == "" ) then
+  set itr = `ls -1 | awk -F "_" '/^centroids_/{printf("%03d\n",$2)}' | sort -g | tail -n 1`
+  echo "previous last itr = $itr"
+endif
+if( "$itr" == "" ) set itr = 0
+if( "$itr" == "0" ) then
+
+endif
+
+set done = 0
+
+#if(-e ../xtal_properties.sourceme) source ../xtal_properties.sourceme
+
+#ln -sf $pdbfile centroids_start.pdb
+
+
+if(! -e opts.eff) then
+  echo "WARNING: no opts.eff provided. "
+cat << EOF >! opts.eff
+refinement {
+  refine {
+    occupancies {
+      individual = water
+    }
+  }
+  bulk_solvent_and_scale {
+    apply_back_trace=False
+  }
+  main {
+    max_number_of_iterations=100
+  }
+}
+EOF
+endif
+
+cp $pdbfile centroids_start.pdb
+
+while ( ! $done )
+# liquify loop
+while ( ! $done )
+# add water loop
+while ( ! $done )
+# prune loop
+
+set itr = `echo $itr | awk '{printf("%03d",$1+1)}'`
+
+if( $reorg_water ) then
+    # make waters non-clashy
+    echo "de-clashing waters..."
+    reorganize_waters.com $pdbfile >! reorg.log
+    filter_pdb.awk -v skip=water rewatered.pdb | egrep -v "^END|^LINK" >! waterconf.pdb
+    convert_pdb.awk -v only=water,atoms -v CONF="A" rewatered.pdb |\
+    waterconf.awk |\
+    egrep "^ATOM|^HETAT" >> waterconf.pdb
+
+    cp waterconf.pdb refme.pdb
+else
+    if("$pdbfile" != "refme.pdb") cp $pdbfile refme.pdb
+endif
+
+echo "geometry pre-run"
+phenix.geometry_minimization refme.pdb $ciffiles macro_cycles=0 \
+  stop_for_unknowns=false \
+  output_file_name_prefix=refme_${itr} >! geom_${itr}.log
+
+if(! -e start.geo ) then
+  echo "geometry start"
+  phenix.geometry_minimization refme.pdb $ciffiles macro_cycles=0 \
+    stop_for_unknowns=false \
+    output_file_name_prefix=start >! geom_start.log
+endif
+
+foreach geo ( start refme_${itr} )
+cat ${geo}.geo |\
+awk '/nonbonded pdb=/{key="NONBOND";split($0,w,"\"");id1=w[2];\
+     getline;split($0,w,"\"");id2=w[2];\
+     getline;getline;\
+     obs=$1;ideal=$2;sym=$3;\
+     a1=substr(id1,1,4);a2=substr(id2,1,4);\
+     f1=substr(id1,5,1);f2=substr(id2,5,1);\
+     t1=substr(id1,6,4);t2=substr(id2,6,4);\
+     c1=substr(id1,10,1);c2=substr(id2,10,1);\
+     r1=substr(id1,11,5);r2=substr(id2,11,5);\
+     gsub(" ","_",f1);gsub(" ","_",f2);\
+     gsub(" ","_",c1);gsub(" ","_",c2);\
+     print a1,f1,t1,c1,r1,"-",a2,f2,t2,c2,r2,"|",obs,sym}' |\
+cat >! nonbonds_${geo}.txt
+end
+
+awk '{print $0,"PREV"}' nonbonds_start.txt |\
+ cat -  nonbonds_refme_${itr}.txt |\
+ awk -F "|" '/PREV/{++seen[$1];next} \
+ ! seen[$1] || / HOH /{print}' |\
+ awk '{\
+     a1=$1;f1=$2;c1=$4;r1=$5;\
+     a2=$7;f2=$8;c2=$10;r2=$11;\
+     v=$13;s=99;sym=$14;\
+   print "    #",c1,c2,a1,a2,r1,r2,f1,f2,v,s;\
+   print "    bond {"\
+   print "      action = *add";\
+   print "      atom_selection_1 = \"name",a1,"and resseq",r1,"and chain",c1,"and altid",f1 "\"";\
+   print "      atom_selection_2 = \"name",a2,"and resseq",r2,"and chain",c2,"and altid",f2 "\"";\
+   if(sym!="")print "      symmetry_operation =",sym;\
+   print "      distance_ideal =",v;\
+   print "      sigma = 99";\
+   print "      slack = 6";\
+   print "    }";}' |\
+awk '{gsub("and altid _","");gsub("and chain _","");print}' |\
+awk 'BEGIN{print "  geometry_restraints.edits {"} {print} END{print "  }"}' |\
+awk 'BEGIN{print "refinement {"} {print} END{print "}"}' |\
+cat >! phenix_opts_unbump.eff
+
+
+
+echo "refining $itr repulse"
+# allow removal of clashes
+phenix.refine wxc_scale=$repulse_scale wxu_scale=$repulse_scale nonbonded_weight=$repulse_nb \
+  refme.pdb $ciffiles \
+  main.number_of_macro_cycles=$repulse_cycles \
+  refine.sites.individual="not water" \
+  opts.eff phenix_opts_unbump.eff \
+  $mtzfile prefix=repulse serial=$itr >! repulse${itr}.log 
+
+echo "refining $itr crush"
+# allow geometry and B factors to go hog wild, go for lowest R and centroids
+phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
+ repulse_${itr}.pdb $ciffiles \
+  main.number_of_macro_cycles=$crush_cycles \
+  opts.eff phenix_opts_unbump.eff \
+  $mtzfile prefix=centroids serial=$itr >! centroids${itr}.log 
+
+molprobify_runme.com keepgeo centroids_${itr}.pdb | tee molprobify_centroids_${itr}.log
+
+echo "probing density"
+filter_pdb.awk -v skip=H centroids_${itr}.pdb | awk '{print substr($0,1,80)}' >! rhome.pdb
+rholabel_runme.com rhome.pdb centroids_${itr}.mtz mtzlabel=2FOFCWT >! rhoprobe.log
+sort -k1.80g rholabeled.pdb  |\
+ awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
+cat >! badrho.txt
+
+awk '/^BOND/' centroids_${itr}_fullgeo.txt |\
+awk -F "|" '{gsub("_"," ");split($2,s,"-");\
+  id1=substr(s[1],1,5) substr(s[1],7,1) substr(s[1],9,4) substr(s[1],14,1) substr(s[1],16,4);\
+  id2=substr(s[2],1,5) substr(s[2],7,1) substr(s[2],9,4) substr(s[2],14,1) substr(s[2],16,4);\
+  print id1 "|" id2 "| BONDED" }' |\
+cat badrho.txt - |\
+awk '{id=substr($0,1,15);id2=substr($0,17,15)}\
+  $NF=="BADRHO"{++badrho[id];rho[id]=$(NF-1);next}\
+  $NF!="BONDED"{next}\
+  ! badrho[id]{++goodneighbor[id2]}\
+  ! badrho[id2]{++goodneighbor[id]}\
+  END{for(id in badrho){if(badrho[id]+0>0 && ! goodneighbor[id]) print id,goodneighbor[id],"|",rho[id],"BADCONN"}}' |\
+cat >! badconn.txt
+
+
+awk -v maxgeo=$maxgeo '$2>maxgeo{print $0,"|",$2}' centroids_${itr}_worstgeo.txt |\
+awk -F "|" '{print $2,"-",$3}' |\
+awk -F "-" '{E=$NF;for(i=1;i<NF;++i)print $i,E}' |\
+awk '{gsub("_"," ");\
+  print substr($0,1,5) substr($0,7,1) substr($0,9,4) substr($0,14,1) substr($0,16,4),"|",$NF,"BADGEO"}' |\
+cat >! badgeo.txt
+
+awk -v maxgeo=$maxgeo '$2>maxgeo && $1=="TORSION"{print $0,"|",$2}' centroids_${itr}_worstgeo.txt |\
+awk 'BEGIN{DTR=atan2(1,1)/45} cos(DTR*$4)>0' |\
+awk -F "|" '{print $2,"-",$3}' |\
+awk -F "-" '$1~/ CA / && $4~/ CA /{print $2,$NF;print $3,$NF}' |\
+awk '{gsub("_"," ");\
+  print substr($0,1,5) substr($0,7,1) substr($0,9,4) substr($0,14,1) substr($0,16,4),"|",$NF,"BADOMEGA"}' |\
+cat >! badomega.txt
+
+awk -v maxgeo=$maxgeo '$2>maxgeo && $1=="CHIR" && $4*$5<0{print $0,"|",$2}' centroids_${itr}_worstgeo.txt |\
+awk -F "|" '{print $2,"-",$3}' |\
+awk -F "-" '{print $1,$NF}' |\
+awk '{gsub("_"," ");\
+  print substr($0,1,5) substr($0,7,1) substr($0,9,4) substr($0,14,1) substr($0,16,4),"|",$NF,"BADCHIR"}' |\
+cat >! badchir.txt
+
+flip_to_target_runme.com centroids_${itr}.pdb centroids_start.pdb >! flip.log
+filter_pdb.awk -v skip=H,water centroids_start.pdb flipped.pdb |\
+rmsd -v debug=1  |\
+  sort -k1.25gr |\
+  awk -v bigmove=$bigmove 'substr($0,25)+0>bigmove && /moved/{print $0,"BIGMOVE"}' >! bigmoves.txt
+
+set medmadB = `awk '/^ATOM|^HETAT/{print substr($0,61,6)}' centroids_${itr}.pdb | median.awk`
+echo $medmadB $maxBsig |\
+ cat - centroids_${itr}.pdb |\
+awk 'NR==1{maxBsig=$NF;thresh=$1+maxBsig*$3;next}\
+  ! /^ATOM|HETAT/{next}\
+  {B=substr($0,61,6)+0;id=substr($0,12,15)}\
+  B>thresh{print id,B,"BIGB"}' |\
+sort -k1.16gr >! bigB.txt
+
+head -n $topbad badgeo.txt bigmoves.txt bigB.txt |\
+cat - badrho.txt badconn.txt |\
+ awk '/^==/ || NF==0{next}\
+   {id=substr($0,1,15)}\
+   $NF=="BIGB"{++bigB[id]}\
+   $NF=="BIGMOVE"{++bigmove[id]}\
+   $NF=="BADGEO"{++badgeo[id]}\
+   $NF=="BADCONN"{print}\
+   $NF=="BADRHO" && ( badgeo[id] || bigB[id]){\
+      print id," |",badgeo[id]+0,bigmove[id]+0,bigB[id]+0,"BAD"}' |\
+cat >! baddies.txt
+
+head -n 2 badomega.txt badchir.txt |\
+ awk '/^==/ || NF==0{next}\
+   {print}' >> baddies.txt
+
+set baddies = `cat baddies.txt | wc -l`
+echo "$baddies baddies"
+cp baddies.txt baddies_${itr}.txt
+
+head -n $maxbaddies baddies.txt |\
+cat - rholabeled.pdb |\
+awk '$NF~/^BAD/{++bad[substr($0,1,15)];next}\
+  ! /^ATOM|^HETAT/{next}\
+  {id=substr($0,12,15)}\
+   bad[id]{print}' >! removed_${itr}.pdb
+
+head -n $maxbaddies baddies.txt |\
+cat - rholabeled.pdb |\
+awk '$NF~/^BAD/{++bad[substr($0,1,15)];next}\
+  ! /^ATOM|^HETAT/{print;next}\
+  {id=substr($0,12,15)}\
+  ! bad[id]{print substr($0,1,80)}' >! survived.pdb
+
+set pdbfile = survived.pdb
+
+if( ! $baddies ) set done = 1
+
+end
+echo "done with pruning loop at $itr"
+set done = 0
+
+add_waters.com survived.pdb centroids_${itr}.mtz sigma=4.5 | tee addwater_${itr}.log
+mv new.pdb wetter.pdb 
+
+set pdbfile = wetter.pdb
+
+set test = `cat new_water.pdb | wc -l`
+if( "$test" == "0" ) set done = 1
+
+end
+echo "done with water addition loop at $itr"
+set done = 0
+
+awk '/^BOND/' centroids_${itr}_fullgeo.txt |\
+awk -F "|" '{gsub("_"," ");split($2,s,"-");\
+  id1=substr(s[1],1,5) substr(s[1],7,1) substr(s[1],9,4) substr(s[1],14,1) substr(s[1],16,4);\
+  id2=substr(s[2],1,5) substr(s[2],7,1) substr(s[2],9,4) substr(s[2],14,1) substr(s[2],16,4);\
+  print id1 "|" id2 }' |\
+tee bonded_atoms.txt |\
+awk -F "|" '\
+     clust[$1] && ! clust[$2]{clust[$2]=clust[$1];conn[$2]=$1;next}\
+     clust[$2] && ! clust[$1]{clust[$1]=clust[$2];conn[$1]=$2;next}\
+     clust[$1] && clust[$2] && clust[$1]!=clust[$2]{old=clust[$2];\
+        for(ds in clust){if(clust[ds]==old)clust[ds]=clust[$1]};conn[$2]=conn[$2]" "$1;next}\
+    ! clust[$1] && ! clust[$2]{\
+        ++n;clust[$1]=clust[$2]=n;conn[$1]=$2;conn[$2]=conn[$2]" "$1;next}\
+      END{for(ds in clust)if(clust[ds])print clust[ds],"|"ds}' |\
+sort -g |\
+awk -F "|" '! seen[$1]{newn[$1]=++n;++seen[$1]} {print newn[$1],"|"$2}' |\
+awk -F "|" '{list[$1]=list[$1]"|"$2} END{for(l in list)print length(list[l]),list[l]}' |\
+sort -gr |\
+awk -F "|" '{print NF-1,"|" substr($0,index($0,$2))}' |\
+tee cluster_lists.txt | wc -l
+
+set test = `ls -1 | awk '/^cluster_/ && /.pdb$/' | wc -l`
+if( $test ) then
+  rm -f cluster_*.pdb
+endif
+rm -f cluster_CA_counts.txt
+echo -n "" >! liquify.pdb
+foreach cluster ( `awk '{print NR}' cluster_lists.txt` )
+
+head -n $cluster cluster_lists.txt | tail -n 1 |\
+cat - $pdbfile |\
+awk -F "|" 'NR==1{for(i=2;i<=NF;++i)++sel[$i];next}\
+  ! /^ATOM|^HETAT/{next}\
+  {id=substr($0,12,15)}\
+  sel[id]{print}' |\
+cat >! cluster_${cluster}.pdb 
+
+set CAs = `filter_pdb.awk -v only=protein cluster_${cluster}.pdb | awk 'substr($0,12,5)=="  CA "' | wc -l`
+echo $cluster $CAs | tee -a cluster_CA_counts.txt
+
+if( $CAs < $min_CAs ) then
+  filter_pdb.awk -v only=protein cluster_${cluster}.pdb >> liquify.pdb
+endif
+cp cluster_CA_counts.txt cluster_CA_counts_${itr}.txt
+
+end
+
+echo "combining cluster pdbs..."
+combine_pdbs_runme.com cluster_*.pdb xor=1 survived.pdb outfile=unbonded.pdb >! combine.log
+
+echo "combining solid/liquid "
+combine_pdbs_runme.com liquify.pdb unbonded.pdb xor=1 printref=1 $pdbfile outfile=solid.pdb >! combine.log
+
+cat unbonded.pdb liquify.pdb |\
+awk '/^ATOM|^HETAT/{print "ATOM      1  O   HOH S   1   " substr($0,30,40) "        O"}' |\
+cat >> solid.pdb
+
+egrep "^CRYST|HOH" solid.pdb |\
+convert_pdb.awk -v renumber=1 >! oldwater.pdb
+reorganize_waters.com oldwater.pdb 
+
+egrep -v "HOH|^TER|^END" solid.pdb >! centroids_new.pdb
+egrep "HOH" rewatered.pdb >> centroids_new.pdb
+
+set prev = `ls -1rt | egrep "^refragged_" | awk '/.pdb$/' | tail -n 1`
+cp centroids_new.pdb refragged_${itr}.pdb
+
+if( -e "$prev" ) then
+  set test = `rmsd $prev centroids_new.pdb | grep WARN | wc -l`
+  echo "$test differences from last time"
+  if( $test == "" ) set test = 0
+  if( $test == "0" ) set done = 1
+  if( $test != "0" ) set done = 0
+endif
+
+set pdbfile = centroids_new.pdb
+
+# fluid loop
+end
+echo "done with liquidation loop at $itr"
+
+# now pitch anything in bad density?
+
+
+echo "final refine"
+phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
+ $pdbfile $ciffiles \
+  opts.eff phenix_opts_unbump.eff \
+  $mtzfile prefix=centroids_final >! centroids_final_refine.log 
+
+set pdbfile = centroids_final_001.pdb
+
+filter_pdb.awk -v skip=water $pdbfile >! ${t}geotest.pdb
+
+gemmi contact -d 1.2 --sort $pdbfile >! bad_contacts.txt
+set test = `cat bad_contacts.txt | wc -l`
+echo "$test non-bond contacts < 1.2A"
+
+gemmi rmsz --cutoff=6 ${t}geotest.pdb >! bad_geo.txt
+set badomegas = `egrep "torsion CA-C-N-CA:" bad_geo.txt | wc -l`
+echo "$badomegas peptide omega outliers"
+set wrongchiral = `awk '/wrong chirality:/{print $3}' bad_geo.txt`
+if("$wrongchiral" == "") set wrongchiral = "unknown"
+echo "$wrongchiral inverted chirals"
+
+exit:
+
+
+exit
+
+################################################################################
+
+expand2supercell_runme.com centroids_asu.pdb refme_small.mtz super_mult=$super_mult \
+  refpdb=bestgeo.pdb outprefix=centroids_super | tee centroids_expand.log
+
+cp monomer_rot_trans.txt monomer_rot_trans_centroids.txt
+
+expand2supercell_runme.com bestgeo.pdb refme_small.mtz super_mult=$super_mult \
+  outprefix=bestgeo_super | tee bestgeo_expand.log
+
+exit
+
+
+
+rholabel_runme.com badgeo.pdb reference.mtz mtzlabel=Fref
+
+filter_pdb.awk -v only=protein rholabeled.pdb |\
+awk '! /^ATOM|^HETAT/{next}\
+   {res=substr($0,22,8);B=substr($0,61,6);rho=$NF;\
+    atom=substr($0,12,5);gsub(" ","",atom);\
+    conf=substr($0,17,1)}\
+    conf!=" "{next}\
+    ! ( atom~/^[CNO]$/ || atom~/^C[AB]$/ || atom=="OXT" ){next}\
+  {print}' >! mc.pdb
+cat mc.pdb |\
+awk '{res=substr($0,22,8);B=substr($0,61,6);rho=$NF;\
+    atom=substr($0,12,5);gsub(" ","",atom)}\
+   atom=="CA"{++hasca[res]} \
+   {++count[res];sum[res]+=rho;sumB[res]+=B}\
+  END{for(res in sum)if(hasca[res] && count[res]>1)\
+     print res"|",sum[res]/count[res],"|",sumB[res]/count[res],"RESTAT"}' |\
+cat - mc.pdb |\
+awk '$NF=="RESTAT"{res=substr($0,1,8);\
+     split($0,w,"|");avg[res]=w[2];avgB[res]=w[3]+0;next}\
+ ! /^ATOM|HETAT/{next}\
+   {res=substr($0,22,8);B=substr($0,61,6);rho=$NF}\
+   avg[res]<0.1{next}\
+   {++count[res];sum[res]+=(rho-avg[res])^2;sumB[res]+=(B-avgB[res])^2}\
+  END{for(res in sum)if(count[res]>1){\
+     rms=sqrt(sum[res]/count[res]);rmsB=sqrt(sumB[res]/count[res]);\
+     print avg[res],rms,avgB[res],rmsB,"|",res}}' |\
+ sort -gr | tee plotme
+
+
+set medmad_rmsB = ``
+
+
+
+# look for non-bonds that didn't used to be there
+molprobify_runme.com starthere0.pdb keepgeo >&! molprobify_starthere0.log
+
+awk '{print "PREV" $0}' starthere0_fullgeo.txt |\
+ cat -  centroids_003_fullgeo.txt |\
+ awk -F "|" '! /NONBOND/{next} /^PREV/{++seen[$2];next} \
+ ! seen[$2]{print $2}' |\
+ awk '{\
+     a1=$1;f1=$2;c1=$4;r1=$5;\
+     a2=$7;f2=$8;c2=$10;r2=$11;\
+     v=1.5;s=99;\
+   print "    #",c1,c2,a1,a2,r1,r2,f1,f2,v,s;\
+   print "    bond {"\
+   print "      action = *add";\
+   print "      atom_selection_1 = \"name",a1,"and resseq",r1,"and chain",c1,"and altid",f1 "\"";\
+   print "      atom_selection_2 = \"name",a2,"and resseq",r2,"and chain",c2,"and altid",f2 "\"";\
+   print "      distance_ideal =",v;\
+   print "      sigma = 99";\
+   print "      slack = 6";\
+   print "    }";}' |\
+awk '{gsub("and altid _","");gsub("and chain _","");print}' |\
+awk 'BEGIN{print "  geometry_restraints.edits {"} {print} END{print "  }"}' |\
+awk 'BEGIN{print "refinement {"} {print} END{print "}"}' |\
+cat >! phenix_opts_unbump.eff
+
+
+
