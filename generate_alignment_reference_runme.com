@@ -1,4 +1,4 @@
-#! /bin/tcsh -fe
+#! /bin/tcsh -f
 #
 # prune off everything that might not be correctly placed protein
 #
@@ -65,10 +65,26 @@ foreach Arg ( $* )
       # synonyms
     else
       # no equal sign
-      if("$Arg" =~ *.pdb ) set pdbfile = $Arg
-      if("$Arg" =~ *.cif ) set ciffiles = ( $ciffiles $Arg )
-      if("$Arg" =~ *.mtz ) set mtzfile = $Arg
-      if("$Arg" == "$num" ) set itr = $Arg
+      if("$Arg" =~ *.pdb ) then
+        set pdbfile = $Arg
+        echo "pdbfile = $pdbfile"
+        continue
+      endir
+      if("$Arg" =~ *.cif ) then
+        set ciffiles = ( $ciffiles $Arg )
+        echo "ciffiles = $ciffiles"
+        continue
+      endif
+      if("$Arg" =~ *.mtz ) then
+        set mtzfile = $Arg
+        echo "mtzfile = $mtzfile"
+        continue
+      endif
+      if("$Arg" == "$num" ) then
+        set itr = $Arg
+        echo "user itr = $itr"
+        continue
+      endif
     endif
     if("$key" == "debug") set debug = "1"
 end
@@ -162,6 +178,11 @@ if( $reorg_water ) then
     # make waters non-clashy
     echo "de-clashing waters..."
     reorganize_waters.com $pdbfile >! reorg.log
+    if( $status ) then
+        tail reorg.log
+        set BAD = "failed to reoganize waters"
+        goto exit
+    endif
     filter_pdb.awk -v skip=water rewatered.pdb | egrep -v "^END|^LINK" >! waterconf.pdb
     convert_pdb.awk -v only=water,atoms -v CONF="A" rewatered.pdb |\
     waterconf.awk |\
@@ -178,8 +199,20 @@ if ( $clear_links ) then
   mv ${t}new.pdb refme.pdb
 endif
 
-no_new_nonbonds_runme.com refme.pdb $ciffiles >! nnb.log
 # creates phenix_opts_unbump.eff
+no_new_nonbonds_runme.com refme.pdb $ciffiles >! nnb.log
+if( $status || ! -e phenix_opts_unbump.eff ) then
+    tail nnb.log
+    set BAD = "failed to create new non-bond deactivation list at repulse step"
+    goto exit
+endif
+
+set test = `egrep HOH refme.pdb | wc -l`
+if( $test ) then
+   echo "model is dry. removing any references to waters from opts.eff"
+   grep -v water opts.eff >! new.eff
+   mv new.eff opts.eff
+endif
 
 echo "refining $itr repulse"
 # allow removal of clashes
@@ -189,9 +222,19 @@ phenix.refine wxc_scale=$repulse_scale wxu_scale=$repulse_scale nonbonded_weight
   refine.sites.individual="not water" \
   opts.eff phenix_opts_unbump.eff \
   $mtzfile prefix=repulse serial=$itr >! repulse${itr}.log 
+if( $status || ! -e repulse_${itr}.pdb ) then
+    tail repulse${itr}.log 
+    set BAD = "phenix.refine repulsion step failed"
+    exit
+endif
 
-no_new_nonbonds_runme.com refme.pdb $ciffiles >! nnb.log
 # creates phenix_opts_unbump.eff
+no_new_nonbonds_runme.com refme.pdb $ciffiles >! nnb.log
+if( $status || ! -e phenix_opts_unbump.eff ) then
+    tail nnb.log
+    set BAD = "failed to create new non-bond deactivation list at crush step"
+    goto exit
+endif
 
 echo "refining $itr crush"
 # allow geometry and B factors to go hog wild, go for lowest R and centroids
@@ -200,14 +243,30 @@ phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$cr
   main.number_of_macro_cycles=$crush_cycles \
   opts.eff phenix_opts_unbump.eff  \
   $mtzfile prefix=centroids serial=$itr >! centroids${itr}.log 
+if( $status || ! -e centroids_${itr}.pdb ) then
+    tail centroids${itr}.log 
+    set BAD = "phenix.refine crush step failed"
+    exit
+endif
 
 echo "molprobify..."
-molprobify_runme.com keepgeo centroids_${itr}.pdb $ciffiles |\
- tee molprobify_centroids_${itr}.log | tail -n 1 | awk '{print $2,$3,$4,$(NF-2)}'
+molprobify_runme.com keepgeo centroids_${itr}.pdb $ciffiles >! molprobify_centroids_${itr}.log
+if( $status || ! -e centroids_${itr}_fullgeo.txt ) then
+    tail molprobify_centroids_${itr}.log 
+    set BAD = "molprobify step failed"
+    exit
+endif
+tail -n 1 molprobify_centroids_${itr}.log | awk '{print $2,$3,$4,$(NF-2)}'
 
 echo "probing density"
+rm -f rholabeled.pdb
 filter_pdb.awk -v skip=H centroids_${itr}.pdb | awk '{print substr($0,1,80)}' >! rhome.pdb
 rholabel_runme.com rhome.pdb centroids_${itr}.mtz mtzlabel=2FOFCWT >! rhoprobe.log
+if( $status || ! -e rholabeled.pdb ) then
+    tail rhoprobe.log 
+    set BAD = "rho-label step failed"
+    exit
+endif
 sort -k1.82g rholabeled.pdb  |\
  awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
 cat >! badrho.txt
@@ -307,7 +366,14 @@ end
 echo "done with pruning loop at $itr"
 set done = 0
 
-add_waters.com survived.pdb centroids_${itr}.mtz sigma=4.5 | tee addwater_${itr}.log
+echo "adding waters..."
+rm -f new.pdb
+add_waters.com survived.pdb centroids_${itr}.mtz sigma=4.5 >! addwater_${itr}.log
+if( $status || ! -e new.pdb ) then
+    tail addwater_${itr}.log 
+    set BAD = "water addition step failed"
+    exit
+endif
 mv new.pdb wetter.pdb 
 
 set pdbfile = wetter.pdb
@@ -367,7 +433,13 @@ cp cluster_CA_counts.txt cluster_CA_counts_${itr}.txt
 end
 
 echo "combining cluster pdbs..."
+rm -f unbonded.pdb
 combine_pdbs_runme.com cluster_*.pdb xor=1 survived.pdb outfile=unbonded.pdb >! combine.log
+if( $status || ! -e unbonded.pdb ) then
+    tail combine.log 
+    set BAD = "cluster combination step failed"
+    exit
+endif
 
 echo "combining solid/liquid "
 combine_pdbs_runme.com liquify.pdb unbonded.pdb xor=1 printref=1 $pdbfile outfile=solid.pdb >! combine.log
@@ -378,7 +450,14 @@ cat >> solid.pdb
 
 egrep "^CRYST|HOH" solid.pdb |\
 convert_pdb.awk -v renumber=1 >! oldwater.pdb
+
+rm -f rewatered.pdb
 reorganize_waters.com oldwater.pdb 
+if( $status || ! -e rewatered.pdb ) then
+    tail combine.log 
+    set BAD = "reorganization of waters step failed"
+    exit
+endif
 
 egrep -v "HOH|^TER|^END" solid.pdb >! centroids_new.pdb
 egrep "HOH" rewatered.pdb >> centroids_new.pdb
@@ -403,14 +482,24 @@ echo "done with liquidation loop at $itr"
 # now pitch anything in bad density?
 
 
-no_new_nonbonds_runme.com $pdbfile $ciffiles >! nnb.log
 # creates phenix_opts_unbump.eff
+no_new_nonbonds_runme.com $pdbfile $ciffiles >! nnb.log
+if( $status || ! -e phenix_opts_unbump.eff ) then
+    tail nnb.log
+    set BAD = "failed to create new non-bond deactivation list at final step"
+    goto exit
+endif
 
 echo "final refine"
 phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
  $pdbfile $ciffiles \
   opts.eff phenix_opts_unbump.eff \
   $mtzfile prefix=centroids_final >! centroids_final_refine.log 
+if( $status || ! -e centroids_fina_001.pdb ) then
+    tail centroids_final_refine.log 
+    set BAD = "phenix.refine failed at final step"
+    goto exit
+endif
 
 set pdbfile = centroids_final_001.pdb
 
