@@ -76,6 +76,8 @@ end
 # shorthand for temporary file
 set t = $tempfile
 
+# make sure other scripts are in the $path
+set path = ( $path `dirname $0` )
 
 if( "$itr" == "" ) then
   set itr = `ls -1 | awk -F "_" '/^centroids_/{printf("%03d\n",$2)}' | sort -g | tail -n 1`
