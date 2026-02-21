@@ -9,18 +9,29 @@ set pdbfile = ""
 set repulse_scale = 0.1
 set crush_scale = 10
 set repulse_nb = 512
-set crush_nb = 512
+set crush_nb = 1
 set reorg_water = 0
+
+set clear_links = 1
+set clear_H = 1
+set clear_aniso = 1
 
 set repulse_cycles = 3
 set crush_cycles = 10
 
+# minimum density in 2FoFc
 set minrho = 0.8
+# only look at top outliers in each geo category
 set maxgeo = 10
+# large moves means atom is loose
 set bigmove = 1.5
+# define B factor that is too big
 set maxBsig = 3
+# overall max number of atoms to remove each cycle
 set maxbaddies = 10
+# minimum before liquefying a fragment
 set min_CAs = 2
+# only take so many outliers from each category: geo Bfac move
 set topbad = 10
 
 set ciffiles = ""
@@ -83,18 +94,37 @@ set done = 0
 
 
 if(! -e opts.eff) then
-  echo "WARNING: no opts.eff provided. "
+  echo "WARNING: no opts.eff provided. making one"
 cat << EOF >! opts.eff
 refinement {
   refine {
+    strategy = *individual_sites individual_sites_real_space rigid_body \
+               *individual_adp group_adp tls *occupancies group_anomalous den
     occupancies {
       individual = water
+    }
+  }
+  pdb_interpretation {
+    restraints_library {
+      cdl = False
+      mcl = False
+    }
+    flip_symmetric_amino_acids = False
+    correct_hydrogens = False
+    allow_polymer_cross_special_position = True
+    automatic_linking {
+      link_none = True
+    }
+    exclude_from_automatic_linking {
+      selection_1 = All
+      selection_2 = All
     }
   }
   bulk_solvent_and_scale {
     apply_back_trace=False
   }
   main {
+    nqh_flips=False
     max_number_of_iterations=100
   }
 }
@@ -102,6 +132,20 @@ EOF
 endif
 
 cp $pdbfile centroids_start.pdb
+
+if ( $clear_H ) then
+  echo "removing H atoms"
+  filter_pdb.awk -v skip=H centroids_start.pdb >! ${t}new.pdb
+  mv ${t}new.pdb centroids_start.pdb
+endif
+
+if ( $clear_aniso ) then
+  echo "removing anisotropic B factors"
+  egrep -v "^ANIS" centroids_start.pdb >! ${t}new.pdb
+  mv ${t}new.pdb centroids_start.pdb
+endif
+
+set pdbfile = centroids_start.pdb
 
 while ( ! $done )
 # liquify loop
@@ -126,59 +170,14 @@ else
     if("$pdbfile" != "refme.pdb") cp $pdbfile refme.pdb
 endif
 
-echo "geometry pre-run"
-phenix.geometry_minimization refme.pdb $ciffiles macro_cycles=0 \
-  stop_for_unknowns=false \
-  output_file_name_prefix=refme_${itr} >! geom_${itr}.log
-
-if(! -e start.geo ) then
-  echo "geometry start"
-  phenix.geometry_minimization refme.pdb $ciffiles macro_cycles=0 \
-    stop_for_unknowns=false \
-    output_file_name_prefix=start >! geom_start.log
+if ( $clear_links ) then
+  echo "clearing old links"
+  egrep -v "^LINK" refme.pdb >! ${t}new.pdb
+  mv ${t}new.pdb refme.pdb
 endif
 
-foreach geo ( start refme_${itr} )
-cat ${geo}.geo |\
-awk '/nonbonded pdb=/{key="NONBOND";split($0,w,"\"");id1=w[2];\
-     getline;split($0,w,"\"");id2=w[2];\
-     getline;getline;\
-     obs=$1;ideal=$2;sym=$3;\
-     a1=substr(id1,1,4);a2=substr(id2,1,4);\
-     f1=substr(id1,5,1);f2=substr(id2,5,1);\
-     t1=substr(id1,6,4);t2=substr(id2,6,4);\
-     c1=substr(id1,10,1);c2=substr(id2,10,1);\
-     r1=substr(id1,11,5);r2=substr(id2,11,5);\
-     gsub(" ","_",f1);gsub(" ","_",f2);\
-     gsub(" ","_",c1);gsub(" ","_",c2);\
-     print a1,f1,t1,c1,r1,"-",a2,f2,t2,c2,r2,"|",obs,sym}' |\
-cat >! nonbonds_${geo}.txt
-end
-
-awk '{print $0,"PREV"}' nonbonds_start.txt |\
- cat -  nonbonds_refme_${itr}.txt |\
- awk -F "|" '/PREV/{++seen[$1];next} \
- ! seen[$1] || / HOH /{print}' |\
- awk '{\
-     a1=$1;f1=$2;c1=$4;r1=$5;\
-     a2=$7;f2=$8;c2=$10;r2=$11;\
-     v=$13;s=99;sym=$14;\
-   print "    #",c1,c2,a1,a2,r1,r2,f1,f2,v,s;\
-   print "    bond {"\
-   print "      action = *add";\
-   print "      atom_selection_1 = \"name",a1,"and resseq",r1,"and chain",c1,"and altid",f1 "\"";\
-   print "      atom_selection_2 = \"name",a2,"and resseq",r2,"and chain",c2,"and altid",f2 "\"";\
-   if(sym!="")print "      symmetry_operation =",sym;\
-   print "      distance_ideal =",v;\
-   print "      sigma = 99";\
-   print "      slack = 6";\
-   print "    }";}' |\
-awk '{gsub("and altid _","");gsub("and chain _","");print}' |\
-awk 'BEGIN{print "  geometry_restraints.edits {"} {print} END{print "  }"}' |\
-awk 'BEGIN{print "refinement {"} {print} END{print "}"}' |\
-cat >! phenix_opts_unbump.eff
-
-
+no_new_nonbonds_runme.com refme.pdb $ciffiles >! nnb.log
+# creates phenix_opts_unbump.eff
 
 echo "refining $itr repulse"
 # allow removal of clashes
@@ -189,20 +188,25 @@ phenix.refine wxc_scale=$repulse_scale wxu_scale=$repulse_scale nonbonded_weight
   opts.eff phenix_opts_unbump.eff \
   $mtzfile prefix=repulse serial=$itr >! repulse${itr}.log 
 
+no_new_nonbonds_runme.com refme.pdb $ciffiles >! nnb.log
+# creates phenix_opts_unbump.eff
+
 echo "refining $itr crush"
 # allow geometry and B factors to go hog wild, go for lowest R and centroids
 phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
  repulse_${itr}.pdb $ciffiles \
   main.number_of_macro_cycles=$crush_cycles \
-  opts.eff phenix_opts_unbump.eff \
+  opts.eff phenix_opts_unbump.eff  \
   $mtzfile prefix=centroids serial=$itr >! centroids${itr}.log 
 
-molprobify_runme.com keepgeo centroids_${itr}.pdb | tee molprobify_centroids_${itr}.log
+echo "molprobify..."
+molprobify_runme.com keepgeo centroids_${itr}.pdb $ciffiles |\
+ tee molprobify_centroids_${itr}.log | tail -n 1 | awk '{print $2,$3,$4,$(NF-2)}'
 
 echo "probing density"
 filter_pdb.awk -v skip=H centroids_${itr}.pdb | awk '{print substr($0,1,80)}' >! rhome.pdb
 rholabel_runme.com rhome.pdb centroids_${itr}.mtz mtzlabel=2FOFCWT >! rhoprobe.log
-sort -k1.80g rholabeled.pdb  |\
+sort -k1.82g rholabeled.pdb  |\
  awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
 cat >! badrho.txt
 
@@ -289,7 +293,8 @@ head -n $maxbaddies baddies.txt |\
 cat - rholabeled.pdb |\
 awk '$NF~/^BAD/{++bad[substr($0,1,15)];next}\
   ! /^ATOM|^HETAT/{print;next}\
-  {id=substr($0,12,15)}\
+  {id=substr($0,12,15);xyz=substr($0,31,24)}\
+  seen[xyz]{next} {++seen[xyz]}\
   ! bad[id]{print substr($0,1,80)}' >! survived.pdb
 
 set pdbfile = survived.pdb
@@ -396,6 +401,9 @@ echo "done with liquidation loop at $itr"
 # now pitch anything in bad density?
 
 
+no_new_nonbonds_runme.com $pdbfile $ciffiles >! nnb.log
+# creates phenix_opts_unbump.eff
+
 echo "final refine"
 phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
  $pdbfile $ciffiles \
@@ -410,7 +418,28 @@ gemmi contact -d 1.2 --sort $pdbfile >! bad_contacts.txt
 set test = `cat bad_contacts.txt | wc -l`
 echo "$test non-bond contacts < 1.2A"
 
-gemmi rmsz --cutoff=6 ${t}geotest.pdb >! bad_geo.txt
+set restyps = `awk '/^ATOM|^HETAT/{print substr($0,18,3)}' $pdbfile | sort -u`
+mkdir -p ${t}/list/
+cp ${CLIBD_MON}/*.cif ${t}/
+cp ${CLIBD_MON}/*.txt ${t}/
+
+cat << EOF >! ${t}/list/mon_lib_list.cif
+data_mon_lib_list
+
+loop_
+_lib_name
+EOF
+foreach restyp ( $restyps )
+  echo "$restyp" >> ${t}/list/mon_lib_list.cif
+  set a = `echo $restyp | awk '{print tolower(substr($0,1,1))}'`
+  mkdir -p ${t}/${a}/
+  set ciffile = ${restyp}.cif
+  if(! -e $ciffile) set ciffile = ${CLIBD_MON}/${a}/$ciffile
+  cp $ciffile ${t}/${a}/
+end
+awk '/^data_link_list/,""' ${CLIBD_MON}/list/mon_lib_list.cif >> ${t}/list/mon_lib_list.cif
+
+gemmi rmsz --cutoff=6 --monomers=${t} ${t}geotest.pdb >! bad_geo.txt
 set badomegas = `egrep "torsion CA-C-N-CA:" bad_geo.txt | wc -l`
 echo "$badomegas peptide omega outliers"
 set wrongchiral = `awk '/wrong chirality:/{print $3}' bad_geo.txt`
@@ -418,6 +447,18 @@ if("$wrongchiral" == "") set wrongchiral = "unknown"
 echo "$wrongchiral inverted chirals"
 
 exit:
+
+if("$tempfile" == "") set  tempfile = "./"
+set tempbase = `basename $tempfile`
+set tempdir = `dirname $tempfile`
+if(! $debug && ! ( "$tempdir" == "." && "$tempbase" == "" ) ) then
+    rm -rf ${tempfile}*
+endif
+
+if($?BAD) then
+    echo "ERROR: $BAD"
+    exit 9
+endif
 
 
 exit
@@ -472,6 +513,8 @@ set medmad_rmsB = ``
 
 # look for non-bonds that didn't used to be there
 molprobify_runme.com starthere0.pdb keepgeo >&! molprobify_starthere0.log
+
+
 
 awk '{print "PREV" $0}' starthere0_fullgeo.txt |\
  cat -  centroids_003_fullgeo.txt |\
