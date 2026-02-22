@@ -1,10 +1,11 @@
-#! /bin/tcsh -fe
+#! /bin/tcsh -f
 #
 # make a bond edit list that disables nonbonds that were not in the original structure
 #
 #
 set pdbfile = ""
 set ciffiles = ""
+set mtzfile = refme.mtz
 
 set outfile = phenix_opts_unbump.eff
 
@@ -36,6 +37,7 @@ foreach Arg ( $* )
     else
       # no equal sign
       if("$Arg" =~ *.pdb ) set pdbfile = $Arg
+      if("$Arg" =~ *.mtz ) set mtzfile = $Arg
       if("$Arg" =~ *.cif ) set ciffiles = ( $ciffiles $Arg )
     endif
     if("$key" == "debug") set debug = "1"
@@ -85,6 +87,7 @@ endif
 
 if( "$pdbfile" != "${t}nnnb.pdb" ) cp $pdbfile ${t}nnnb.pdb
 
+if( 0 ) then
 cat opts.eff |\
 awk '$NF=="\\"{$NF="";printf("%s",$0);getline}\
     {print}' |\
@@ -100,17 +103,29 @@ awk '$NF=="{"{++ind} $1=="}"{--ind}\
 cat >! geo_opts.eff
 
 echo "geometry pre-run"
+rm -f nnnb.geo
 phenix.geometry_minimization ${t}nnnb.pdb $ciffiles macro_cycles=0 \
   stop_for_unknowns=false geo_opts.eff \
   allow_polymer_cross_special_position=True \
   output_file_name_prefix=nnnb >! geom_nnnb.log
+if( $status || ! -e nnnb.geo ) then
+  tail geom_nnnb.log
+  set BAD = "initial geometry_minimization failed"
+  goto exit
+endif
+endif
+
+echo "zero-cycle pre-run"
+phenix.refine ${t}nnnb.pdb $ciffiles $mtzfile main.number_of_macro_cycles=0 \
+  opts.eff \
+  allow_polymer_cross_special_position=True \
+  prefix=nnnbp >! pr_nnnb.log
+
+cp nnnbp_001.geo nnnb.geo
 
 if(! -e start.geo ) then
-  echo "WARNING: making geometry start.geo"
-  phenix.geometry_minimization ${t}nnnb.pdb $ciffiles macro_cycles=0 \
-    stop_for_unknowns=false geo_opts.eff \
-    allow_polymer_cross_special_position=True \
-    output_file_name_prefix=start >! geom_start.log
+  echo "WARNING: using geometry for start.geo"
+  cp nnnb.geo start.geo
 endif
 
 foreach geo ( start nnnb )
@@ -157,6 +172,7 @@ awk '{print $0,"PREV"}' nonbonds_start.txt |\
      a2=$7;f2=$8;c2=$10;r2=$11;\
      v=$13;s=99;sym=$14;\
      if(v>4)next;\
+     if(v<0.1)v=0.1;\
    print "    #",c1,c2,a1,a2,r1,r2,f1,f2,v,s;\
    print "    bond {"\
    print "      action = *add";\
