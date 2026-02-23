@@ -87,7 +87,8 @@ endif
 
 if( "$pdbfile" != "${t}nnnb.pdb" ) cp $pdbfile ${t}nnnb.pdb
 
-if( 0 ) then
+if(-e "$mtzfile") goto gotmtz
+
 cat opts.eff |\
 awk '$NF=="\\"{$NF="";printf("%s",$0);getline}\
     {print}' |\
@@ -113,8 +114,10 @@ if( $status || ! -e nnnb.geo ) then
   set BAD = "initial geometry_minimization failed"
   goto exit
 endif
-endif
+goto gotgeo
 
+
+gotmtz:
 echo "zero-cycle pre-run"
 phenix.refine ${t}nnnb.pdb $ciffiles $mtzfile main.number_of_macro_cycles=0 \
   opts.eff \
@@ -123,6 +126,7 @@ phenix.refine ${t}nnnb.pdb $ciffiles $mtzfile main.number_of_macro_cycles=0 \
 
 cp nnnbp_001.geo nnnb.geo
 
+gotgeo:
 if(! -e start.geo ) then
   echo "WARNING: using geometry for start.geo"
   cp nnnb.geo start.geo

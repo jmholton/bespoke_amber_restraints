@@ -6,18 +6,23 @@
 set mtzfile = ../refme_small.mtz
 set pdbfile = ""
 
-set repulse_scale = 0.1
-set crush_scale = 10
-set repulse_nb = 512
-set crush_nb = 1
-set reorg_water = 0
+set initial_reject = 0
 
 set clear_links = 1
 set clear_H = 1
 set clear_aniso = 1
 
 set repulse_cycles = 3
+set repulse_scale = 0.1
+set repulse_nb = 100
+
 set crush_cycles = 10
+set crush_scale = 10
+set crush_nb = 100
+
+# re-label water confs so they dont clash
+set reorg_water = 0
+
 
 # minimum density in 2FoFc
 set minrho = 0.8
@@ -28,7 +33,7 @@ set bigmove = 1.5
 # define B factor that is too big
 set maxBsig = 3
 # overall max number of atoms to remove each cycle
-set maxbaddies = 10
+set maxbaddies = 100
 # minimum before liquefying a fragment
 set min_CAs = 2
 # only take so many outliers from each category: geo Bfac move
@@ -169,6 +174,45 @@ endif
 
 set pdbfile = centroids_start.pdb
 
+echo "initial zero-cylce refine..."
+# creates phenix_opts_unbump.eff and nnnbp_001.mtz
+no_new_nonbonds_runme.com centroids_start.pdb $mtzfile $ciffiles >! nnb.log
+if( $status || ! -e phenix_opts_unbump.eff ) then
+    tail nnb.log
+    set BAD = "failed to create new non-bond deactivation list at repulse step"
+    goto exit
+endif
+
+# do a probe now
+echo "probing density from nnnbp_001.mtz map"
+rm -f rholabeled.pdb
+filter_pdb.awk -v skip=H -v only=protein centroids_start.pdb |\
+ awk '{print substr($0 "       ",1,80)}' >! rhome.pdb
+rholabel_runme.com rhome.pdb nnnbp_001.mtz mtzlabel=2FOFCWT outfile=rholabeled.pdb >! rhoprobe.log
+if( $status || ! -e rholabeled.pdb ) then
+    tail rhoprobe.log 
+    set BAD = "rho-label step failed for starting model"
+    goto exit
+endif
+
+sort -k1.81g rholabeled.pdb  |\
+ awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
+ cat >! badrho0.txt
+cat badrho0.txt centroids_start.pdb |\
+awk '$NF~/^BAD/{++bad[substr($0,1,15)];next}\
+  ! /^ATOM|^HETAT/{print;next}\
+  {id=substr($0,12,15);xyz=substr($0,31,24)}\
+  seen[xyz]{next} {++seen[xyz]}\
+  ! bad[id]{print substr($0,1,80)}' >! indensity.pdb
+set test = `cat badrho0.txt | wc -l`
+echo "$test protein atoms in 2Fo-Fc density < $minrho"
+
+if( $initial_reject ) then
+  echo "eliminating them"
+  set pdbfile = indensity.pdb
+endif
+
+
 while ( ! $done )
 # liquify loop
 while ( ! $done )
@@ -210,6 +254,7 @@ if( $test == 0 ) then
    mv new.eff opts.eff
 endif
 
+echo "zero-cylce refine for new bonds list ..."
 # creates phenix_opts_unbump.eff
 no_new_nonbonds_runme.com refme.pdb $mtzfile $ciffiles >! nnb.log
 if( $status || ! -e phenix_opts_unbump.eff ) then
@@ -246,7 +291,7 @@ echo "refining $itr crush"
 phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
  repulse_${itr}.pdb $ciffiles \
   main.number_of_macro_cycles=$crush_cycles \
-  opts.eff phenix_opts_unbump.eff  \
+  opts.eff phenix_opts_unbump.eff \
   $mtzfile prefix=centroids serial=$itr >! centroids${itr}.log 
 if( $status || ! -e centroids_${itr}.pdb ) then
     tail centroids${itr}.log 
@@ -266,7 +311,7 @@ echo "$itr $Rstats" | tee -a Rstats_vs_itr.txt
 
 set best_itr = `sort -k3g Rstats_vs_itr.txt | awk '{print $1;exit}'`
 
-echo "probing density from centroids_${best_itr}"
+echo "probing density from centroids_${best_itr} map"
 rm -f rholabeled_start.pdb
 filter_pdb.awk -v skip=H centroids_start0.pdb | awk '{print substr($0,1,80)}' >! rhome.pdb
 rholabel_runme.com rhome.pdb centroids_${best_itr}.mtz mtzlabel=2FOFCWT outfile=rholabeled_start.pdb >! rhoprobe.log
@@ -291,7 +336,7 @@ awk '! /^ATOM|^HETAT/{next}\
   startrho[id]==""{startrho[id]=$NF;next}\
   {print startrho[id],$NF,"|" id}' |\
 tee rho_diffs.txt |\
-awk '$1>0 && $2<$1*0.5' |\
+awk -v minrho=$minrho '$1>0.9*minrho && $2<$1*0.5' |\
 awk -F "|" '{print $2,"REVERT"}' |\
 cat - rholabeled_start.pdb |\
 awk '$NF=="REVERT"{id=substr($0,1,17);++revert[id];next}\
@@ -299,7 +344,7 @@ awk '$NF=="REVERT"{id=substr($0,1,17);++revert[id];next}\
   {id=substr($0,12,17)}\
   revert[id]{print}' >! revertme.pdb
 set revertants = `cat revertme.pdb | wc -l`
-echo "$revertants atoms moved out of density"
+echo "$revertants good atoms moved out of density"
 if( $revertants ) then
   echo "moving them back"  
   combine_pdbs_runme.com revertme.pdb rholabeled.pdb printref=1 outfile=reverted.pdb >! revert.log
@@ -335,6 +380,7 @@ endif
 sort -k1.82g rholabeled.pdb  |\
  awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
 cat >! badrho.txt
+# idstring  rho BADRHO
 
 awk '/^BOND/' centroids_${itr}_fullgeo.txt |\
 awk -F "|" '{gsub("_"," ");split($2,s,"-");\
@@ -349,7 +395,8 @@ awk '{id=substr($0,1,15);id2=substr($0,17,15)}\
   ! badrho[id2]{++goodneighbor[id]}\
   END{for(id in badrho){if(badrho[id]+0>0 && ! goodneighbor[id]) print id,goodneighbor[id],"|",rho[id],"BADCONN"}}' |\
 cat >! badconn.txt
-
+# idstring 0 | rho BADCONN
+# bad density and no bonded neighbors have good density
 
 awk -v maxgeo=$maxgeo '$2>maxgeo{print $0,"|",$2}' centroids_${itr}_worstgeo.txt |\
 awk -F "|" '{print $2,"-",$3}' |\
@@ -444,12 +491,14 @@ mv new.pdb wetter.pdb
 set pdbfile = wetter.pdb
 
 set test = `cat new_water.pdb | wc -l`
+echo "$test waters added"
 if( "$test" == "0" ) set done = 1
 
 end
 echo "done with water addition loop at $itr"
 set done = 0
 
+echo "clustering bonded fragments"
 awk '/^BOND/' centroids_${itr}_fullgeo.txt |\
 awk -F "|" '{gsub("_"," ");split($2,s,"-");\
   id1=substr(s[1],1,5) substr(s[1],7,1) substr(s[1],9,4) substr(s[1],14,1) substr(s[1],16,4);\
@@ -476,6 +525,7 @@ if( $test ) then
   rm -f cluster_*.pdb
 endif
 rm -f cluster_CA_counts.txt
+echo "cluster CAs"
 echo -n "" >! liquify.pdb
 foreach cluster ( `awk '{print NR}' cluster_lists.txt` )
 
@@ -556,11 +606,12 @@ if( $status || ! -e phenix_opts_unbump.eff ) then
 endif
 
 echo "final refine"
+rm -f centroids_final_001.pdb
 phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
  $pdbfile $ciffiles \
   opts.eff phenix_opts_unbump.eff \
   $mtzfile prefix=centroids_final >! centroids_final_refine.log 
-if( $status || ! -e centroids_fina_001.pdb ) then
+if( $status || ! -e centroids_final_001.pdb ) then
     tail centroids_final_refine.log 
     set BAD = "phenix.refine failed at final step"
     goto exit
