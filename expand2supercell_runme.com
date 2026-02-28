@@ -202,15 +202,19 @@ awk '{print substr($0,1,80)}' $pdbfile >! ${t}monomer.pdb
 
 if(-e "$mono_map") then
   echo "using $mono_map"
-  set wrap = "water,salt"
+#  set wrap = "water,salt" - salt not implemented
+  set wrap = "water"
 
   egrep "^CRYST" ${t}cell.pdb >! ${t}pile.pdb
 
   set asus = `awk '{print $1}' $mono_map`
   echo "$#asus ASUs found"
+  filter_pdb.awk -v only=protein ${t}monomer.pdb | egrep -v "^END" >! ${t}monolabeled.pdb
+  filter_pdb.awk -v only=ligand ${t}monomer.pdb | awk '{print $0,"            SALT"}' >> ${t}monolabeled.pdb
+  filter_pdb.awk -v only=water ${t}monomer.pdb  | awk '{print $0,"            SOLV"}' >> ${t}monolabeled.pdb
   foreach asu ( $asus )
     head -n $asu $mono_map | tail -n 1 | tee ${t}monomer.txt
-    cat ${t}monomer.txt ${t}monomer.pdb |\
+    cat ${t}monomer.txt ${t}monolabeled.pdb |\
     awk 'NR==1{a=$1;\
           xx[a]=$2;xy[a]=$3;xz[a]=$4;\
           yx[a]=$5;yy[a]=$6;yz[a]=$7;\
@@ -219,13 +223,15 @@ if(-e "$mono_map") then
           oresnum[a]=$14;ch[a]=$15;delrn[a]=$16;next}\
       /^TER/{print "TER"}\
       ! /^ATOM|^HETAT/{next}\
-      /^ATOM|^HETAT/{pre=substr($0,1,21);post=substr($0,55);typ=substr($0,18,4);\
-          solv=( /^HETAT/ || typ~/HOH|ACY|NH4|SO4| CL/ );\
+      /^ATOM|^HETAT/{pre=substr($0,1,21);post=substr($0,55,25);typ=substr($0,18,4);\
+          solv=( $NF=="SOLV" || $NF=="SALT" );\
+          salt=( $NF=="SALT" );\
           chain=substr($0,22,1);\
           resnum=substr($0,23,4)+0;\
           X=substr($0,31,8)+0;\
           Y=substr($0,39,8)+0;\
           Z=substr($0,47,8)+0;\
+          newresnum=resnum;\
           if(! solv){chain=ch[a];newresnum=resnum+delrn[a];}\
           newX=xx[a]*X+xy[a]*Y+xz[a]*Z+tx[a];\
           newY=yx[a]*X+yy[a]*Y+yz[a]*Z+ty[a];\

@@ -29,11 +29,17 @@ set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
 set pmemin = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_DPFP"
 set sander = "srun --partition=xds sander.OMP"
 
+# how far to go in MD setup
 set Stages = ""
 
+# exit if bad clashes
+set ignore_clash = 0
+
+# water model to use
 set watertype = opc
 set flexwater = 1
 
+# input defaults
 set pdbfile = refmacout.pdb
 set refpointspdb = ""
 set mtzfile = refmacout.mtz
@@ -75,6 +81,7 @@ set restrainedatoms = "! @H= & ! @EP="
 set restrainedatoms = "! @H= & ! @EP= & ! :WAT"
 set restraint_range = "all"
 
+# restraint weight modifiers
 set restraint_mult = 1
 set restraint_wt = 1
 set pdbscale = 1
@@ -405,7 +412,7 @@ touch ${t}new_waters.pdb
 
 
 if( $debug && -e ${t}tleaped.rst7 && -e ${t}xtal.prmtop ) then
-  echo "WARNING: re-using ${t}tleaped.rst7 and ${t}xtal.prmtop"
+  echo "DEBUG: re-using ${t}tleaped.rst7 and ${t}xtal.prmtop"
 else
   rm -f ${t}tleaped.rst7 > /dev/null
   #if(! -e leap.log) ln -sf /dev/null leap.log
@@ -502,7 +509,7 @@ awk '/^TER/{print "TER";next}\
       if( zeroxyz ){oorn=ordresnum;id=repid[oorn]}\
       if(orig_conf[id]==""){print "REMARK WARNING",id,"at",x,y,z,", orig id not found"}\
       if(orig_conf[id]!=""){oorn=orig_ordresnum[id];repid[oorn]=id}\
-      if(orig_conf[id]=="" && isH && typ==orig_typ[repid[oorn]]){\
+      if(orig_conf[id]=="" && typ==orig_typ[repid[oorn]]){\
         id=repid[oorn];++inherit;\
          print "REMARK inheriting from",id}\
       if(orig_conf[id]!=""){\
@@ -515,7 +522,7 @@ cat >> ${t}tleaped_orignames.pdb
 
 egrep -v "^REMARK" ${t}tleaped_orignames.pdb >! orignames.pdb
 
-egrep "WARNING" ${t}tleaped_orignames.pdb | egrep -v "EPW|WARNING H. HOH" | egrep -v "at 0 0 0"
+egrep "WARNING" ${t}tleaped_orignames.pdb | egrep -v "EPW|Y1|WARNING H. HOH" | egrep -v "at 0 0 0"
 
 # rmsd $pdbfile orignames.pdb 
 # awk 'substr($0,77,2)!~/ H|XP/' $pdbfile orignames.pdb | rmsd
@@ -1067,7 +1074,7 @@ if(-e "$restraint_file") then
     if(-e ${outprefix}restraint_suffix.in) then
       egrep -v "restraint[_m]" ${t}${Stage}0.in >! ${t}${Stage}.in
       cat ${outprefix}restraint_suffix.in >> ${t}${Stage}.in
-      echo "done"
+      echo "copied"
     else
       restraintlist2amber.com \
         list=$restraint_file \
@@ -1212,7 +1219,7 @@ EOF
     gemmi contact -d 1.2 --sort ${t}${Stage}_orignames.pdb >! ${t}bad_contacts.txt
     set test = `cat ${t}bad_contacts.txt | wc -l`
     echo "$test non-bond contacts < 1.2A"
-    if( $test > 0 && $Stage != Cpu ) then
+    if( $test > 0 && $Stage != Cpu && ! $ignore_clash ) then
        set badclash = `head -n 1 ${t}bad_contacts.txt`
        set BAD = "bad clash: $badclash"
        goto exit

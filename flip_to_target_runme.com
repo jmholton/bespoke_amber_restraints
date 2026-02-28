@@ -68,6 +68,7 @@ awk '$NF=="flip"{c=substr($0,1,1);f=substr($0,3,1);r=substr($0,5,4)+0;\
 cat >! ${tempfile}out
 mv ${tempfile}out $outfile
 
+echo "before vs after flips:"
 rmsd $pdbfile $outfile
 
 rm -f ${tempfile}*

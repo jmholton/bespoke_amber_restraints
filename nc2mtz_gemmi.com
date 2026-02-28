@@ -27,7 +27,9 @@ set minB = 2
 set wrap = 0
 set keeptraj = 0
 set domaps = 1
+set addmaps = 1
 set domtzs = 0
+set addmtzs = 0
 
 set debug = 0
 
@@ -73,6 +75,8 @@ foreach Arg ( $* )
 end
 
 if( $domtzs ) set domaps = 1
+if( $addmaps ) set domaps = 1
+if( $addmtzs ) set domtzs = 1
 
 mkdir -p ${tempfile}
 if($status) then
@@ -359,7 +363,8 @@ if( "$test" != "" ) then
 endif
 if( $?BAD ) goto exit
 
-if( ! $domaps ) goto cleanup
+if( ! $addmaps && $addmtzs ) goto addmtzs
+if( ! $addmaps ) goto cleanup
 
 rm -f sum.map >& /dev/null
 ${pdir}/addup_maps_runme.com $maps tempfile=${t}/addmaps/  outfile=${t}sum.map
@@ -377,7 +382,7 @@ rm -f ${outfile}
 gemmi map2sf -v --dmin=$reso $outmap ${outfile} FCavg PHICavg
 
 
-if( ! $domtzs ) goto cleanup
+if( ! $addmtzs ) goto cleanup
 
 addmtzs:
 ${pdir}/addup_mtzs_diffuse.com $mtzs
@@ -414,7 +419,7 @@ foreach maxB ( 10 20 50 100 200 500 1000 )
  set nc2log = nc2mtz_${minB}_${maxB}.log
 
  echo "B: $minB $maxB"
- nc2mtz_gemmi.com amber_${itr}.nc P212121 \
+ nc2mtz_gemmi_new.com amber_${itr}.nc P212121 \
    Bfac_file=rmsd2B minB=$minB maxB=$maxB |& tee $nc2log | tail -n 1
 
  diff.com reference.mtz avg.mtz |& tee diff_${minB}_${maxB}.log | grep correct

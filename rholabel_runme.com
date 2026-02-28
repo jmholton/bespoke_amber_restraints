@@ -17,7 +17,7 @@ mkdir -p ${CCP4_SCR}
 
 
 
-set mtzlabel = DELFWT
+set mtzlabel = auto
 set phenixlabel = miller_array.labels.name
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
 if( "$test" == "1" ) set phenixlabel = label
@@ -76,11 +76,6 @@ if(! -e "$mtzfile" && ! -e "$mapfile" ) then
     goto exit
 endif
 
-#set test = `echo head | mtzdump hklin $mtzfile | egrep -i fpart | wc -l`
-set mtzreso = `echo head | mtzdump hklin $mtzfile | awk '/Resolution Range/{getline;getline;print $6}'`
-
-
-
 cat << EOF
 pdbfile = $pdbfile
 mtzfile = $mtzfile
@@ -92,23 +87,63 @@ EOF
 
 set t = $tempfile
 
+echo head | mtzdump hklin $mtzfile |\
+tee ${t}mtzdump.txt |\
+awk '/Column Labels :/{getline;getline;for(i=1;i<=NF;++i)label[i]=$i}\
+  /Column Types :/{getline;getline;for(i=1;i<=NF;++i)print $i,label[i]}' |\
+cat >! ${t}labels.txt
+
+
+if( "$mtzlabel" == "auto" ) then
+  set firstlabel = `awk '$2=="DELFWT" || $2=="FOFCWT"{print $2}' ${t}labels.txt | head -n 1`
+  if( "$firstlabel" != "" ) set mtzlabel = "$firstlabel"
+endif
+if( "$mtzlabel" == "auto" ) then
+  set firstlabel = `awk '$2=="FWT" || $2=="2FOFCWT"{print $2}' ${t}labels.txt | head -n 1`
+  if( "$firstlabel" != "" ) set mtzlabel = "$firstlabel"
+endif
+if( "$mtzlabel" == "auto" ) then
+  set firstlabel = `awk '$1=="F"{print $2}' ${t}labels.txt | head -n 1`
+  if( "$firstlabel" != "" ) set mtzlabel = "$firstlabel"
+endif
+set test = `grep $mtzlabel ${t}labels.txt | wc -l`
+if( ! $test ) then
+  set BAD = "no $mtzlabel in $mtzfile"
+  goto exit
+endif
+echo "mtzlabel = $mtzlabel"
+
+
+set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.txt`
+
 
 awk '/^ATOM|^HETAT/' $pdbfile >! ${t}.pdb
 awk '{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
 phenix.map_value_at_point $mtzfile ${t}.pdb \
           ${phenixlabel}=$mtzlabel scale=sigma |\
+tee ${t}debug.txt |\
 cat ${t}key.txt - |\
 awk '$NF=="KEY"{n[$1]=$2;next}\
-  /Map value:/{print "RHO",n[$3],$3,++i,$NF}' |\
+  /Map value:/ && $3~/^\(/{print "RHO",n[$3],$3,++i,$NF;next}\
+  /Map value:/ && /^\"/{rho=$NF;point=substr($0,index($0," Point: "));\
+     split(point,w);xyz="(" w[2] w[3] w[4] ")";\
+     print "RHO",n[xyz],xyz,++i,$NF}' |\
+tee ${t}debug2.txt |\
 cat - $pdbfile |\
-awk '/^RHO/{rho[$2]=$NF;next}\
+awk '/^RHO/{rho[$4]=rho[$2]=$NF;next}\
+  {gsub("\r","")}\
   ! /^ATOM|^HETAT/{print;next}\
-  {++n;print $0,"           ",rho[n]}' |\
+  {++n;print $0,"           ",rho[n]}\
+  rho[n]==""{print "ERROR: missing rho for atom",n}' |\
 cat >! $outfile
 
 
-
+set test = `egrep -l "^ERROR" $outfile | wc -l`
+if( $test ) then
+    egrep "^ERROR" $outfile | head
+    set BAD = "density probe failed"
+endif
 
 
 exit:

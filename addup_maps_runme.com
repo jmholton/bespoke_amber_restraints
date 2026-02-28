@@ -9,6 +9,8 @@ set savespace = 1
 set outfile = sum.map
 set tempfile = /dev/shm/${USER}/temp_$$_mapsum/
 
+set srun = auto
+
 # read command line
 foreach Arg ( $* )
     # faster to skip rest if map
@@ -42,19 +44,25 @@ end
 
 echo "adding $#maps maps"
 
-# cannot migrate hosts because of temp files
-set thishost = `hostname -s`
-set test = `sinfo -h -n $thishost |& egrep -vi "drain|n/a|Command not found" | wc -l`
-if ( $test ) then
-  if( "$tempfile" =~ /dev/shm/*  ) then
-    echo "using slurm on local node"
-    set srun = "srun -w $thishost"
+# already in slurm? then do nothing
+if( $?SLURM_JOB_ID ) set srun = ""
+if( "$srun" == "auto" && $#maps < 5 ) set srun = ""
+
+if( "$srun" == "auto" ) then
+  # see if we can migrate hosts because of temp files
+  set thishost = `hostname -s`
+  set test = `sinfo -h -n $thishost |& egrep -vi "drain|n/a|Command not found" | wc -l`
+  if ( $test ) then
+    if( "$tempfile" =~ /dev/shm/*  ) then
+      echo "using slurm on local node"
+      set srun = "srun -w $thishost"
+    else
+      echo "using slurm on cluster"
+      set srun = "srun"
+    endif
   else
-    echo "using slurm on cluster"
-    set srun = "srun"
+    set srun = ""
   endif
-else
-  set srun = ""
 endif
 
 set t = ${tempfile}/

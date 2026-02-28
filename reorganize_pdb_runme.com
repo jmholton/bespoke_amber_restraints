@@ -216,6 +216,7 @@ awk -v debug=$debug '{dist=$NF}\
 cat >! ${t}baddies.txt
 set test = `cat ${t}baddies.txt | wc -l`
 echo "$test clashes detected by gemmi"
+head -n 3 ${t}baddies.txt
 
 if( $phenix_bumpcheck ) then
   echo "looking for clashes with phenix..."
