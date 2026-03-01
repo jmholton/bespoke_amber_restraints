@@ -7,6 +7,7 @@
 #  ../*.mol2 ../*.frcmod
 #  tleap_stub.in
 #  ${PHENIX}
+#  ../xtal_properties.sourceme
 #
 #  iteratively optimize restraint weights based on fofc difference map
 #
@@ -18,10 +19,14 @@
 set reso = 1.0
 set smallSG = P212121
 # supercell parameters
-set super_mult = 2,2,3
+set super_mult = 1,1,1
 # number of residues in one protein
 set modulo  = 64
 
+if(! -e xtal_properties.sourceme && -e ../xtal_properties.sourceme) then
+  echo "using ../xtal_properties.sourceme"
+  cp ../xtal_properties.sourceme .
+endif
 if(-e xtal_properties.sourceme) then
   echo "reading xtal_properties.sourceme"
   source xtal_properties.sourceme
@@ -30,7 +35,8 @@ else
 endif
 
 if(! -e xtal_properties.sourceme) then
-  cat << EOF >! xtal_properties.sourceme
+  echo "WARNING: generating default xtal_properties.sourceme file for 1aho system"
+  cat << EOF | tee xtal_properties.sourceme
 set reso = $reso
 set smallSG = $smallSG
 # supercell parameters
@@ -38,6 +44,8 @@ set super_mult = $super_mult
 # number of residues in one protein
 set modulo  = $modulo
 EOF
+  echo "confirm?"
+  set in = ( $< )
 endif
 
 # for map generation
@@ -78,7 +86,7 @@ set adjust_itr = 1
 # adjust B factors based on difference map
 set Badjust_itr = 1
 # re-discover reference points every so often
-set repick_itr = 30
+set repick_itr = 10
 set repick_itr_ramp = none
 # remove water restraints that are too close
 set filter_itr = 1
@@ -105,7 +113,7 @@ set thrubond_avg_B_spread = 0
 set thrubond_avg_B_ramp = none
 
 # smooth the difference map
-set fft_B = 15
+set fft_B = 0
 set fft_B_ramp = none
 set shan_B = auto
 # criteria for statistical significance in difference peaks
@@ -113,9 +121,9 @@ set halfrho_pos = auto
 set halfrho_neg = auto
 set halfrho_ramp = none
 # apply an overall scale factor to all weights every round
-set weight_scale = 1
+set weight_scaledown = 1
 # apply a different scale factor to negative peaks
-set weight_negscale = 0.95
+set weight_negscaledown = 0.95
 # raise small weights to a power to drive them toward zero
 set weight_power = 1.01
 # criterion for a weak weight (multiples of kT)
@@ -123,12 +131,14 @@ set weight_power_kTmult = 1
 # scale factor for converting "B factors" in restraint file to amber weights
 set pdbscale = 0.01
 # smallest amber weight to use
-set min_weight = 0.0001
-set min_weight_ramp = none
+set cutoff_weight = 0.01
+set cutoff_weight_ramp = none
+# remember or forget refpoints that dip below cutoff weight
+set cutoff_forget = 0
 # apply a constant restraint weight to every atom, even if unspecified
 set allatom_weight = 0
 # starting value for newly created restraints
-set weight0 = 5
+set weight0 = 1
 # minimum weight to apply to CA atoms used for alignment 
 set min_CA_weight = 0
 # minimum weight to apply to any atoms used for alignment 
@@ -169,9 +179,9 @@ set omega_weight_ramp = none
 set remap_itr = 0
 # periodically wrap non-restrained atoms to inside the supercell
 set wrap_itr = 2
-# periodically re-center the system on alignment atoms
+# periodically re-center the system on restrained atoms
 set align_itr = 1
-set align_cyc = 0
+set align_nstlim = 0
 # type of atoms to use for alignment
 set align_target = centroids
 # periodically move water molecules from bad Fo-Fc density to good Fo-Fc density
@@ -179,9 +189,10 @@ set teleport_itr = 1
 set teleport_waters = 10
 set teleport_weight = 5
 set teleport_mindist = 2.0
+set teleport_minrho = 2.0
 # periodically add or remove waters, depending on pressure and void size
 set hydrate_itr = 1
-set minvoid = 6
+set minvoid = 60
 set pressure_deadband = 10
 set hydrate = voids
 set dehydrate = pressure
@@ -272,6 +283,10 @@ foreach Arg ( $* )
           continue
       endif
       # synonyms
+      if("$key" == "min_weight") set cutoff_weight = "$Val"
+      if("$key" == "align_cyc") set align_nstlim = "$Val"
+      if("$key" == "weight_scale") set weight_scaledown = "$Val"
+      if("$key" == "weight_negscale") set weight_negscaledown = "$Val"
     else
       # no equal sign
     endif
@@ -282,7 +297,8 @@ end
 set t = $tempfile
 
 # find a place for scratch
-foreach scratch ( $scratch /data/${USER}/scratch/ /scratch/${USER}/ /dev/shm/${USER}/ /tmp/${USER}/ )
+set base = `basename $scratch`
+foreach scratch ( $scratch /data/${USER}/scratch/${base}/ /scratch/${USER}/${base}/ /dev/shm/${USER}/${base}/ /tmp/${USER}/${base}/ )
   mkdir -p ${scratch} >& /dev/null
   if(-w ${scratch}) then
     echo "scratch = $scratch is writable"
@@ -293,16 +309,55 @@ echo "scratch = $scratch"
 
 echo "running as $0"
 
+# is there another job running?
+set pwd = `pwd`
+set mypid = $$
+set myname = `basename $0`
+set alone = 0
+while ( ! $alone )
+  set pidirs = `ps -fu $USER | tee ${t}debug1.log | egrep "runme.com" | egrep -v " egrep -v | grep -E |^UID" | awk -v pid=$mypid '$2!=pid && ! ( / srun / && /_runme.com/ ) {print "/proc/"$2"/cwd"}'`
+
+  set otherpid = `ls -l $pidirs |& tee ${t}debug2.log | awk -v pwd="$pwd" '$NF==pwd{print}' | awk -F "/" '{print $3}'`
+  if( "$otherpid" == "") then
+    set alone = 1
+    break
+  endif
+
+  set sleepids = `awk '/sleep/{print $2}' ${t}debug1.log`
+  if( "$sleepids" != "" ) then
+    echo "kill sleep at $sleepids ? "
+    sleep `echo $$ | awk '{srand($1);print 3+rand()}'`
+  endif
+#  ps -flea | grep $otherpid
+  echo "other job running here: $otherpid , we are $mypid "
+  # try to make the other job exit
+  touch exit
+  rm -f ${t}debug1.log ${t}debug2.log
+  sleep 60
+end
+rm -f ${t}debug1.log ${t}debug2.log
+
 
 set test = `echo $min_lig_weight $min_CA_weight $min_align_weight | awk '{print $1+$2+$3}'`
 if( "$minwt_itr" == "0" && "$test" != "0" ) then
-  echo "WARNING: setting minwt_itr = 1 because weights: $min_lig_weight $min_CA_weight $min_align_weight"
+  echo "WARNING: setting minwt_itr = 1 because weights: lig $min_lig_weight CA $min_CA_weight align $min_align_weight"
   set minwt_itr = 1
+endif
+set test = `echo $max_mult | awk '{print $1+0}'`
+if( "$adjust_itr" == "0" && "$test" != "1" ) then
+  echo "WARNING: setting adjust_itr = 1 because max_mult = $max_mult (!= 1)"
+  set adjust_itr = 1
+endif
+set test = `echo $Bfac_maxmod $Bfac_modmode | awk '$2=="add"{print ( $1+0 > 0 )} $2=="mult"{print ( $1*1 > 1 )}'`
+if ( $test == "" ) set test = 0
+if( "$Badjust_itr" == "0" && $test ) then
+  echo "WARNING: setting Badjust_itr = 1 because Bfac_maxmod = $Bfac_maxmod ( $Bfac_modmode mode )"
+  set Badjust_itr = 1
 endif
 
 # start the ramps
 if( "$fft_B_ramp" != "none" ) set fft_B = `echo $fft_B_ramp | awk '$1~/^[0-9]/{print $1+0}'`
-if( "$min_weight_ramp" != "none" ) set min_weight = `echo $min_weight_ramp | awk '$1~/^[0-9]/{print $1+0}'`
+if( "$cutoff_weight_ramp" != "none" ) set cutoff_weight = `echo $cutoff_weight_ramp | awk '$1~/^[0-9]/{print $1+0}'`
 if( "$repick_maxdist_ramp" != "none" ) set repick_maxdist = `echo $repick_maxdist_ramp | awk '$1~/^[0-9]/{print $1+0}'`
 if( "$repick_hohscale_ramp" != "none" ) set repick_hohscale = `echo $repick_hohscale_ramp | awk '$1~/^[0-9]/{print $1+0}'`
 if( "$avglast_ramp" != "none" ) set avglast = `echo $avglast_ramp | awk '$1~/^[0-9]/{print $1+0}'`
@@ -444,16 +499,16 @@ if (! $?Stage ) then
 endif
 
 if( ! $?Stage ) then
-  set log = `ls -1Lrt *amber_* |& grep amber_ | grep -v equi | tail -n 1`
-  set itr = `echo $log | awk -F "_" 'NF==2{print $2+0}' | tail -n 1`
-  echo "itr = $itr"
-  foreach stage ( `awk '/^Stages /{print}' leap2amber_${itr}.log leap2amber_*.log` )
-    if(-e ${stage}.nc) set Stage = $stage
-  end
-endif
-if( ! $?Stage ) then
-  set BAD = "unable to find a starting point"
-  goto exit
+  echo "still no previous Stage defined"
+  set log = `ls -1Lrt *amber_* |& grep amber_ | egrep -v "equi|settle" | tail -n 1`
+  set i = `echo $log | awk -F "_" 'NF==2{print $2+0}' | tail -n 1`
+  if("$i" == "") set i = 0
+  if(-e leap2amber_${i}.log) then
+    set itr = "$i"
+    echo "checking leap2ampber_${itr}.log"
+    set Stage = `awk '/^Stages /{for(i=3;i<=NF;++i)print $i}' leap2amber_${itr}.log | grep -v Min | tail -n 1`
+    if( "$Stage" == "" ) set Stage = `ls -1rt *.nc |& egrep -v "equi|settle|unwrap" | awk -F "." '{print $1}' | tail -n 1`
+  endif
 endif
 set laStage = "$Stage"
 
@@ -464,10 +519,11 @@ if(! -e orignames.pdb ) then
 endif
 if(! -e Bfac.pdb ) then 
    echo "generating Bfac.pdb from orignames.pdb"
-   cat orignames.pdb |\
-   awk '! /^ATOM|^HETAT/{print;next} \
-     {printf("%s%6.2f%s\n",substr($0,1,60),10,substr($0,67))}' orignames.pdb |\
-   cat >! Bfac.pdb 
+   cp  orignames.pdb Bfac.pdb 
+#   cat orignames.pdb |\
+#   awk '! /^ATOM|^HETAT/{print;next} \
+#     {printf("%s%6.2f%s\n",substr($0,1,60),10,substr($0,67))}' orignames.pdb |\
+#   cat >! Bfac.pdb 
 endif
 set norig = `egrep "^ATOM|^HETAT" orignames.pdb | wc -l`
 set nBfac = `egrep "^ATOM|^HETAT" Bfac.pdb | wc -l`
@@ -493,7 +549,7 @@ endif
 
 # test and find a topfile that works with the current stage
 echo "${Stage}.rst7 -> this.pdb"
-rst2pdb_runme.com ${Stage}.rst7 outprefix=this >! rst2pdb_${Stage}.log
+rst2pdb_runme.com ${Stage}.rst7 this.pdb >! rst2pdb_${Stage}.log
 if( $status ) then
   set BAD = "no top files work with ${Stage}.rst7"
   goto exit
@@ -528,7 +584,7 @@ echo "checking for restraint bombs"
 rm -f defused_restraints.pdb
 restraint_bomb_detector.com ${Stage}.rst7 \
     refpoints=current_restraints.pdb \
-    outfile=defused_restraints.pdb min_weight=$min_weight \
+    outfile=defused_restraints.pdb min_weight=$cutoff_weight \
     outcrd=ref.crd >! restraint_bomb_check.log
 if( $status ) then
   set BAD = "unfixable restraints bombs detected"
@@ -560,22 +616,41 @@ set lalaStage = "$laStage"
 set laStage = $Stage
 set Stage = amber_${itr}
 
-if(! -e ${laStage}.nc) then
-  set BAD = "no trajectory: ${laStage}.nc"
+if(! -e ${laStage}.in) then
+  set BAD = "no previous input file: ${laStage}.in"
   goto exit
+endif
+set trajectory = ${laStage}.nc
+if(! -e "$trajectory" ) then
+  echo "WARNING: "
+  echo "WARNING: no trajectory: $trajectory "
+  echo "WARNING: skipping ahead"
+  echo "WARNING: "
+  goto wrap
 endif
 
 # measure longest diffusion 
-traj_maxd_runme.com ${laStage}.nc >! traj_maxd.log
+traj_maxd_runme.com $trajectory >! traj_maxd.log
 touch maxd_vs_itr.txt
 echo -n "itr rms max frames atom: "
 echo -n "$prev " | tee -a maxd_vs_itr.txt
 tail -n 1 traj_maxd.log | tee -a maxd_vs_itr.txt
 
 
+# check for out-of-date trajectory
+if(-e trajectory/md.1.pdb) then
+  set test = `ls -1rt $trajectory trajectory/md.1.pdb | head -n 1 | grep md.1.pdb | wc -l`
+  if( $test ) then
+    echo "WARNING: trajectory/md.1.pdb is older than $trajectory "
+    echo "maybe: rm -f trajectory/md.1.pdb"
+  endif
+endif
+
+
+wrap:
 # see if we need a wrap - unprintable atoms
 echo "extracting xyz from ${laStage}.rst7 -> this.pdb"
-rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
+rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
 cat this.pdb |\
 awk '! /^ATOM|^HETAT/{next}\
   /*/{print;exit}\
@@ -604,7 +679,7 @@ if ( $need_wrap_now || $trigger ) then
   # keep everything else same for laStage
 
   # update the this.pdb
-  rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
+  rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
 
 #  if(-e ${laStage}.prmtop) cp ${laStage}.prmtop wrapped.prmtop
 #  set laStage = wrapped
@@ -613,7 +688,7 @@ if ( $need_wrap_now || $trigger ) then
   rm -f defused_restraints.pdb
   restraint_bomb_detector.com ${laStage}.rst7 \
     refpoints=current_restraints.pdb \
-    outfile=defused_restraints.pdb min_weight=$min_weight \
+    outfile=defused_restraints.pdb min_weight=$cutoff_weight \
     outcrd=ref.crd >! restraint_bomb_check.log
   if( $status ) then
     set BAD = "restraints moved relative to wrapped atoms"
@@ -630,10 +705,7 @@ if ( $need_wrap_now || $trigger ) then
   endif
 endif
 
-cat this.pdb |\
-awk '! /^ATOM|^HETAT/{print;next}\
-  substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
-cat >! refme.pdb
+filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
 #cp refme.pdb refme0.pdb
 
 
@@ -726,12 +798,12 @@ if( "$thrubond_avg_B_ramp" != "none" ) then
     echo "thrubond_avg_B = $thrubond_avg_B"
 endif
 
-if( "$min_weight_ramp" != "none" ) then
-    set params = `echo $min_weight_ramp | awk -F "[: _-]" '{print $3,$2,$1}'`
-    set value = `echo $params $min_weight | awk 'NF>2 && $NF<=$2{print $2;exit} $1~/x$/{print $NF*$1;exit} $(NF-1)~/x$/{print $NF*$(NF-1);exit} {print $NF-$1}'`
+if( "$cutoff_weight_ramp" != "none" ) then
+    set params = `echo $cutoff_weight_ramp | awk -F "[: _-]" '{print $3,$2,$1}'`
+    set value = `echo $params $cutoff_weight | awk 'NF>2 && $NF<=$2{print $2;exit} $1~/x$/{print $NF*$1;exit} $(NF-1)~/x$/{print $NF*$(NF-1);exit} {print $NF-$1}'`
     set value = `echo $value 0.0001 | awk '$1<$2{$1=$2} {print $1}'`
-    set min_weight = $value
-    echo "min_weight = $min_weight"
+    set cutoff_weight = $value
+    echo "cutoff_weight = $cutoff_weight"
 endif
 
 if( "$halfrho_ramp" != "none" ) then
@@ -762,7 +834,7 @@ endif
 
 
 set trigger = `echo $itr $align_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
-if ( $trigger ) then
+if ( $trigger || ! -e align_ref.pdb ) then
   # align rst7 and nc files to reference
   touch align_${prev}.log
 
@@ -771,7 +843,7 @@ if ( $trigger ) then
     echo "aligning ${laStage} to current restraints"
     cp ref.crd align_ref.crd
     cp current_restraints.pdb align_ref.pdb
-    set threshlist = ( 1 med )
+    set threshlist = ( 0.6 med )
   endif
   if( "$align_target" == "CA" ) then
     set threshlist = ( 1 med )
@@ -795,12 +867,16 @@ if ( $trigger ) then
     if(-e align_ref.pdb) then
       echo "re-using align_ref.pdb"
     else
-      filter_pdb.awk -v only=protein all_possible_refpoints.pdb >! ${t}_ref.pdb
+      echo "generating new align_ref.pdb from all_possible_refpoints.pdb"
+      filter_pdb.awk -v only=protein all_possible_refpoints.pdb |\
+      reformatpdb.awk -v CONF=" " |\
+      rmsd2B |\
+      awk '/^CRYST/ || substr($0,61,6)+0<12' >! ${t}_ref.pdb
       rholabel_runme.com reference.mtz ${t}_ref.pdb mtzlabel=Fref >> align_${prev}.log
       cat rholabeled.pdb |\
       awk -v s=$pdbscale '! /^ATOM/{next}\
-       {pre=substr($0,1,60);B=substr($0,61,6)+0;rho=$NF/s}\
-        B<0.01{next} rho>999.99{rho=999.99}\
+       {pre=substr($0,1,60);rho=$NF/s}\
+        rho>999.99{rho=999.99}\
         {printf("%s%6.2f%20s\n",pre,rho,"")}' |\
       cat >! align_ref.pdb
     endif
@@ -820,6 +896,10 @@ if ( $trigger ) then
     # needs to be re-generated
     rm align_ref.crd
   endif
+  if(! -s align_ref.pdb) then
+    set BAD = "failed to find/create alignment reference align_ref.pdb"
+    goto exit
+  endif 
   # now threshold the weights assigned to decide which atoms to use
   cat align_ref.pdb |\
   awk 'substr($0,61,6)+0>0{print substr($0,1,80),"     SEL"}' |\
@@ -833,7 +913,7 @@ if ( $trigger ) then
       set h = `cat align_atom_weights.txt | wc -l | awk '{print int($1/2)}'`
       set w = `awk '{print $2}' align_atom_weights.txt | sort -g | head -n $h | tail -n 1`
     endif
-    awk -v w=$w '$2>w' align_atom_weights.txt >! alignment_atnums.txt
+    awk -v w=$w '$2>=w' align_atom_weights.txt >! alignment_atnums.txt
     cat alignment_atnums.txt |\
     awk 'NR==1{s=e=$1;next}\
           $1==e+1{e=$1;next} \
@@ -863,12 +943,15 @@ if ( $trigger ) then
 EOF
   cat rmsd.txt vecsout.txt >> align_${prev}.log
 
-  cpptraj -p xtal.prmtop -y ${laStage}.nc -c align_ref.crd << EOF >> align_${prev}.log
-  rmsd rmsd reference norotate @$align_mask out rmsd.txt savevectors combined vecsout vecsout.txt
-  trajout aligned.nc
+  if(-e "$trajectory") then
+    cpptraj -p xtal.prmtop -y $trajectory -c align_ref.crd << EOF >> align_${prev}.log
+    rmsd rmsd reference norotate @$align_mask out rmsd.txt savevectors combined vecsout vecsout.txt
+    trajout aligned.nc
 EOF
-  cat rmsd.txt vecsout.txt >> align_${prev}.log
+    cat rmsd.txt vecsout.txt >> align_${prev}.log
 
+    set trajectory = aligned.nc
+  endif
   cp ${laStage}.in aligned.in
   set lalaStage = $laStage
   set laStage = aligned
@@ -878,19 +961,26 @@ EOF
   echo "$prev $drift" | tee -a alignment_drift_vs_itr.txt
 
   # update the this and noEP pdb files
-  rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
-  cat this.pdb |\
-  awk '! /^ATOM|^HETAT/{print;next}\
-    substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
-  cat >! refme.pdb
+  rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
+  filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
 
 endif
 
 
+if(! -e "$trajectory" ) then
+  echo "WARNING: "
+  echo "WARNING: no trajectory: $trajectory "
+  echo "WARNING: skipping ahead"
+  echo "WARNING: "
+  rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
+  filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
+  goto skipfofc
+endif
+
 
 # convert nc file to an mtz
 set nc2log = nc2mtz_${prev}.log
-if(-e ${laStage}.nc && ( ! -e avg_${prev}.mtz || ! -e trajectory/md.1.pdb ) ) then
+if(-e "$trajectory" && ( ! -e avg_${prev}.mtz || ! -e trajectory/md.1.pdb ) ) then
   set minB = 1
   set maxB = 999.99
   if( "$Bfac_file" == "rmsd2B" ) then
@@ -899,8 +989,8 @@ if(-e ${laStage}.nc && ( ! -e avg_${prev}.mtz || ! -e trajectory/md.1.pdb ) ) th
   endif
   set nc2mtz_extraopt = ""
   if( -e avg_${prev}.mtz ) set nc2mtz_extraopt = "domaps=0"
-  echo "nc2mtz gemmi ${laStage}.nc"
-  nc2mtz_gemmi.com $smallSG super_mult=$super_mult ${laStage}.nc \
+  echo "nc2mtz gemmi $trajectory"
+  nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
     Bfac_file=$Bfac_file minB=$minB maxB=$maxB \
     keeptraj=1 wrap=1 rate=$render_rate \
@@ -1019,8 +1109,8 @@ if( "$render_B_adjust" != "0" ) then
      cat >! newB.pdb
      set head = `cat this.pdb | wc -l`
      head -n $head newB.pdb >! ${t}newB.pdb
-     set pegmin = `awk 'substr($0,61,6)+0<=2' ${t}newB.pdb | wc -l`
-     set pegmax = `awk 'substr($0,61,6)+0>=999.99' ${t}newB.pdb | wc -l`
+     set pegmin = `awk '/^ATOM|^HETAT/ && substr($0,61,6)+0<=2' ${t}newB.pdb | wc -l`
+     set pegmax = `awk '/^ATOM|^HETAT/ && substr($0,61,6)+0>=999.99' ${t}newB.pdb | wc -l`
      echo "adding $deltaB to all B factors in $Bfac_file ($pegmin at min, $pegmax at max)"
      cp ${Bfac_file} Bfac_preadjust_${itr}.pdb
      cp newB.pdb ${Bfac_file}
@@ -1059,8 +1149,9 @@ if(-e prev_fofc.map) then
    correlate.com fofc.map prev_fofc.map | awk '{print $NF}'
 endif
 
-if(! -e trajectory/md.1.pdb ) then
-  echo "ERROR: need trajectory."
+if( ! -e trajectory/md.1.pdb ) then
+  echo "WARNING: no trajectory."
+  goto skipfofc
 endif
 
 set trigger = `echo $itr $adjust_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
@@ -1078,8 +1169,8 @@ restraintlist_update_diffmap.com fofc.map \
   trajectory=trajectory/ \
   tempfile=${scratch}/rud_ \
   refme.pdb modulo=$modulo \
-  overall_scale=$weight_scale \
-  negative_scale=$weight_negscale \
+  overall_scale=$weight_scaledown \
+  negative_scale=$weight_negscaledown \
   max_weight=$max_wB max_mult=$max_mult \
   ambig_same_weight=$ambig_same_weight \
   halfrho_pos=$halfrho_pos halfrho_neg=$halfrho_neg \
@@ -1112,7 +1203,7 @@ endif
 
 # now update B factors for map calculation
 if(-e premod_Bfac_${itr}.pdb) then
-   echo "assuming B factors in premod_Bfac_${itr}.pdb are for amber_${itr}.nc"
+   echo "assuming B factors in premod_Bfac_${itr}.pdb are for $trajectory "
    cp premod_Bfac_${itr}.pdb Bfac.pdb
 endif
 rm -f new_Bfac.pdb
@@ -1144,11 +1235,8 @@ endif
 skipBadjust:
 
 # re-generate this.pdb and refme.pdb with new B factors
-rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
-cat this.pdb |\
-awk '! /^ATOM|^HETAT/{print;next}\
-  substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
-cat >! refme.pdb
+rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
+filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
 
 touch Bhist_vs_itr.txt
 awk '/^ATOM|^HETAT/{print substr($0,61,6)}' refme.pdb |\
@@ -1171,16 +1259,15 @@ endif
 skipfofc:
 
 echo "measuring challenges to previous restraints"
-cat this.pdb |\
-awk '! /^ATOM|^HETAT/{print;next}\
-  substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
+filter_pdb.awk -v skip=EP this.pdb |\
 tee refme.pdb |\
+filter_pdb.awk -v skip=H |\
 awk '! /^ATOM|^HETAT/{print;next}\
-  substr($0,77,2)!=" H"{print substr($0,1,60) "  0.00" substr($0,67)}' |\
+  {print substr($0,1,60) "  0.00" substr($0,67)}' |\
 cat >! zeroB.pdb
 
 # find restraints bigger than the minimum value used
-echo $min_weight $pdbscale |\
+echo $cutoff_weight $pdbscale |\
 cat - current_restraints.pdb |\
 awk 'NR==1{minB=$1/$2;scale=$2;next}\
   ! /^ATOM|^HETAT/{print;next}\
@@ -1206,6 +1293,13 @@ tail -n 1 | tee -a worstchallenge_vs_itr.txt
 
 
 
+if( $void_scale == 0 ) then
+  echo "skipping void calculation"
+  set maxvoid = "n/d"
+  set nbulk_sum = "n/d"
+  set nbulk_max = "n/d"
+  goto skipvoid
+endif
 
 echo "measuring voids..."
 set maxvoid = `measure_voids_runme.com zeroB.pdb | awk '/biggest void:/{print $3/92}'`
@@ -1221,20 +1315,22 @@ set nbulk_sum = `awk -v minvoid=$minvoid '$1>=minvoid{sum+=$1} END{print sum+0}'
 set nbulk_max = `awk 'NR==1{print $1}' void_hist.txt`
 if("$nbulk_max" == "") set nbulk_max = 0
 
+skipvoid:
 #dont forget to update this.pdb if the rst7 file gets shuffled
 
 
 # check the pressure, if any
 set press = ( 0 - - )
-foreach log ( barometer_${prev}.out ${laStage}.out ${lalaStage}.out ${Stage}.out amber_${prev}.out )
+set outfiles = `ls -1t *.out`
+foreach log ( barometer_${prev}.out ${laStage}.out amber_${prev}.out $outfiles )
+  echo "checking $log"
   if(! -e "$log") continue
-  if("$log" != "barometer_${prev}.out" ) echo "getting pressure from $log"
-  set press = `awk '/PRESS/ && p{n=$3;print $NF} /A V E R A/{++p} END{print n+0}' $log`
+  set press = `awk '/PRESS/ && p{n=$3;print $NF} /A V E R A/{++p} END{print n+0}' $log | tail -n 3`
   # avg rms N
   if( "$press" == "" || "$press" == "0" ) set press = ( 0 - - )
   if( "$press[1]" != "0" ) break
 end
-if( "$press[1]" == "0" ) then
+if( "$press[1]" == "0" && -e ${laStage}.out ) then
    set ektot = `awk '/EKtot/ && ! p{++n} /EKtot/ && p{print $6} /A V E R A/{++p} END{print n+0}' ${laStage}.out`
 endif
 
@@ -1294,7 +1390,7 @@ if( "$pressure_avglast" != "1" && "$pressure_avglast_ramp" == "none" ) then
 endif
 
 # try to automate pressure scale
-set pressure_scale_lasttime = 1
+set pressure_scale_lasttime = 0
 if( $?pressure_scale_thistime ) then
   set pressure_scale_lasttime = $pressure_scale_thistime
 endif
@@ -1306,9 +1402,9 @@ if( "$pressure_scale" =~ *auto* ) then
     tac pressure_vs_itr.txt |\
     awk '{print $4,$12}' |\
     awk '{p=$1;n=$2} n0+0<=0{n0=n} {dn=sqrt((n-n0)^2)}\
-      dn/n0>0.1{++somesignal}\
-      {print $0,somesignal,dn}\
-      somesignal && NR>10{exit}' >! ${t}press.txt
+      dn/n0>0.05{++somesignal}\
+      {print $0,somesignal+0,dn}\
+      somesignal>10 && NR>30{exit}' >! ${t}press.txt
     set variety = `awk '$3+0>0{print $2}' ${t}press.txt | sort -u | wc -l`
     set linfit = `awk '{print $1,$2}' ${t}press.txt | linfit.awk `
     set test = `echo $linfit | awk '{print sqrt($1*$1)}'`
@@ -1329,7 +1425,7 @@ if ( $trigger ) then
 #  if( "$w" == "" || $pressure_avglast_thistime > 1 ) set w = 1
 #  echo "pressure snr weight = $w"
   echo "checking pressure: $press[1] > $pressure_deadband "
-  set test = `echo $press $pressure_deadband | awk '{print ( $1>$2 )}'`
+  set test = `echo $press $pressure_deadband | awk '{print ( $1>$NF )}'`
   if( $test && "$dehydrate" != "0" ) then
     if( "$dehydrate" == "pressure" ) then
       set dehydrate_thistime = `echo $press $w $pressure_scale_thistime | awk '{print $1*$NF*$(NF-1)}'`
@@ -1344,8 +1440,8 @@ if ( $trigger ) then
   echo "checking void size: $nbulk_max vs $minvoid"
   set bigvoid = `echo $nbulk_max $minvoid | awk '{print ( $1 > 2*$2 )}'`
   set lowpress = `echo $press -$pressure_deadband | awk '{print ( $1 < $2 )}'`
-  set addv = `echo $nbulk_max $void_scale | awk '{print $1*$2}'`
-  set addp = `echo $press $w $pressure_scale_thistime | awk '{print -$1*$NF*$(NF-1)*($1<0)}'`
+  set addv = `echo $nbulk_max $void_scale $minvoid | awk '{print $1*$2*( $1>$3 )}'`
+  set addp = `echo $press $w $pressure_scale_thistime | awk '$NF==0{$NF=1} {print -$1*$NF*$(NF-1)*($1<0)}'`
   echo "nadd options: $addv void $addp press"
   set addv = `echo $addv | awk '{printf("%.0f",$1)}'`
   set addp = `echo $addp | awk '{printf("%.0f",$1)}'`
@@ -1420,7 +1516,7 @@ if ( $trigger ) then
     echo "checking for errant refpoints..."
     rm -f defused_restraints.pdb
     restraint_bomb_detector.com ${laStage}.rst7 \
-      refpoints=current_restraints.pdb kT=1.2 min_weight=$min_weight \
+      refpoints=current_restraints.pdb kT=1.2 min_weight=$cutoff_weight \
       outfile=defused_restraints.pdb \
       outcrd=ref.crd >! restraint_bomb_check.log
     if( $status ) then
@@ -1475,13 +1571,13 @@ if ( $trigger ) then
       rm -f defused_restraints.pdb
       restraint_bomb_detector.com ${laStage}.rst7 \
         refpoints=current_restraints.pdb \
-        outfile=defused_restraints.pdb min_weight=$min_weight \
+        outfile=defused_restraints.pdb min_weight=$cutoff_weight \
         outcrd=ref.crd >! restraint_bomb_check.log
       if( $status ) then
         set BAD = "restraint bomb detected after hydration"
         goto exit
       endif
-      egrep "WARNING|worst|ATOM|HETTAT" restraint_bomb_check.log
+      egrep "WARNING|worst|ATOM|HETAT" restraint_bomb_check.log
       egrep -v "^recommend:|^making ref.crd|^mv " restraint_bomb_check.log |\
       tail -n 1 
       diff current_restraints.pdb defused_restraints.pdb > /dev/null
@@ -1520,11 +1616,8 @@ if( $changed_waters ) then
   echo "$prev $nwaters" | tee -a nwaters_vs_itr.txt
 
   # update the this and noEP pdb files
-  rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
-  cat this.pdb |\
-  awk '! /^ATOM|^HETAT/{print;next}\
-    substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
-  cat >! refme.pdb
+  rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
+  filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
 endif
 
 set repick_now = 0
@@ -1557,7 +1650,7 @@ echo "symgen $smallSG" | pdbset xyzin pick.pdb xyzout bigpick.pdb >> /dev/null
 egrep "^ATOM|^HETAT" bigpick.pdb >> teleport_goals.pdb
 
 # retrieve restraints that are actually being used
-echo $min_weight $pdbscale |\
+echo $cutoff_weight $pdbscale |\
 cat - current_restraints.pdb |\
 awk 'NR==1{minB=$1/$2;scale=$2;next}\
   ! /^ATOM|^HETAT/{print;next}\
@@ -1568,17 +1661,13 @@ cat >! active_restraints.pdb
 awk '/^ATOM|^HETAT/{print substr($0,12,17),substr($0,61,6)/100,"RESTRAINED"}' active_restraints.pdb >! restr.txt
 
 # get beginning of trajectory
-set ncfile = ${laStage}.nc
-if(! -e "$ncfile") set ncfile = ${lalaStage}.nc
-if(! -e "$ncfile") set ncfile = ${lalaStage}.rst7
-rst2pdb_runme.com include_ep=0 $ncfile start.pdb Bfactors=none >! rst2pdb.log
+rst2pdb_runme.com include_ep=0 $trajectory trajstart.pdb Bfactors=none >! teleport_${itr}.log
 #rst2pdb_runme.com ${laStage}.rst7 end.pdb >> /dev/null
-if(! -e start.pdb) touch start.pdb
 
 filter_pdb.awk -v skip=H -v only=water refme.pdb >! rhome.pdb
-rholabel_runme.com cootme.mtz rhome.pdb >> /dev/null
+rholabel_runme.com cootme.mtz rhome.pdb >> teleport_${itr}.log
 
-filter_pdb.awk -v skip=H -v only=water start.pdb rholabeled.pdb |\
+filter_pdb.awk -v skip=H -v only=water trajstart.pdb rholabeled.pdb |\
  rmsd -v debug=1 |\
 cat - restr.txt rholabeled.pdb |\
 awk '{id=substr($0,1,17)} /moved/{moved[id]=substr($0,25,8);next}\
@@ -1589,7 +1678,7 @@ awk '{id=substr($0,1,17)} /moved/{moved[id]=substr($0,25,8);next}\
     moved[id]+0<2.0 && typ=="HOH" && rho<0{\
   print rho/(moved[id]+1.0),substr($0,1,90),moved[id],$NF}' |\
 sort -g |\
-awk '{print substr($0,index($0,$2))}' >! teleportee.pdb
+awk '{print substr($0,index($0,$2))}' >! trapped_waters.pdb
 
 
 rm -f teleported.rst7
@@ -1597,8 +1686,9 @@ water_teleport_runme.com ${laStage}.rst7 maxmoves=$teleport_waters \
   teleport_goals.pdb notthese=active_restraints.pdb \
   mtzfile=cootme.mtz \
   mindist=$teleport_mindist \
-  teleportee=teleportee.pdb \
-  debug=$debug minimize=0 energycheck=0 >! teleport_${itr}.log 
+  minrho=$teleport_minrho \
+  teleportee=trapped_waters.pdb \
+  debug=$debug minimize=0 energycheck=0 >> teleport_${itr}.log 
 
 if(! -e teleported.rst7) then
   echo "no teleportation options"
@@ -1631,8 +1721,10 @@ cat >! filled.pdb
 combine_pdbs_runme.com spikeweight.pdb filled.pdb printref=1 >! spikeweight.log
 cp new.pdb spiked_restraints.pdb
 combine_pdbs_runme.com spiked_restraints.pdb orignames.pdb >> spikeweight.log
-diff new.pdb current_restraints.pdb >> spikeweight.log
-set changes = `diff new.pdb current_restraints.pdb | egrep "^<" | egrep "ATOM|HETAT" | wc -l`
+awk '{print substr($0,1,30) substr($0,61)}' new.pdb >! ${t}this.txt
+awk '{print substr($0,1,30) substr($0,61)}' current_restraints.pdb >! ${t}that.txt
+diff ${t}this.txt ${t}that.txt >> spikeweight.log
+set changes = `diff ${t}this.txt ${t}that.txt | egrep "^<" | egrep "ATOM|HETAT" | wc -l`
 mv new.pdb current_restraints.pdb
 echo "spiked $changes weights in current_restraints.pdb"
 
@@ -1648,11 +1740,9 @@ set laStage = teleported
 #set repick_now = 1
 
 # update the this and noEP pdb files
-rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
-cat this.pdb |\
-awk '! /^ATOM|^HETAT/{print;next}\
-  substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
-cat >! refme.pdb
+rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
+filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
+
 
 skipteleport:
 
@@ -1671,9 +1761,15 @@ if ( $trigger || $repick_now ) then
   set just_repicked = 1
 
   egrep "^CRYST" all_possible_refpoints.pdb | head -n 1 >! unfiltered_refpoints.pdb
-  egrep -v "HOH|^END" all_possible_refpoints.pdb >> unfiltered_refpoints.pdb
-  grep HOH current_restraints.pdb                >> unfiltered_refpoints.pdb
-  grep HOH all_possible_refpoints.pdb            >> unfiltered_refpoints.pdb
+  if(-e fofc.map) then
+    pick.com 5 fofc.map >! pick.log
+    echo "symgen $smallSG" | pdbset xyzin pick.pdb xyzout bigpick.pdb >> /dev/null
+    convert_pdb.awk -v only=atoms -v BFAC=999 -v CHAIN=z -v output=pdb bigpick.pdb |\
+    awk '{gsub("OW","O ")}' >> unfiltered_refpoints.pdb
+  endif
+  filter_pdb.awk -v only=atoms -v skip=water all_possible_refpoints.pdb    >> unfiltered_refpoints.pdb
+  filter_pdb.awk -v only=atoms,water current_restraints.pdb                >> unfiltered_refpoints.pdb
+  filter_pdb.awk -v only=atoms,water all_possible_refpoints.pdb            >> unfiltered_refpoints.pdb
 
   egrep "^CRYST|^ATOM|^HETAT" unfiltered_refpoints.pdb |\
   awk -v debug=$debug '/^CRYST/ && ! cryst{print;++cryst;next}\
@@ -1696,6 +1792,17 @@ if ( $trigger || $repick_now ) then
   egrep -v "HOH|^END" inherited_refpoints.pdb >! sorted_refpoints.pdb
   egrep "HOH" inherited_refpoints.pdb |\
   sort -k1.61gr >> sorted_refpoints.pdb
+
+  if( "$cutoff_forget" != "0" ) then
+    echo $cutoff_weight $pdbscale |\
+    cat sorted_refpoints.pdb |\
+    awk 'NR==1{minB=$1/$2;next}\
+      ! /^ATOM|^HETAT/{print;next}\
+      {B=substr($0,61,6)+0} B>minB{print}' |\
+    cat >! bigenough_refpoints.pdb
+    cp sorted_refpoints.pdb full_refpoints_${itr}.pdb
+    cp bigenough_refpoints.pdb sorted_refpoints.pdb
+  endif
 
   # re-pick reference points
   echo "re-discovering nearest reference points"
@@ -1830,11 +1937,8 @@ if( $trigger ) then
 
   # check for bombs ?
 
-  rst2pdb_runme.com ${laStage}.rst7 outprefix=this >! rst2pdb.log
-  cat this.pdb |\
-  awk '! /^ATOM|^HETAT/{print;next}\
-     substr($0,77,2)!="XP" && substr($0,12,5)!=" EPW "{print}' |\
-  cat >! refme.pdb
+  rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
+  filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
 
   cp ${laStage}.in remapped.in
   set lalaStage = $laStage
@@ -1923,6 +2027,13 @@ if ( ( ! $just_repicked ) && $trigger ) then
 
 endif
 
+if(! -e fofc_Rplot.txt) then
+  echo "WARNING: skipping best-itr determination. No fofc_Rplot.txt file yet"
+  set bestR = "unk"
+  set R = "unk"
+  goto skiprandel
+endif
+
 set best_itr = `sort -k2g fofc_Rplot.txt | awk '{print $1;exit}'`
 sort -k2g fofc_Rplot.txt |\
  awk 'NR==1{best=$1}\
@@ -1941,6 +2052,7 @@ awk '{++n;v[n]=$1;sum+=$1}\
     for(i=1;i<=n;++i){sumd+=(v[i]-avg)**2};\
     if(n)print avg,sqrt(sumd/n),n}' >! temp.txt
 set thisR = `cat temp.txt`
+
 
 set randel_trigger_now = 0
 if( $randel_trigger ) then
@@ -1999,7 +2111,7 @@ if ( "$randel_itr" != "0" && ( ( ( $itr - $randel_last ) > $randel_itr ) || $ran
   cp randel_restraints.pdb current_restraints.pdb
   set randel_last = $itr
 endif
-
+skiprandel:
 
 
 
@@ -2007,13 +2119,14 @@ endif
 # try releasing tightest restraints, see if they grow back
 set trigger = `echo $itr $release_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
 if ( $trigger || "$release_trigger" != "0" && $pegged_weight ) then
-  echo "releasing most-challenged restraints "
+  echo "releasing over-challenged restraints "
   set tootight = `echo $max_weight | awk '{print ($1+0.0001)*0.9}'`
   rm -f new_restraints.pdb
   release_worst_restraints_runme.com restraintpdb=current_restraints.pdb \
     refinedpdb=refme.pdb radius=$release_radius pdbscale=$pdbscale \
     tootight=$tootight maxbad=$release_maxbad \
-    resetweight=$release_weight sigma=5 >! release_worst_${itr}.log
+    resetweight=$release_weight sigma=5 \
+    ignore="" >! release_worst_${itr}.log
   if( $status || ! -e new_restraints.pdb) then
     set BAD = "release worst restraints failed"
     goto exit
@@ -2078,15 +2191,18 @@ set trigger = `echo $itr $minwt_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {p
 if ( ! $trigger ) goto skip_minwt
 
 # make sure any ligands stay put
-set test = `egrep "EG7 | ZN " all_possible_refpoints.pdb | wc -l`
-if( $test && "$min_lig_weight" != "0" ) then
+set liggrep = `echo $ligands | awk '{gsub(" ","|");print}'`
+set test = `egrep "$liggrep" all_possible_refpoints.pdb | wc -l`
+if( $test && "$min_lig_weight" != "0" && "$ligands" != "" ) then
 
-  echo "ensuring slight restraints on EG7|ZN "
-  egrep "EG7| ZN " all_possible_refpoints.pdb >! lig.pdb
+  echo "ensuring slight restraints on ligands: $ligands "
+  egrep "$liggrep" all_possible_refpoints.pdb |\
+  filter_pdb.awk -v only=ligand -v ligands="$liggrep" |\
+  awk '{print $0,"MAYBELIG"}' >! lig.pdb
   cat current_restraints.pdb lig.pdb |\
   awk '{id=substr($0,12,5)" "substr($0,18,12)} ! seen[id]{print;++seen[id]}' |\
   awk -v mlw=$min_lig_weight -v scale=$pdbscale '! /^ATOM|^HETAT/{print;next}\
-    ! /EG7| ZN /{print;next}\
+    $NF!="MAYBELIG"{print;next}\
     {B=substr($0,61,6)+0;pre=substr($0,1,60);post=substr($0,67,12);\
      w=B*scale}\
     w<mlw{w=mlw}\
@@ -2100,10 +2216,14 @@ endif
 
 
 # make sure certain CAs stay put
-if( "$min_CA_weight" != 0 && -e alignment_anums.txt ) then
+if( "$min_CA_weight" != 0 && -e alignment_atnums.txt ) then
 
   set minB = `echo $min_CA_weight $pdbscale | awk '{print $1/$2}'`
   echo "ensuring slight restraints on high-density CA atoms used for alignment "
+
+  # quick update in case scrambled
+  if( "$align_target" == "restraints" ) cp current_restraints.pdb align_ref.pdb
+
   # first, put weight on atoms used in alignment
   cat alignment_atnums.txt orignames.pdb |\
   awk '$1+0>0{++sel[$1];next}\
@@ -2145,8 +2265,11 @@ if( "$min_align_weight" != 0 && ! -e alignment_atnums.txt ) then
   echo "WARNING: missing alignment_atnums.txt"
 endif
 if( "$min_align_weight" != 0 && -e alignment_atnums.txt ) then
+  # quick update in case scrambled
+  if( "$align_target" == "restraints" ) cp current_restraints.pdb align_ref.pdb
+
   set minB = `echo $min_align_weight $pdbscale | awk '{print $1/$2}'`
-  echo "ensuring slight restraints on high-density atoms used for alignment "
+  echo "ensuring slight restraints on atoms used for alignment "
   # first, must extract atoms used in alignment
   cat alignment_atnums.txt orignames.pdb |\
   awk '$1+0>0{++sel[$1];next}\
@@ -2180,6 +2303,9 @@ if( "$min_align_weight" != 0 && -e alignment_atnums.txt ) then
   cp current_restraints.pdb prealignrest_restraints.pdb
   cp align_restraints.pdb current_restraints.pdb
 
+  # check for bombs?
+  
+
 endif
 
 skip_minwt:
@@ -2207,7 +2333,7 @@ echo "final check for errant refpoints..."
 rm -f defused_restraints.pdb
 restraint_bomb_detector.com ${laStage}.rst7 \
   refpoints=current_restraints.pdb \
-  outfile=defused_restraints.pdb min_weight=$min_weight \
+  outfile=defused_restraints.pdb min_weight=$cutoff_weight \
   outcrd=ref.crd >! restraint_bomb_check.log
 if( $status ) then
   cat restraint_bomb_check.log
@@ -2231,15 +2357,22 @@ awk -v pdbscale=$pdbscale '! /^ATOM|^HETAT/{print;next}\
    printf("%s%6.2f%s\n",pre,B*pdbscale*10,post)}' |\
 cat >! cootme_restraints.pdb
 
+touch weight_hist_vs_itr.txt
+awk -v pdbscale=$pdbscale '/^ATOM|^HETAT/{print substr($0,61,6)*pdbscale}' current_restraints.pdb |\
+ histogram.awk -v bs=1 |\
+awk -v itr=$itr '{print itr,$0}' |\
+cat >> weight_hist_vs_itr.txt
+echo "" >> weight_hist_vs_itr.txt
+
 
 # create ref.crd from most recent rst7 and current_restraints.pdb
 rst2pdb_runme.com ${laStage}.rst7 flying.pdb Bfactors=none >! final_centroids.log
-cp flying.pdb start_${itr}.pdb
+#cp flying.pdb start_${itr}.pdb
 
 update_centroid_positions_runme.com \
      pdbfile=current_restraints.pdb \
      orignames=flying.pdb topfile=xtal.prmtop \
-     minwt=$min_weight pdbscale=$pdbscale \
+     minwt=$cutoff_weight pdbscale=$pdbscale \
      outfile=ref.crd >> final_centroids.log
 
 update_centroid_positions_runme.com \
@@ -2250,7 +2383,7 @@ update_centroid_positions_runme.com \
 echo "replacing restraint list in ${laStage}.in with new list in ${Stage}.in"
 restraintlist2amber.com list=current_restraints.pdb \
   pdbscale=$pdbscale \
-  minwt=$min_weight \
+  minwt=$cutoff_weight \
   orignames=flying.pdb \
   allatom_weight=$allatom_weight \
   ${laStage}.in \
@@ -2269,7 +2402,7 @@ sort -gr |\
 tee actual_weights.txt |\
 cat - ref.pdb |\
 awk -v s=$pdbscale 'NF==3{w[$2,$3]=$1;next}\
-  ! /^ATOM|^HETAT/{next}\
+  /^CRYST/{print} ! /^ATOM|^HETAT/{next}\
     {atom=substr($0,12,5);gsub(" ","",atom);\
      pre=substr($0,1,60);post=substr($0,67)}\
    w[atom,$NF]{printf("%s%6.2f%s\n",pre,w[atom,$NF]/s,post)}' |\
@@ -2335,6 +2468,10 @@ tee -a worstatom_path.pdb > /dev/null
 #goto skipchir
 wait
 set omegalogs = `ls -1rt omegalyze_*.log | tail -n 3`
+if( "$omegalogs" == "" ) then
+  echo "WARNING: no informaiton on omega"
+  goto skipchir
+endif
 cat $omegalogs |\
 awk -F ":" '/ to /{;\
   dev=(($3+270)%180)-90;\
@@ -2357,11 +2494,15 @@ awk '/^BAD/{++bonds;\
     print "# trans-omega for",res[b],"off by",dev[b];\
     end="&end";if(b==1)end="";\
     print " &rst iat=" list[b],end;\
-    if(b==1)print "  r1=150., r2=170., r3=190., r4=210., rk2 =50, rk3=50,  &end"}}' |\
+    if(b==1)print "  r1=134., r2=135., r3=225., r4=226., rk2 =50, rk3=50,  &end"}}' |\
 cat >! bad_omega.rst
 
 
 set chiralogs = `ls -1rt chiralyze_*.log | tail -n 3`
+if( "$chiralogs" == "" ) then
+  echo "WARNING: no informaiton on chirality"
+  goto skipchir
+endif
 cat $chiralogs |\
 awk '$2=="ideal" || $2=="delta:" || NF==0{next}\
   /All restrained atoms within/{next}\
@@ -2395,7 +2536,7 @@ awk '\
     print "# chirality for",res[b];\
     end="&end";if(b==1)end="";\
     print " &rst iat=" list,end;\
-    if(b==1)print "  r1=10., r2=60.,  r3=80.,  r4=130., rk2 =10, rk3=10,  &end"}}' |\
+    if(b==1)print "  r1=50., r2=60.,  r3=80.,  r4=90., rk2 =10, rk3=10,  &end"}}' |\
 cat >! bad_chir.rst
 
 set badchir = `cat bad_chir.txt | wc -l`
@@ -2403,7 +2544,7 @@ set badomega = `cat bad_omega.txt | wc -l`
 
 if( $badchir || $badomega ) then
    echo "maybe replace chir_omega.rst with bad chiral and omega lists."
-   #cat bad_chir.rst bad_omega.rst >! chir_omega.rst
+   echo "cat bad_chir.rst bad_omega.rst >! chir_omega.rst"
 endif
 
 skipchir:
@@ -2491,11 +2632,12 @@ endif
 
 set nsnb = `head -n 100 ${Stage}.in | awk -F "=" '/ nsnb=/{print $2+0;exit}'`
 echo "equi_ns = $equi_ns"
-echo $equi_ns $equi_dt $align_cyc $nsnb |\
+echo $equi_ns $equi_dt $align_nstlim $nsnb |\
 cat - ${Stage}.in |\
-awk 'NR==1{ns=$1;dt=$2+0;align_cyc=$3;nsnb=$4+0;if(dt<1e-6)dt=0.002;\
+awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;nsnb=$4+0;if(dt<1e-6)dt=0.002;\
     nstlim=int(ns*1000/dt);\
-    if(align_cyc)nstlim=align_cyc;next} \
+    if(align_nstlim>nstlim)align_nstlim=nstlim; \
+    if(align_nstlim)nstlim=align_nstlim;next} \
   {space=substr($0,1,index($0,$1)-1);split($1,w,"=")}\
   # shorter time step \
   / dt=/{print space w[1] "=" dt ",";next}\
@@ -2513,11 +2655,12 @@ awk 'NR==1{ns=$1;dt=$2+0;align_cyc=$3;nsnb=$4+0;if(dt<1e-6)dt=0.002;\
   {print}' |\
 cat >! settle.in
 
-echo $equi_ns $equi_dt $align_cyc |\
+echo $equi_ns $equi_dt $align_nstlim |\
 cat - ${Stage}.in |\
-awk 'NR==1{ns=$1;dt=$2+0;align_cyc=$3;if(dt<1e-6)dt=0.002;\
+awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;if(dt<1e-6)dt=0.002;\
     nstlim=int(ns*1000/dt);\
-    if(align_cyc)nstlim=align_cyc;next} \
+    if(align_nstlim>nstlim)align_nstlim=nstlim; \
+    if(align_nstlim)nstlim=align_nstlim;next} \
   {space=substr($0,1,index($0,$1)-1);split($1,w,"=")}\
   # still shorter time step \
   / dt=/{print space w[1] "=" dt ",";next}\
@@ -2565,10 +2708,13 @@ if(-e chir_omega.rst) then
   echo $chiral_weight $omega_weight |\
   cat - chir_omega.rst |\
   awk 'NR==1{cw=$1;ow=$2;next}\
-    $1=="r1=10.," {print "   r1=10., r2=60.,  r3=80.,  r4=130., rk2 ="cw", rk3="cw",  &end";next}\
-    $1=="r1=150.,"{print "  r1=150., r2=170., r3=190., r4=210., rk2 ="ow", rk3="ow",  &end";next}\
-    {print}' |\
+    /chirality/{type="chiral"}\
+    /trans-omega/{type="omega"}\
+    ! ( /r1=/ && $NF=="&end" ) {print;next}\
+    type=="chiral"{print "   r1=50., r2=60.,  r3=80.,  r4=90., rk2 ="cw", rk3="cw",  &end"}\
+    type=="omega" {print "   r1=134., r2=135., r3=225., r4=226., rk2 ="ow", rk3="ow",  &end"}' |\
   cat >! new.txt
+  diff chir_omega.rst new.txt
   mv new.txt chir_omega.rst
 endif
 
@@ -2585,19 +2731,23 @@ if( ! $disang && ( $omega_weight != 0 ) && -e chir_omega.rst) then
     print " &dummy  i=1, ";}\
    {print}' |\
   cat >! tempfile.in
+  diff ${Stage}.in tempfile.in
   mv tempfile.in ${Stage}.in
 endif
 if( $disang && "$omega_weight" == "0" && "$chiral_weight" == "0" ) then
   echo "removing chiral/omega restraints"
 
   egrep -v "dummy|DISANG|LISTIN=PO|wt type=|nmropt" ${Stage}.in >! tempfile.in
+  diff ${Stage}.in tempfile.in
   mv tempfile.in ${Stage}.in
 endif
 
 # make input file for re-alignmnent sub-run
-echo $prod_ns $dt $align_cyc |\
+echo $prod_ns $dt $align_nstlim |\
 cat - ${Stage}.in |\
-awk 'NR==1{nstlim=int($1/$2*1000);if($3)nstlim=$3;next}\
+awk 'NR==1{nstlim=int($1/$2*1000);align_nstlim=$3;\
+    if(align_nstlim>nstlim)align_nstlim=nstlim;\
+    if(align_nstlim)nstlim=align_nstlim;next}\
   /=/{space=substr($0,1,index($0,$1)-1);split($1,w,"=");\
    value=w[2]+0;if(value>nstlim)value=nstlim}\
   / nstlim=/{print space w[1] "=" nstlim ",";next}\
@@ -2615,8 +2765,8 @@ foreach substage ( settle equi )
   touch ${Stage}_${substage}.out 
   echo -n "" >! ${t}trajin.txt
   set nstlim0 = `echo $equi_ns $equi_dt | awk '{print int($1/$2*1000)}'`
-  set subruns = `echo $nstlim0 $align_cyc | awk '$2==0{print 1;exit} {print int($1/$2)}'`
-  if( $subruns == 0 ) set subruns = 1
+  set subruns = `echo $nstlim0 $align_nstlim | awk '$2>0{print int($1/$2)}'`
+  if( "$subruns" == "" || "$subruns" == "0" ) set subruns = 1
 
   foreach i ( `seq 1 $subruns` )
     echo "${substage}-ing $Stage ( $i / $subruns )"
@@ -2671,11 +2821,12 @@ if(-e ${Stage}_${substage}.out) then
   if(! $status) break
 endif
 
+cp ${laStage}.rst7 start_${itr}.rst7
 rm -f ${Stage}.rst7
 touch ${Stage}.out 
 set nstlim0 = `echo $prod_ns $dt | awk '{print int($1/$2*1000)}'`
-set subruns = `echo $nstlim0 $align_cyc | awk '$2==0{print 1;exit} {print int($1/$2)}'`
-if( $subruns == 0 ) set subruns = 1
+set subruns = `echo $nstlim0 $align_nstlim | awk '$2>0{print int($1/$2)}'`
+if( "$subruns" == "" || "$subruns" == "0" ) set subruns = 1
 foreach i ( `seq 1 $subruns` )
     echo "running $Stage ( $i / $subruns )"
     $pmemd -O -i ${Stage}_i.in -o ${Stage}_${i}.out \
@@ -2690,9 +2841,9 @@ foreach i ( `seq 1 $subruns` )
       goto exit
     endif
 
-    grep NaN ${Stage}.out
+    grep NaN ${Stage}_${i}.out
     if(! $status) break
-    egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
+    egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}_${i}.out | grep '\*\*\*\*\*'
     if(! $status) break
 
     cpptraj -p xtal.prmtop -y ${Stage}_${i}.rst7 -c align_ref.crd << EOF >! align.log
@@ -2709,6 +2860,11 @@ EOF
     cat ${Stage}_${i}.out >> ${Stage}.out
     rm ${Stage}_${i}.out
   end
+  grep NaN ${Stage}.out
+  if(! $status) break
+  egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
+  if(! $status) break
+
   cp ${Stage}_${i}.rst7 ${Stage}.rst7
 
   ls -1rt | egrep "^${Stage}_" | awk -F "_" '$3+0>0 && /.rst7$|.nc$/' >! ${t}ls.txt
@@ -2747,18 +2903,32 @@ EOF
     mv smaller.nc ${Stage}.nc
   endif
 
+  if(! -e ${Stage}.nc) then
+    set BAD = "amber didnt work: no ${Stage}.nc file"
+    goto exit
+  endif
+
   # now quick check of geometry
   cpptraj -p xtal.prmtop -y ${Stage}.rst7 << EOF >! checks.log
 checkchirality chir out chircheck.txt
-strip @EPW
+strip :WAT,HOH@Y1,EPW
 check reportfile geocheck.txt
-multidihedral omega omega out omega.txt range360
+multidihedral omega omega out omegaline.txt range360
 EOF
   set ninv = `awk '$2!=1 && $1+0>0' chircheck.txt | wc -l`
-  set worstomega = `tail -n 1 omega.txt | awk '{for(i=2;i<=NF;++i)print int(sqrt(($i-180)^2))}' | sort -gr | head -n 1`
-  set ncis = `tail -n 1 omega.txt | awk '{for(i=2;i<=NF;++i)if(sqrt(($i-180)^2)>90) print i}' | wc -l`
-  set geoproblems = `cat geocheck.txt | wc -l`
-  echo "$ninv inverted chiral centers, $ncis cis peptides ( $worstomega deg) and $geoproblems geometry problems"
+  set worstchir = `awk '$2!=1 && $1+0>0{print $1+0;exit}' chircheck.txt `
+  if("$worstchir" == "") set worstchir = "n/a"
+  cat omegaline.txt |\
+   awk 'NR==1{for(i=2;i<=NF;++i){split($i,w,":");oresnum[i]=w[2]};next}\
+     {for(i=2;i<=NF;++i){dev=sqrt(($i-180)^2);print oresnum[i],dev,$i}}' >! omega.txt
+  set worstomega = `sort -k2gr omega.txt | head -n 1`
+  set ncis = `awk '$2>90{print}' omega.txt | wc -l`
+  set ngeoproblems = `cat geocheck.txt | wc -l`
+  set worstgeo = `awk '{print;exit}' geocheck.txt`
+  echo "$ninv inverted chiral centers, $ncis cis peptides ( $worstomega[2] deg) and $ngeoproblems geometry problems"
+  touch quickgeo_vs_itr.txt
+  echo "$itr   $ninv $ncis $ngeoproblems    $worstchir $worstomega  $worstgeo" >> quickgeo_vs_itr.txt
+
   if( $ninv == 0 && "$chiral_weight" != "0" ) then
     echo "turning off chiral restraints"
     set chiral_weight_ramp = none
@@ -2775,16 +2945,16 @@ EOF
   if( "$rising" == "" ) set rising = 0
   if( $ncis == 0 && "$omega_weight" != "0" && $rising ) then
     echo "turning down omega restraints"
-    set omega_weight = `echo $omega_weight 1.5 | awk '{print $1*$2}'`
-    set omega_weight_ramp = "${omega_weight}-0:0.9x"
+#    set omega_weight = `echo $omega_weight 0.5 | awk '{print $1*$2}'`
+    set omega_weight_ramp = "${omega_weight}-0:0.5x"
   endif
   if( $ncis && ! $rising ) then
     set omega_weight = `echo $omega_weight 0.1 | awk '{print $1+$2}'`
-    set omega_weight_ramp = ${omega_weight}-50:1.1x
+    set omega_weight_ramp = ${omega_weight}-1000:2x
     echo "turning on omega restraint ramp: $omega_weight_ramp"
     set ncis = 0
   endif
-  if( $ninv || $ncis || $geoproblems ) then
+  if( $ninv || $ncis || $ngeoproblems ) then
     echo "WARNING: should be exiting because of geometry problems."
 #    break
   endif
