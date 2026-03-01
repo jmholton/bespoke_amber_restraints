@@ -461,8 +461,9 @@ cat >>  ${t}weighted.pdb
 
 # make sure they are in the same order as input pdb file
 combine_pdbs_runme.com ${t}weighted.pdb $pdbfile \
-  outfile=$outfile >! ${t}combine.log
+  outfile=${t}combined.pdb >! ${t}combine.log
 
+egrep "^CRYST|^ATOM|^HETAT" ${t}combined.pdb >! $outfile
 
 wc $outfile
 

@@ -436,7 +436,7 @@ echo "net charge: $charge"
 
 set test = `awk '/Added missing heavy atom/' ${t}tleap.out | wc -l`
 if( $test ) then
-    echo  "WARNING: tleap changed heavy atoms"
+    echo  "WARNING: tleap changed heavy atoms - name inheritance may not work"
 endif
 
 set test = `awk '/Added missing heavy atom/' ${t}tleap.out | grep OXT | wc -l`
@@ -1066,7 +1066,7 @@ if ( $restrain_omega ) then
 endif
 
 if(-e "$restraint_file") then
- echo "applying $restraint_mult x $pdbscale x restraints from $restraint_file"
+ echo "applying $restraint_mult x $pdbscale x restraints from $restraint_file ..."
  foreach Stage ( Cpu Min Cool Heat Equi Prod )
     if("$Stage" == "Cpu") rm -f ${outprefix}restraint_suffix.in
     echo -n "$Stage  "
@@ -1230,8 +1230,8 @@ EOF
     set badomegas = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | wc -l`
     #echo "$badomegas peptide omega outliers"
     set wrongomegas = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | awk -F "=" '$2>(90./5)'| wc -l`
-    set worstomega = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | head -n 1`
-    echo "$badomegas peptide omega outliers ($worstomega)"
+    set worstomega = `egrep "torsion CA-C-N-CA:" ${t}bad_geo.txt | head -n 1 | awk '{print "worst:",$0}'`
+    echo "$badomegas peptide omega outliers $worstomega"
     set wrongchiral = `awk '/wrong chirality:/{print $3}' ${t}bad_geo.txt`
     if("$wrongchiral" == "") set wrongchiral = "unknown"
     echo "$wrongchiral inverted chirals"

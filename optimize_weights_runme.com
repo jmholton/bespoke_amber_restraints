@@ -23,8 +23,12 @@ set super_mult = 2,2,3
 set modulo  = 64
 
 if(-e xtal_properties.sourceme) then
+  echo "reading xtal_properties.sourceme"
   source xtal_properties.sourceme
+else
+  echo "WARNING: no xtal_properties.sourceme , defaulting to 1aho parameters"
 endif
+
 if(! -e xtal_properties.sourceme) then
   cat << EOF >! xtal_properties.sourceme
 set reso = $reso
@@ -165,9 +169,9 @@ set omega_weight_ramp = none
 set remap_itr = 0
 # periodically wrap non-restrained atoms to inside the supercell
 set wrap_itr = 2
-# periodically re-center the system on restrained atoms
+# periodically re-center the system on alignment atoms
 set align_itr = 1
-set align_cyc = 1000
+set align_cyc = 0
 # type of atoms to use for alignment
 set align_target = centroids
 # periodically move water molecules from bad Fo-Fc density to good Fo-Fc density
@@ -406,7 +410,7 @@ if(! -e padded.parm7) then
   if(! -e protonation.txt) cp ${template_dir}/protonation.txt .
   if(! -e tleap_stub.in) cp ${template_dir}/tleap_stub.in .
 
-leap2amber.com amberme.pdb stages=Cpu,Min,Cool,Heat,Equi,EquiMin \
+leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin \
   protons=protonation.txt \
   refpoints=current_restraints.pdb \
   pdbscale=$pdbscale \
@@ -419,7 +423,9 @@ if( $status ) then
    goto exit
 endif
 
-set Stage = `awk '/^Stages /{print $(NF-1)}' leap2amber_${itr}.log`
+foreach stage ( `awk '/^Stages /{print}' leap2amber_${itr}.log` )
+  if(-e ${stage}.nc) set Stage = $stage
+end
 
 endif
 
@@ -440,9 +446,16 @@ endif
 if( ! $?Stage ) then
   set log = `ls -1Lrt *amber_* |& grep amber_ | grep -v equi | tail -n 1`
   set itr = `echo $log | awk -F "_" 'NF==2{print $2+0}' | tail -n 1`
-  set Stage = `awk '/^Stages /{print $(NF-1)}' leap2amber_${itr}.log | tail -n 1`
-  if( "$Stage" == "" ) set Stage = `awk '/^Stages /{print $(NF-1)}' leap2amber_*.log | tail -n 1`
+  echo "itr = $itr"
+  foreach stage ( `awk '/^Stages /{print}' leap2amber_${itr}.log leap2amber_*.log` )
+    if(-e ${stage}.nc) set Stage = $stage
+  end
 endif
+if( ! $?Stage ) then
+  set BAD = "unable to find a starting point"
+  goto exit
+endif
+set laStage = "$Stage"
 
 
 if(! -e orignames.pdb ) then 
@@ -543,6 +556,7 @@ rm -f ./exit >& /dev/null
 
 set prev = "$itr"
 @ itr = ( $itr + 1 )
+set lalaStage = "$laStage"
 set laStage = $Stage
 set Stage = amber_${itr}
 
@@ -856,6 +870,7 @@ EOF
   cat rmsd.txt vecsout.txt >> align_${prev}.log
 
   cp ${laStage}.in aligned.in
+  set lalaStage = $laStage
   set laStage = aligned
 
   echo -n "final shift: "
@@ -1210,8 +1225,10 @@ if("$nbulk_max" == "") set nbulk_max = 0
 
 
 # check the pressure, if any
-foreach log ( barometer_${prev}.out ${laStage}.out amber_${prev}.out )
+set press = ( 0 - - )
+foreach log ( barometer_${prev}.out ${laStage}.out ${lalaStage}.out ${Stage}.out amber_${prev}.out )
   if(! -e "$log") continue
+  if("$log" != "barometer_${prev}.out" ) echo "getting pressure from $log"
   set press = `awk '/PRESS/ && p{n=$3;print $NF} /A V E R A/{++p} END{print n+0}' $log`
   # avg rms N
   if( "$press" == "" || "$press" == "0" ) set press = ( 0 - - )
@@ -1390,6 +1407,7 @@ if ( $trigger ) then
     cp -p Bfac.pdb predry_Bfac_${itr}.pdb
     cp -p drier_Bfac.pdb Bfac.pdb
     cp ${laStage}.in drier.in
+    set lalaStage = $laStage
     set laStage = drier
 
     echo "re-generating ref.crd from current_restraints.pdb"
@@ -1441,6 +1459,7 @@ if ( $trigger ) then
       egrep "^added " hydrate_${itr}.log
 
       cp ${laStage}.in wetter.in
+      set lalaStage = $laStage
       set laStage = wetter
 
       set nadded = `awk '/^added/{print $2;exit}' hydrate_${itr}.log`
@@ -1549,8 +1568,12 @@ cat >! active_restraints.pdb
 awk '/^ATOM|^HETAT/{print substr($0,12,17),substr($0,61,6)/100,"RESTRAINED"}' active_restraints.pdb >! restr.txt
 
 # get beginning of trajectory
-rst2pdb_runme.com include_ep=0 ${laStage}.nc start.pdb Bfactors=none >> /dev/null
+set ncfile = ${laStage}.nc
+if(! -e "$ncfile") set ncfile = ${lalaStage}.nc
+if(! -e "$ncfile") set ncfile = ${lalaStage}.rst7
+rst2pdb_runme.com include_ep=0 $ncfile start.pdb Bfactors=none >! rst2pdb.log
 #rst2pdb_runme.com ${laStage}.rst7 end.pdb >> /dev/null
+if(! -e start.pdb) touch start.pdb
 
 filter_pdb.awk -v skip=H -v only=water refme.pdb >! rhome.pdb
 rholabel_runme.com cootme.mtz rhome.pdb >> /dev/null
@@ -1620,6 +1643,7 @@ update_centroid_positions_runme.com current_restraints.pdb outfile=ref.crd >> sp
 
 cp ${laStage}.in teleported.in
 if(-e ${laStage}.prmtop) cp ${laStage}.prmtop teleported.prmtop
+set lalaStage = $laStage
 set laStage = teleported
 #set repick_now = 1
 
@@ -1813,6 +1837,7 @@ if( $trigger ) then
   cat >! refme.pdb
 
   cp ${laStage}.in remapped.in
+  set lalaStage = $laStage
   set laStage = remapped
 
 endif
@@ -2590,7 +2615,7 @@ foreach substage ( settle equi )
   touch ${Stage}_${substage}.out 
   echo -n "" >! ${t}trajin.txt
   set nstlim0 = `echo $equi_ns $equi_dt | awk '{print int($1/$2*1000)}'`
-  set subruns = `echo $nstlim0 $align_cyc | awk '{print int($1/$2)}'`
+  set subruns = `echo $nstlim0 $align_cyc | awk '$2==0{print 1;exit} {print int($1/$2)}'`
   if( $subruns == 0 ) set subruns = 1
 
   foreach i ( `seq 1 $subruns` )
@@ -2622,6 +2647,7 @@ foreach substage ( settle equi )
     trajout realigned.rst7
 EOF
     cp realigned.rst7 ${ss}.rst7
+    set lalaStage = $laStage
     set laStage = ${ss}
 
     set drift = `tail -n 1 vecsout.txt | awk '{print $2,$3,$4,"(",sqrt($2*$2+$3*$3+$4*$4),")"}'`
@@ -2648,7 +2674,7 @@ endif
 rm -f ${Stage}.rst7
 touch ${Stage}.out 
 set nstlim0 = `echo $prod_ns $dt | awk '{print int($1/$2*1000)}'`
-set subruns = `echo $nstlim0 $align_cyc | awk '{print int($1/$2)}'`
+set subruns = `echo $nstlim0 $align_cyc | awk '$2==0{print 1;exit} {print int($1/$2)}'`
 if( $subruns == 0 ) set subruns = 1
 foreach i ( `seq 1 $subruns` )
     echo "running $Stage ( $i / $subruns )"
