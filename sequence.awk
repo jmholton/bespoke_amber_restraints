@@ -1,6 +1,6 @@
 #! /bin/awk -f
 #
-#   Process/identify protein sequences in a text/pdb file             -James Holton  2-19-25
+#   Process/identify protein sequences in a text/pdb file             -James Holton  3-1-26
 #   as > 20 consecutive, aa letters
 #
 #   plus a few other goodies, such as monoisotopic mass, identifying 
@@ -10,6 +10,7 @@
 BEGIN {
 
     if(! minlength) minlength = 20
+    if(! tlc) tlc = 0
 
     # one-letter amino-acid code
     OLC["ALA"] = "A"
@@ -34,6 +35,28 @@ BEGIN {
     OLC["TRP"] = "W"
     OLC["TYR"] = "Y"    
     
+    # three-letter code from one
+    TLC["A"] = "ALA"
+    TLC["C"] = "CYS"
+    TLC["D"] = "ASP"
+    TLC["E"] = "GLU"
+    TLC["F"] = "PHE"
+    TLC["G"] = "GLY"
+    TLC["H"] = "HIS"
+    TLC["I"] = "ILE"
+    TLC["K"] = "LYS"
+    TLC["L"] = "LEU"
+    TLC["M"] = "MET"
+    TLC["M"] = "MSE"
+    TLC["N"] = "ASN"
+    TLC["P"] = "PRO"
+    TLC["Q"] = "GLN"
+    TLC["R"] = "ARG"
+    TLC["S"] = "SER"
+    TLC["T"] = "THR"
+    TLC["V"] = "VAL"
+    TLC["W"] = "TRP"
+    TLC["Y"] = "TYR"
 
     # average mass
     H  =  1.007947
@@ -108,15 +131,16 @@ BEGIN {
     seqres = 1;
     for(i=4;i<=NF;++i)
     {
-	seq = seq OLC[$i]
-	if($i !~ /^[A-Z][A-Z].$/) continue
-	if(OLC[$i]=="") seq = seq "X"
+        seq = seq OLC[$i]
+        if($i !~ /^[A-Z][A-Z].$/) continue
+        if(OLC[$i]=="") seq = seq "X"
     }
+    seqresseq = seq;
 }
 
 
-# don't do other kinds of search in a PDB file
-seqres {next}
+# do other kinds of search in a PDB file
+#seqres && ! pdb {seqresseq=seq}
 
 # read sequence of a PDB
 /^ATOM / && substr($0,12,5) == "  CA " {
@@ -124,16 +148,17 @@ seqres {next}
     pdb = 1
 
     Restype = substr($0, 18, 3)
-    Segid   = substr($0, 22, 1)    	# O/Brookhaven-style segment ID
-    Resnum  = substr($0, 23, 4)+0
+    Segid   = substr($0, 22, 1)            # O/Brookhaven-style segment ID
+    Resnum  = substr($0, 23, 6)+0
     
+    if(! firstatomres) firstatomres = Resnum
     if(seen[Segid Resnum]) next
 
     # check for breaks
     if((Segid != lastSegid)||(nextResnum != Resnum && Resnum != lastResnum)) {
-	    # break in chain
-	    seq = seq " "
-	    lastSegid = Segid
+            # break in chain
+            seq = seq " "
+            lastSegid = Segid
     }
     lastResnum = Resnum
     nextResnum = Resnum +1
@@ -147,7 +172,7 @@ seqres {next}
 /^TER/{seq = seq " "}
 
 # don't do other kinds of search in a PDB file
-pdb {next}
+pdb || seqres{next}
 
 
 # recognize ENTREZ files
@@ -167,19 +192,19 @@ $1~/[0-9]/ && $1+0==$1 && $2 !~ /[^a-z]/ && $NF !~ /[^a-z]/ && NF<10{
     # scan for aa letters
     for(i=1;i<=length(line);++i)
     {
-	c = toupper(substr(line, i, 1));
-	# ignore these characters
-	if(c == "\"") c = ""
-	if(c == "\t") c = ""
-	if(c == " ")  c = " "
-	if(c == " ")  c = ""
+        c = toupper(substr(line, i, 1));
+        # ignore these characters
+        if(c == "\"") c = ""
+        if(c == "\t") c = ""
+        if(c == " ")  c = " "
+        if(c == " ")  c = ""
 
-	if(c !~ /[A,C-I,K-N,P-T,V-Y]/ && c != "")
-#	if(c !~ /[A,C-I,K-N,P-T,V-Y]/)
-	{
-	    c = " "
-	}
-	seq = seq c 
+        if(c !~ /[A,C-I,K-N,P-T,V-Y]/ && c != "")
+#        if(c !~ /[A,C-I,K-N,P-T,V-Y]/)
+        {
+            c = " "
+        }
+        seq = seq c 
     }
 }
 
@@ -193,209 +218,237 @@ END{
 
 if(debug) print seq
 
+if( seqres && pdb ) {
+  pdbseq = seq;
+  seq = seqresseq
+  gsub(" ","",seqresseq);
+  gsub(" ","",pdbseq);
+
+  if(debug) print "seqres:",seqresseq
+  if(debug) print " atoms:",pdbseq
+
+  offset=0;
+  subseq=pdbseq;
+  while( ! offset && length(subseq)>0 ) {
+    offset = index(seqresseq,subseq);
+    subseq=substr(subseq,1,length(subseq)-1);
+  }
+  seqresoffset = offset;
+} 
+
 # break up strings of protein letters into "words"
 num = split(seq, sequence)
+
 
 for(n=1;n<=num;++n)
     if(length(sequence[n]) >= minlength || seqres)
     {
-	# look for all the horrible things that can happen to the peptide
-	acid = ""
-	base = ""
-	race = ""
-	pyroQ = ""
-	CNBr = ""
+        # look for all the horrible things that can happen to the peptide
+        acid = ""
+        base = ""
+        race = ""
+        pyroQ = ""
+        CNBr = ""
 
-	factorXa = ""
-	chymotrypsin = ""
-	endoproteinaseDN = ""
-	endoproteinaseKC = ""
-	thrombin = ""
-	trypsin = ""
-	pepsin = ""
-	V8 = ""
+        factorXa = ""
+        chymotrypsin = ""
+        endoproteinaseDN = ""
+        endoproteinaseKC = ""
+        thrombin = ""
+        trypsin = ""
+        pepsin = ""
+        V8 = ""
 
-	# weigh this chain
-	weight = Met = His = Cys = A280 = "";
-	weight = O + 3*H;
-	mass   = O + 3*H;
-	for(i=1;i<=length(sequence[n]);++i)
-	{
-	    c = substr(sequence[n], i, 1);
-	    
-	    # weigh this chain
-	    weight += aMass[c];
-	    mass   += aMass[c];
-	
-	    # count potentially derivitized residues
-	    if(c == "M") ++Met;
-	    if(c == "C") ++Cys;
-	    if(c == "H") ++His;
-	    
-	    # add up (denatured) extinction coefficient
-	    if(c == "W") A280 += 5600
-	    if(c == "Y") A280 += 1400
-	    if(c == "F") A280 += 197
-	    
-	    # chemical instabilities  (add up single-cleavage MWs)
-	    if(c == "M" )                       CNBr = CNBr " " mass
-	    if(substr(sequence[n],i,2) == "DP") acid = acid " " mass
-	    if(substr(sequence[n],i,2) == "NG") base = base " " mass
-	    if(substr(sequence[n],i,2) == "NG") race = race ", " i
-	    if(substr(sequence[n],1,1) == "Q") pyroQ = 1
-	    if((substr(sequence[n],1,1) == "M")&&(substr(sequence[n],2,1) == "Q")) pyroQ = 2
+        # weigh this chain
+        weight = Met = His = Cys = A280 = "";
+        weight = O + 3*H;
+        mass   = O + 3*H;
+        for(i=1;i<=length(sequence[n]);++i)
+        {
+            c = substr(sequence[n], i, 1);
+            
+            # weigh this chain
+            weight += aMass[c];
+            mass   += aMass[c];
+        
+            # count potentially derivitized residues
+            if(c == "M") ++Met;
+            if(c == "C") ++Cys;
+            if(c == "H") ++His;
+            
+            # add up (denatured) extinction coefficient
+            if(c == "W") A280 += 5600
+            if(c == "Y") A280 += 1400
+            if(c == "F") A280 += 197
+            
+            # chemical instabilities  (add up single-cleavage MWs)
+            if(c == "M" )                       CNBr = CNBr " " mass
+            if(substr(sequence[n],i,2) == "DP") acid = acid " " mass
+            if(substr(sequence[n],i,2) == "NG") base = base " " mass
+            if(substr(sequence[n],i,2) == "NG") race = race ", " i
+            if(substr(sequence[n],1,1) == "Q") pyroQ = 1
+            if((substr(sequence[n],1,1) == "M")&&(substr(sequence[n],2,1) == "Q")) pyroQ = 2
 
-	    # proteolytic recognition sites (add up single-cleavage MWs)?
-	    if(substr(sequence[n],i-3,4) == "IEGR") factorXa = factorXa  " " mass
-	    if(substr(sequence[n],i+1,1) == "D") endoDN = endoDN " " mass
-	    if(c ~ /[Y,F,W]/)     chymotrypsin = chymotrypsin    " " mass
-#	    if(c ~ /[L,M,A,N,E]/) chymotrypsin = chymotrypsin    " " mass "*"
-	    if(c ~ /[K]/)               endoKC = endoKC          " " mass
-	    if(c ~ /[R]/)             thrombin = thrombin        " " mass
-	    if(c ~ /[R,K]/)            trypsin = trypsin         " " mass
-	    if(c ~ /[F,L]/)             pepsin = pepsin          " " mass
-#	    if(c ~ /[Y,W,I,M]/)         pepsin = pepsin          " " mass "*"
-	    if(c ~ /[E]/)                   V8 = V8              " " mass
-	    if(c ~ /[E]/)                  V82 = V82             " " mass
-	    if(c ~ /[D]/)                  V82 = V82             " " mass
-	}
-	
-	# finish off cleavages
-	acid = acid " " mass
-	base = base " " mass
-	CNBr = CNBr " " mass
+            # proteolytic recognition sites (add up single-cleavage MWs)?
+            if(substr(sequence[n],i-3,4) == "IEGR") factorXa = factorXa  " " mass
+            if(substr(sequence[n],i+1,1) == "D") endoDN = endoDN " " mass
+            if(c ~ /[Y,F,W]/)     chymotrypsin = chymotrypsin    " " mass
+#            if(c ~ /[L,M,A,N,E]/) chymotrypsin = chymotrypsin    " " mass "*"
+            if(c ~ /[K]/)               endoKC = endoKC          " " mass
+            if(c ~ /[R]/)             thrombin = thrombin        " " mass
+            if(c ~ /[R,K]/)            trypsin = trypsin         " " mass
+            if(c ~ /[F,L]/)             pepsin = pepsin          " " mass
+#            if(c ~ /[Y,W,I,M]/)         pepsin = pepsin          " " mass "*"
+            if(c ~ /[E]/)                   V8 = V8              " " mass
+            if(c ~ /[E]/)                  V82 = V82             " " mass
+            if(c ~ /[D]/)                  V82 = V82             " " mass
+        }
+        
+        # finish off cleavages
+        acid = acid " " mass
+        base = base " " mass
+        CNBr = CNBr " " mass
 
-	factorXa = factorXa         " " mass
-	chymotrypsin = chymotrypsin " " mass
-	endoDN = endoDN             " " mass
-	endoKC = endoKC             " " mass
-	thrombin = thrombin         " " mass
-	trypsin = trypsin           " " mass
-	pepsin = pepsin             " " mass
-	V8 = V8                     " " mass
-	
-	
-	# we have found an acceptable protein sequence
-	print mass " Da chain: "
-	l=length(sequence[n])
-	while(length(sequence[n]) > 0)
-	{
-	    # actually print out sequence here
-	    print substr(sequence[n], 1, 80)
-	    sequence[n] = substr(sequence[n], 81)
-	}
-	print ""
-	print l "aa"
-	print Met+0 "met"
-	print Cys+0 "cys"
-	print His+0 "his"
-	print ""
-	printf "denatured A(280nm) = %.4f*l*c (c in g/L)\n", A280/weight
-	printf "    SeMET MAD Rano = %.3f%%\n", 100*(Met*8^2)/(7^2 * (weight/14))
-	print ""
-	
-	f=split(acid base, Split)
-	if((f>2) || pyroE != "")
-	{
-	    print "Chemical Instabilities: "
-	}
-	f=split(acid, Split)
-	if(f>1)
-	{
-	    printf "acid (D*P):                       "
-	    for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	    print ""
-	}
-	f=split(base, Split)
-	if(f>1)
-	{
-	    printf "base (N*G):                       "
-	    for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	    print ""
-	    print "racemization hazard at" substr(race,2)
-	}
-	if(pyroQ)
-	{
-	    print "residue " pyroQ " could form an N-cyclized glutamine "
-	}
+        factorXa = factorXa         " " mass
+        chymotrypsin = chymotrypsin " " mass
+        endoDN = endoDN             " " mass
+        endoKC = endoKC             " " mass
+        thrombin = thrombin         " " mass
+        trypsin = trypsin           " " mass
+        pepsin = pepsin             " " mass
+        V8 = V8                     " " mass
+        
+        
+        # we have found an acceptable protein sequence
+        if( fasta ) printf "> "
+        print mass " Da chain: "
+        l=length(sequence[n])
+        if(tlc) {
+          for(i=1;i<=l;++i) {
+            print TLC[substr(sequence[n],i,1)]
+          }
+        } else {
+          while(length(sequence[n]) > 0)
+          {
+              # actually print out sequence here
+              print substr(sequence[n], 1, 80)
+              sequence[n] = substr(sequence[n], 81)
+          }
+        }
+        print ""
+        if( fasta ) continue
+        print l "aa"
+        print Met+0 "met"
+        print Cys+0 "cys"
+        print His+0 "his"
+        if(seqresoffset) print "seqres start:",firstatomres-seqresoffset+1
+        print ""
+        printf "denatured A(280nm) = %.4f*l*c (c in g/L)\n", A280/weight
+        printf "    SeMET MAD Rano = %.3f%%\n", 100*(Met*8^2)/(7^2 * (weight/14))
+        print ""
+        
+        f=split(acid base, Split)
+        if((f>2) || pyroE != "")
+        {
+            print "Chemical Instabilities: "
+        }
+        f=split(acid, Split)
+        if(f>1)
+        {
+            printf "acid (D*P):                       "
+            for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+            print ""
+        }
+        f=split(base, Split)
+        if(f>1)
+        {
+            printf "base (N*G):                       "
+            for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+            print ""
+            print "racemization hazard at" substr(race,2)
+        }
+        if(pyroQ)
+        {
+            print "residue " pyroQ " could form an N-cyclized glutamine "
+        }
 
-	if(chop)
-	{
-	    print ""
-	    
-	    f=split(CNBr, Split)
-	    if(f>1)
-	    {
-		printf "CNBr (M*):                        "
-		for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-		print ""
-	    }
-	    print ""
-	    print "Common proteases: "
-	    f=split(factorXa, Split)
-	    if(f>1)
-	    {
-	        printf "factorXa (IEGR*):                 "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(thrombin, Split)
-	    if(f>1)
-	    {
-	        printf "thrombin (R*):                    "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(trypsin, Split)
-	    if(f>1)
-	    {
-	        printf "trypsin (R*, K*):                 "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(endoKC, Split)
-	    if(f>1)
-	    {
-	        printf "endoproteinase Lys-C (K*):        "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(endoDN, Split)
-	    if(f>1)
-	    {
-	        printf "endoproteinase Asp-N (*D):        "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(chymotrypsin, Split)
-	    if(f>1)
-	    {
-	        printf "chymotrypsin (W*,Y*,F*, +others): "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(pepsin, Split)
-	    if(f>1)
-	    {
-	        printf "pepsin (F*, L*, +others):         "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(V8, Split)
-	    if(f>1)
-	    {
-	        printf "V8 protease (E*):                 "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	    f=split(V82, Split)
-	    if(f>1)
-	    {
-	        printf "V8 protease (E*,D*):              "
-	        for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
-	        print ""
-	    }
-	}
+        if(chop)
+        {
+            print ""
+            
+            f=split(CNBr, Split)
+            if(f>1)
+            {
+                printf "CNBr (M*):                        "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            print ""
+            print "Common proteases: "
+            f=split(factorXa, Split)
+            if(f>1)
+            {
+                printf "factorXa (IEGR*):                 "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(thrombin, Split)
+            if(f>1)
+            {
+                printf "thrombin (R*):                    "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(trypsin, Split)
+            if(f>1)
+            {
+                printf "trypsin (R*, K*):                 "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(endoKC, Split)
+            if(f>1)
+            {
+                printf "endoproteinase Lys-C (K*):        "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(endoDN, Split)
+            if(f>1)
+            {
+                printf "endoproteinase Asp-N (*D):        "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(chymotrypsin, Split)
+            if(f>1)
+            {
+                printf "chymotrypsin (W*,Y*,F*, +others): "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(pepsin, Split)
+            if(f>1)
+            {
+                printf "pepsin (F*, L*, +others):         "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(V8, Split)
+            if(f>1)
+            {
+                printf "V8 protease (E*):                 "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+            f=split(V82, Split)
+            if(f>1)
+            {
+                printf "V8 protease (E*,D*):              "
+                for(i=1;i<=f;++i) printf Split[i] - Split[i-1] " "
+                print ""
+            }
+        }
     }
 }
 

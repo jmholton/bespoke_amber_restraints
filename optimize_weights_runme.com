@@ -226,6 +226,7 @@ set temperature = 287
 set temp_ramp = none
 set thermostat = ""
 set gamma_ln = 1.0
+set equi_gamma = same
 set barostat = 0
 set kT = 0.6
 
@@ -1405,8 +1406,13 @@ if( "$pressure_scale" =~ *auto* ) then
       dn/n0>0.05{++somesignal}\
       {print $0,somesignal+0,dn}\
       somesignal>10 && NR>30{exit}' >! ${t}press.txt
+    sort -k2gr ${t}press.txt |\
+     awk 'NR==1{posP=($1>0);maxN=$2} \
+          posP && $1<0 && ! zPN{zPN=$2} {print $0,maxN,zPN}\
+          posP && $2<zPN-3*(maxN-zPN){exit}' |\
+    cat >! ${t}notsmall.txt 
     set variety = `awk '$3+0>0{print $2}' ${t}press.txt | sort -u | wc -l`
-    set linfit = `awk '{print $1,$2}' ${t}press.txt | linfit.awk `
+    set linfit = `awk '{print $1,$2}' ${t}notsmall.txt | linfit.awk `
     set test = `echo $linfit | awk '{print sqrt($1*$1)}'`
     if( $#linfit == 2 && "$test" != "0" && $variety > 5 ) then
       set pressure_scale_thistime = "$test"
@@ -2436,7 +2442,7 @@ awk '{split(FILENAME,w,"_");f=w[3]+0} /Maximum dens/{print f,m,$NF} /Minimum den
 egrep  "^ATOM|^HETAT" actual_restraints.pdb |\
 awk -v pdbscale=$pdbscale '{printf("%10s %s\n", substr($0,61,6)*pdbscale,substr($0,12,17))}' |\
 sort -gr >! sorted_weights.txt
-set avg = `awk '{sum+=$1;++n} END{print sum/n}' sorted_weights.txt`
+set avg = `awk '{sum+=$1;++n} END{if(n)print sum/n}' sorted_weights.txt`
 set medmad = `awk '{print $1}' sorted_weights.txt | median.awk`
 set max = `awk '{print $1;exit}' sorted_weights.txt`
 set worst = `awk '! t{$1="";print;++t} ! / ZN | SE /{print;exit}' sorted_weights.txt`
@@ -2542,7 +2548,9 @@ cat >! bad_chir.rst
 set badchir = `cat bad_chir.txt | wc -l`
 set badomega = `cat bad_omega.txt | wc -l`
 
-if( $badchir || $badomega ) then
+if( $badchir ) echo "$badchir questionable chiral centers"
+if( $badomega ) echo "$badomega questionable omega twists"
+if( ( $badchir || $badomega ) && ( $omega_weight != 0 || $chir_weight != 0 ) ) then
    echo "maybe replace chir_omega.rst with bad chiral and omega lists."
    echo "cat bad_chir.rst bad_omega.rst >! chir_omega.rst"
 endif
@@ -2632,9 +2640,10 @@ endif
 
 set nsnb = `head -n 100 ${Stage}.in | awk -F "=" '/ nsnb=/{print $2+0;exit}'`
 echo "equi_ns = $equi_ns"
-echo $equi_ns $equi_dt $align_nstlim $nsnb |\
+echo $equi_ns $equi_dt $align_nstlim $nsnb $equi_gamma |\
 cat - ${Stage}.in |\
-awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;nsnb=$4+0;if(dt<1e-6)dt=0.002;\
+awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;nsnb=$4+0;equi_gamma=$5+0;\
+    if(dt<1e-6)dt=0.002;\
     nstlim=int(ns*1000/dt);\
     if(align_nstlim>nstlim)align_nstlim=nstlim; \
     if(align_nstlim)nstlim=align_nstlim;next} \
@@ -2651,7 +2660,7 @@ awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;nsnb=$4+0;if(dt<1e-6)dt=0.002;\
   / ntpr=| ntwr=/{print space w[1] "=" nstlim ",";next}\
 #  / ntwx=/{print space w[1] "=" 0 ",";next}\
   # heavy thermostat \
-#  / gamma_ln=/{print space w[1] "=" w[2]*10 ",";next}\
+  / gamma_ln=/ && equi_gamma{print space w[1] "=" equi_gamma ",";next}\
   {print}' |\
 cat >! settle.in
 
@@ -2714,13 +2723,13 @@ if(-e chir_omega.rst) then
     type=="chiral"{print "   r1=50., r2=60.,  r3=80.,  r4=90., rk2 ="cw", rk3="cw",  &end"}\
     type=="omega" {print "   r1=134., r2=135., r3=225., r4=226., rk2 ="ow", rk3="ow",  &end"}' |\
   cat >! new.txt
-  diff chir_omega.rst new.txt
+  if( $debug ) diff chir_omega.rst new.txt
   mv new.txt chir_omega.rst
 endif
 
 
 set disang = `grep DISANG ${Stage}.in | wc -l`
-if( ! $disang && ( $omega_weight != 0 ) && -e chir_omega.rst) then
+if( ! $disang && ( $omega_weight != 0 || $chir_weight != 0 ) && -e chir_omega.rst) then
   echo "applying DISANG restraints"
 
   cat ${Stage}.in |\
@@ -2731,14 +2740,14 @@ if( ! $disang && ( $omega_weight != 0 ) && -e chir_omega.rst) then
     print " &dummy  i=1, ";}\
    {print}' |\
   cat >! tempfile.in
-  diff ${Stage}.in tempfile.in
+  if( $debug ) diff ${Stage}.in tempfile.in
   mv tempfile.in ${Stage}.in
 endif
 if( $disang && "$omega_weight" == "0" && "$chiral_weight" == "0" ) then
   echo "removing chiral/omega restraints"
 
   egrep -v "dummy|DISANG|LISTIN=PO|wt type=|nmropt" ${Stage}.in >! tempfile.in
-  diff ${Stage}.in tempfile.in
+  if( $debug ) diff ${Stage}.in tempfile.in
   mv tempfile.in ${Stage}.in
 endif
 
@@ -2880,8 +2889,8 @@ EOF
 
   awk '/A V E R A/{++p;n=split(FILENAME,w,"_");printf("%d ",w[n]);next}\
       p && /NSTEP/{printf("%s %s %s ",$6,$9,$12);next}\
-      p{for(i=1;i<=NF;++i)if($i!~/[A-Za-z=]/ && $i!="1-4")printf("%s ",$i)}\
-      p && /EAMBER/{print "";p=0}' ${Stage}.out |\
+      p && NF>2{for(i=1;i<=NF;++i)if($i!~/[A-Za-z=]/ && $i!="1-4")printf("%s ",$i)}\
+      p && ( /EAMBER/ || /-----------------/ ){print "";p=0}' ${Stage}.out |\
   tail -n 1 |\
   tee -a amber_energies.txt
 

@@ -9,7 +9,7 @@ if(! -e "$rstfile") then
   exit 9
 endif
 
-rm -f chircheck.txt geocheck.txt omega.txt
+rm -f chircheck.txt geocheck.txt omega.txt omegaline.txt
 cpptraj -p xtal.prmtop << EOF >&! checks.log
 trajin $rstfile lastframe
 checkchirality chir out chircheck.txt
@@ -58,6 +58,7 @@ strip :WAT
 strip @H=
 multidihedral omega omega out omega.dat range360
 EOF
+echo "frame resnum dev omega"
 cat omega.dat |\
  awk 'NR==1{for(i=2;i<=NF;++i){split($i,w,":");oresnum[i]=w[2]};next}\
    {++f;for(i=2;i<=NF;++i){dev=sqrt(($i-180)^2);if(dev>90)print f,oresnum[i],dev,$i;\
@@ -68,6 +69,7 @@ set oresnum = `awk '{print $2;exit}' first.txt`
 awk -v oresnum=$oresnum 'NR==1{for(i=2;i<=NF;++i){split($i,w,":");idx[w[2]]=i};i=idx[oresnum];next}\
    {++f;{dev=sqrt(($i-180)^2);print f,dev,$i}}' omega.dat |\
 cat >! worstomega_plot.txt
+echo "plot of worst omega ($oresnum) vs frame in worstomega_plot.txt"
 
 endif
 

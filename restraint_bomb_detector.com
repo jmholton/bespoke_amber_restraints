@@ -112,7 +112,7 @@ set test = `head $refpoints | egrep "^CRYST1" | wc -l`
 if( ! $test ) then
   echo "WARNING: adding unit cell to atoms in $refpoints"
   head ${t}checkme.pdb | egrep "^CRYST" | head -n 1 >! ${t}cell_n_refpoints.pdb
-  cat $refpoints >> ${t}cell_n_refpoints.pdb
+  egrep "^ATOM|^HETAT" $refpoints >> ${t}cell_n_refpoints.pdb
   set refpoints = ${t}cell_n_refpoints.pdb
 endif
 
