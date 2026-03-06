@@ -47,7 +47,6 @@ BEGIN {
     TLC["K"] = "LYS"
     TLC["L"] = "LEU"
     TLC["M"] = "MET"
-    TLC["M"] = "MSE"
     TLC["N"] = "ASN"
     TLC["P"] = "PRO"
     TLC["Q"] = "GLN"
