@@ -100,6 +100,16 @@ set t = $tempfile
 # make sure other scripts are in the $path
 set path = ( $path `dirname $0` )
 
+foreach dependency ( filter_pdb.awk convert_pdb.awk add_waters.com no_new_nonbonds_runme.com combine_pdbs_runme.com rholabel_runme.com molprobify_runme.com median.awk waterconf.awk flip_to_target_runme.com )
+   echo -n "using: "
+   which $dependency
+   if( $status ) then
+       set BAD = "need $dependency in "'$'"path"
+       goto exit
+   endif
+end
+
+
 if( "$itr" == "" ) then
   set itr = `ls -1 | awk -F "_" '/^centroids_/{printf("%03d\n",$2)}' | sort -g | tail -n 1`
   echo "previous last itr = $itr"
@@ -488,9 +498,27 @@ if( $status || ! -e new.pdb ) then
 endif
 mv new.pdb wetter.pdb 
 
-set pdbfile = wetter.pdb
+# preemtively check if these will get eliminated anyway
+rholabel_runme.com new_water.pdb centroids_${best_itr}.mtz mtzlabel=2FOFCWT outfile=new_water_rho.pdb >! rhoprobe_water.log
 
-set test = `cat new_water.pdb | wc -l`
+cat new_water_rho.pdb  |\
+ awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
+ cat >! badrho_water.txt
+cat badrho_water.txt wetter.pdb |\
+awk '$NF~/^BAD/{++bad[substr($0,1,15)];next}\
+  ! /^ATOM|^HETAT/{print;next}\
+  {id=substr($0,12,15);xyz=substr($0,31,24)}\
+  seen[xyz]{next} {++seen[xyz]}\
+  ! bad[id]{print substr($0,1,80)}' >! wetter_safe.pdb
+set test = `cat badrho_water.txt | wc -l`
+echo "$test new water atoms in 2Fo-Fc density < $minrho"
+
+
+set pdbfile = wetter_safe.pdb
+
+combine_pdbs_runme.com xor=1 survived.pdb wetter_safe.pdb outfile=new_water_over_thresh.pdb > /dev/null
+
+set test = `egrep "^ATOM|^HETAT" new_water_over_thresh.pdb | wc -l`
 echo "$test waters added"
 if( "$test" == "0" ) set done = 1
 
