@@ -25,7 +25,7 @@ BEGIN{
    if(debug) print "DEBUG only =",only
 }
 
-! /^ATOM|HETAT/{
+! /^ATOM|^HETAT/{
     # scrape out non-atom records if asked
     if( only ~ /,atoms,/  ) next;
     # otherwise, always pass through

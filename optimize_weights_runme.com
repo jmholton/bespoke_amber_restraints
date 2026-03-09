@@ -308,7 +308,8 @@ foreach scratch ( $scratch /data/${USER}/scratch/${base}/ /scratch/${USER}/${bas
 end
 echo "scratch = $scratch"
 
-echo "running as $0"
+set md5 = `md5sum $0 | awk '{print $1}'`
+echo "running as $0 ($md5)"
 
 # is there another job running?
 set pwd = `pwd`
@@ -504,6 +505,11 @@ if( ! $?Stage ) then
   set log = `ls -1Lrt *amber_* |& grep amber_ | egrep -v "equi|settle" | tail -n 1`
   set i = `echo $log | awk -F "_" 'NF==2{print $2+0}' | tail -n 1`
   if("$i" == "") set i = 0
+  if(-e amber_${i}.nc) then
+    set Stage = amber_${i}
+  else
+    set i = 0
+  endif
   if(-e leap2amber_${i}.log) then
     set itr = "$i"
     echo "checking leap2ampber_${itr}.log"
@@ -511,7 +517,16 @@ if( ! $?Stage ) then
     if( "$Stage" == "" ) set Stage = `ls -1rt *.nc |& egrep -v "equi|settle|unwrap" | awk -F "." '{print $1}' | tail -n 1`
   endif
 endif
-set laStage = "$Stage"
+if( ! $?Stage && $?i ) then
+  if( -e amber_${i}.nc ) then
+    set Stage = amber_${i}
+    echo "setting Stage = $Stage"
+  endif
+endif
+if( ! $?Stage ) then
+   set BAD = "unable to determine stage of optimization."
+   goto exit
+endif
 
 
 if(! -e orignames.pdb ) then 
@@ -547,6 +562,7 @@ if("$Stage" == "") then
   set BAD = "cannont determine Stage"
   goto exit
 endif
+if(! $?laStage) set laStage = "$Stage"
 
 # test and find a topfile that works with the current stage
 echo "${Stage}.rst7 -> this.pdb"
@@ -2550,7 +2566,7 @@ set badomega = `cat bad_omega.txt | wc -l`
 
 if( $badchir ) echo "$badchir questionable chiral centers"
 if( $badomega ) echo "$badomega questionable omega twists"
-if( ( $badchir || $badomega ) && ( $omega_weight != 0 || $chir_weight != 0 ) ) then
+if( ( $badchir || $badomega ) && ( $omega_weight != 0 || $chiral_weight != 0 ) ) then
    echo "maybe replace chir_omega.rst with bad chiral and omega lists."
    echo "cat bad_chir.rst bad_omega.rst >! chir_omega.rst"
 endif
@@ -2729,7 +2745,7 @@ endif
 
 
 set disang = `grep DISANG ${Stage}.in | wc -l`
-if( ! $disang && ( $omega_weight != 0 || $chir_weight != 0 ) && -e chir_omega.rst) then
+if( ! $disang && ( $omega_weight != 0 || $chiral_weight != 0 ) && -e chir_omega.rst) then
   echo "applying DISANG restraints"
 
   cat ${Stage}.in |\

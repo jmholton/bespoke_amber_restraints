@@ -5,16 +5,16 @@
 #   requirements: CCP4 Suite, Phenix Suite, Amber 18 or higher, and gnuplot
 #
 
-start from scratch
-set pdbid = 1aho
+# start from scratch
+set pdbid = 6c2r
 
 # crystal-specific stuff
 # faster to do just one cell
-set super_mult = 2,2,3
+set super_mult = 2,2,2
 
 set ligands = ""
-set salt = ( NH4 ACY )
-set salt_conc = 0.68
+set salt = ( NH4 SO4 )
+set salt_conc = 0.15
 
 # local file configuration stuff
 set pwd = `pwd`
@@ -590,7 +590,7 @@ cp uniform_restraints.pdb restraints_for_0.pdb
 rmsd current_restraints.pdb refined.pdb | head | grep MAXD
 
 set avgB = `awk '/^ATOM|^HETAT/{print substr($0,61,6)}' all_possible_refpoints.pdb | avg.awk`
-set weight_scale = `echo $avgB | awk '{print 5/($1/100)}'`
+set weight_scaledown = `echo $avgB | awk '{print 5/($1/100)}'`
 
 set CELL = `awk '/^CRYST1/{print $2,$3,$4,$5,$6,$7}' refined.pdb`
 
@@ -768,7 +768,7 @@ cp ${pdir}/optimize_weights_runme.com .
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=0 \
@@ -778,17 +778,59 @@ cp ${pdir}/optimize_weights_runme.com .
 set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print ( $1 > 20 )}'`
 
 
-@ n = ( $n + 1 )
+cd ..
+ln -sf amber1 template_dir
+
+set previtr = 112
+set prevdir = template_dir
+set prevprod = amber_${previtr}
+
+
+set o = 1
+set n = 0
+mkdir ../opt${o}
+cd ../opt${o}
+
+  cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
+  cp current_restraints.pdb restraints_for_0.pdb
+  cp ../${prevdir}/${prevprod}.rst7 amber_0.rst7
+  cp ../${prevdir}/${prevprod}.in amber_0.in
+  cp ../${prevdir}/${prevprod}.out amber_0.out
+  cp ../${prevdir}/barometer_${previtr}.out barometer_0.out
+  cp ../${prevdir}/leap2amber_0.log .
+  ln -sf ../${prevdir}/${prevprod}.nc amber_0.nc
+  cp ../centroids/centroids_in_density.pdb all_possible_refpoints.pdb
+  cp ../${prevdir}/xtal.prmtop .
+  cp ../${prevdir}/padded.parm7 .
+  cp ../${prevdir}/orignames.pdb .
+  cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+  cp ../xtal_properties.sourceme .
+
+
+  cp ../${prevdir}/refme.pdb .
+
+# density-based restraints
+centroids_nearby_runme.com refme.pdb reffile=all_possible_refpoints.pdb \
+  softener=2 weight=Bfac maxdist=1  \
+  hohscale=1 \
+  outfile=density_restraints.pdb debug=1 | tee c2r_${n}.log
+
+cp density_restraints.pdb restraints_for_0.pdb
+cp restraints_for_0.pdb current_restraints.pdb
+
+
 # rough restraint opt
+@ n = ( $n + 1 )
+cp ${pdir}/optimize_weights_runme.com .
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    min_lig_weight=0.11 cutoff_weight=0.1 allatom_weight=0 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=1 align_target=centroids align_nstlim=0 \
+    min_align_weight=0.11 align_target=centroids align_nstlim=0 \
     halfrho_neg=3.5 halfrho_pos=auto |& tee runme${n}.log &
 
 # wait for... ?
@@ -800,7 +842,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0.11 align_target=centroids align_nstlim=0 \
@@ -813,7 +855,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.9 weight_negscale=0.5 \
+    weight_scaledown=0.9 weight_negscaledown=0.5 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=250000 \
@@ -827,7 +869,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.95 weight_negscale=0.9 \
+    weight_scaledown=0.95 weight_negscaledown=0.9 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0.5 align_target=centroids align_nstlim=250000 \
@@ -841,7 +883,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.95 weight_negscale=0.9 \
+    weight_scaledown=0.95 weight_negscaledown=0.9 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0.3 align_target=centroids align_nstlim=250000 \
@@ -855,7 +897,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=250000 \
@@ -882,7 +924,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -897,7 +939,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=5000 \
@@ -911,7 +953,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=10000 \
@@ -926,7 +968,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=10+5 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=10 randel_fraction=0.05 randel_trigger=1 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -940,7 +982,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=5 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=100 randel_fraction=0.05 randel_trigger=1 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -955,7 +997,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=10 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -969,7 +1011,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=3 repick_maSxweight=0.11 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -986,7 +1028,7 @@ cp optimize_weights_runme.com optimize_weights_runme.com
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=3 repick_maxweight=2 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -1001,7 +1043,7 @@ cp optimize_weights_runme.com optimize_weights_runme.com
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2.5 repick_maxweight=0.15 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=2000 \
@@ -1016,7 +1058,7 @@ cp optimize_weights_runme.com optimize_weights_runme.com
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=100 repick_itr=5 repick_maxdist=2.5 repick_maxweight=0.15 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=250000 \
@@ -1030,7 +1072,7 @@ cp optimize_weights_runme.com optimize_weights_runme.com
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2.5 repick_maxweight=0.15 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 \
+    weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=0 align_target=centroids align_nstlim=250000 \
@@ -1053,7 +1095,7 @@ cp optimize_weights_runme.com optimize_weights_runme.com
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=0 repick_itr=1 repick_maxdist=6 repick_maxweight=2 \
     min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.99 weight_negscale=1 \
+    weight_scaledown=0.99 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     min_align_weight=1 align_target=centroids align_nstlim=9999999 \
@@ -1116,7 +1158,7 @@ set n = 1
    teleport_waters=0 hydrate_itr=0 add_radius=1.8 pressure_avglast=auto pressure_scale=auto \
    void_scale=0 release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
    min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-   weight_scale=1 weight_negscale=1 \
+   weight_scaledown=1 weight_negscaledown=1 \
    min_align_weight=0 equi_ns=0 \
    align_nstlim=250000 maxitr=2 |& tee runme${n}.log &
 

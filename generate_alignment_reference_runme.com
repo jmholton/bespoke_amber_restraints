@@ -498,11 +498,16 @@ if( $status || ! -e new.pdb ) then
 endif
 mv new.pdb wetter.pdb 
 
+set test = `egrep "^ATOM|^HETAT" new_water.pdb | wc -l`
+echo "$test waters found"
+
 # preemtively check if these will get eliminated anyway
 rholabel_runme.com new_water.pdb centroids_${best_itr}.mtz mtzlabel=2FOFCWT outfile=new_water_rho.pdb >! rhoprobe_water.log
 
+set rhos = `awk '{print $NF}' new_water_rho.pdb`
+echo "DEBUG 2fofc : $rhos"
 cat new_water_rho.pdb  |\
- awk -v minrho=$minrho '$NF<minrho && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
+ awk -v minrho=$minrho '$NF<minrho*1.2 && /^ATOM|^HETAT/{print substr($0,12,15),$NF,"BADRHO"}' |\
  cat >! badrho_water.txt
 cat badrho_water.txt wetter.pdb |\
 awk '$NF~/^BAD/{++bad[substr($0,1,15)];next}\
