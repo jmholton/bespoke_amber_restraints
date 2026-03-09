@@ -34,8 +34,8 @@ align[25] = "H3" ;
     XPLORSegid = substr($0, 73, 4)      # XPLOR-style segment ID
     split(XPLORSegid, a)                # (remove spaces)
     XPLORSegid = a[1];
-    Element = substr($0, 67)            # sometimes element is given here
-    gsub("[ 0-9]","",Element)
+    Ee = substr($0, 77,4)               # these days element is given here
+    gsub("[ 0-9]","",Ee)
 
     Atomnum= substr($0,  7, 5)+0        # atom number
     Element= substr($0, 13, 2);         # actual element number
@@ -82,8 +82,9 @@ align[25] = "H3" ;
         }
     }
 
-    Ee = Element
-    if(Ee ~ /^H/ && Greek ~ /[1-9][1-9]/) Ee = " H"
+#    Ee = Element
+#    if(Ee ~ /^H/ && Greek ~ /[1-9][1-9]/) Ee = " H"
+#    if(Ee ~ /^H[0-9]/ ) Ee = " H"
 
     if(electrons+0 == 0)
     {
@@ -162,7 +163,7 @@ prev=Segid
     }
 }
 
-! /^ATOM/ && ! /^HETATM/
+! /^ATOM/ && ! /^HETATM/{print}
 
 END{
         for(i=1;i<30;++i)

@@ -284,6 +284,7 @@ cp ${tmpdir}/molprobity_coot.py ${t}molprobity_coot.py
 echo "geometry"
 phenix.geometry_minimization $pdbfile $ciffiles macro_cycles=0 \
   stop_for_unknowns=false \
+  allow_polymer_cross_special_position=True \
   const_shrink_donor_acceptor=$csda \
   output_file_name_prefix=${t} >! ${outprefix}_geom.log
 # logfile is "greatest hits" only
@@ -831,7 +832,6 @@ echo "weighted energy (wE): $energy"
 awk '! /^NONBON/ && $2>4' ${t}_fullgeo.txt |\
 cat >! ${outprefix}_worstgeo.txt
 
-echo "GOTHERE $keepgeo"
 if( $keepgeo ) then
   echo "keeping ${outprefix}_fullgeo.txt"
   cat ${t}_fullgeo.txt |\

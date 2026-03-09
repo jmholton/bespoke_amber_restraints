@@ -1,6 +1,6 @@
 #! /bin/tcsh -f
 #
-#        pick.com                - James Holton        1-3-21
+#        pick.com                - James Holton        1-11-26
 #
 #        Pick unique peaks in a map, 
 #        avoiding "map-edge" false peaks
@@ -16,9 +16,10 @@ set outfile = "pick.pdb"
 set sigma   = 6
 set top_peaks = ""
 set bottom_peaks = ""
+set extreme_peaks = ""
 
-set tempfile = ${CCP4_SCR}/pick_temp$$
-set tempfile = pick_temp
+set tempfile = ${CCP4_SCR}/pick_temp_$$_
+#set tempfile = pick_temp
 rm -f ${tempfile}* >& /dev/null
 
 # set this to wherever your awk program is
@@ -47,10 +48,25 @@ Return_from_Setup:
 
 if(! -e "$mapfile") goto Help
 
+# establish temp file location
+foreach tempfile ( $tempfile /dev/shm/${USER}/pick_temp_$$_ /tmp/${USER}/pick_temp_$$_ ~/pick_temp_$$_ )
+    set tempdir = `dirname $tempfile`
+    if(! -w "$tempdir") mkdir -p $tempdir
+    if(-w "$tempdir") break
+end
+if(! -w "$tempdir") then
+    set BAD = "cannot make temporary files"
+    goto exit
+endif
+set t = "${tempfile}"
+set tempdir = `dirname $tempfile`
+
+
 set sign = `echo "$sigma" | nawk '$1+0<0{print "+/-" 0-$1} $1+0>0{print $1}'`
 set print_sigma = "${sign}*sigma peaks"
 if($?top_only) set print_sigma = "highest peak"
 if($?bottom_only) set print_sigma = "lowest peak"
+if($?extreme_only) set print_sigma = "most extreme peak"
 echo -n "looking for $print_sigma in $mapfile "
 if(-e "$sitefile") then
     echo "not already within ${CLOSE_peaks}A"
@@ -95,6 +111,7 @@ set min = `awk '/Minimum density/{print -$NF}' ${tempfile}stats`
 if(! $?DEBUG) rm -f ${tempfile}stats
 
 repeat:
+set pickme = pick
 set NUMPEAKS 
 if("$top_peaks" != "") then
     set NUMPEAKS = "NUMPEAKS $top_peaks"
@@ -103,17 +120,23 @@ endif
 if("$bottom_peaks" != "") then
     set NUMPEAKS = "NUMPEAKS $bottom_peaks"
     echo "looking for bottom $bottom_peaks peaks only"
-    set sigma = `echo $sigma | awk '{print -$1}'`
+    #set sigma = `echo $sigma | awk '{print -$1}'`
+    echo scale factor -1 | mapmask mapin ${tempfile}pick.map mapout ${tempfile}neg.map >> $logfile
+    set pickme = "neg"
 endif
-if($?top_only) set sigma = `echo $max | awk '{print $1-0.01}'`
-if($?bottom_only) set sigma = `echo $min $max | awk '$1>$2{$1=$2} {print -$1+0.01}'`
+if( $?DEBUG ) echo "DEBUG1: sigma = $sigma  max= $max  min= $min"
+if($?top_only) set sigma = `echo $max | awk '{print $1*0.99}'`
+#if($?bottom_only) set sigma = `echo $min $max | awk '$1>$2{$1=$2} {print -$1+0.01}'`
+if($?bottom_only) set sigma = `echo $min | awk '{print $1*0.99}'`
+if( $?DEBUG ) echo "DEBUG2: sigma = $sigma $?top_only $?bottom_only"
 
 # reformat to peakmax vernacular
-set sigma = `echo $sigma | awk '$1+0>0{print $1} $1+0<0{print -$1,"NEGATIVES"}'`
-
+set sigma = `echo $sigma | awk '$1+0>0{print $1;exit} $1+0<0{print -$1,"NEGATIVES"}'`
+if( $?DEBUG ) echo "DEBUG3: sigma = $sigma"
+if( $?DEBUG ) echo "DEBUG4: pickme = $pickme"
 
 # do the actual peak-pick
-peakmax MAPIN ${tempfile}pick.map PEAKS ${tempfile}.xyz << eof-pick >> $logfile
+peakmax MAPIN ${tempfile}${pickme}.map PEAKS ${tempfile}.xyz << eof-pick >> $logfile
 THRESHOLD $sigma
 OUTPUT PEAKS
 #$NUMPEAKS
@@ -122,17 +145,26 @@ eof-pick
 if($status) then
     grep "Threshold too high" $logfile >& /dev/null
     if(! $status) then
-        set sigma = `awk '/is greater than maximum density/{print $NF*0.99}' $logfile`
+        grep "is greater than maximum density" $logfile
+        set sigma = `awk '/is greater than maximum density/{print $NF*0.99}' $logfile | tail -n 1`
+        if( $?DEBUG ) echo "DEBUG5: sigma = $sigma"
         if("$sigma" == "") then
             set sigma = `echo "$sigma" | nawk '$1+0>0.5{print  $1*2/3}'`
         endif
+        if( $?DEBUG ) echo "DEBUG6: sigma = $sigma"
         if("$sigma" == "") then
             echo "no peaks."
-            set BAD
+            set BAD = "no peaks."
+            goto cleanup
+        endif
+        if( $?repeated ) then
+            echo "caught in loop"
+            set BAD = "caught in loop"
             goto cleanup
         endif
         if("$origsigma" =~ -*) set sigma = `echo $sigma | awk '{print -sqrt($1*$1)}'`
         echo "reducing sigma to $sigma"
+        set repeated
         goto repeat
     endif
 endif
@@ -140,14 +172,19 @@ if(! $?DEBUG) rm -f ${tempfile}pick.map >& /dev/null
 
 # re-format the peaks list (with no stuck-together numbers)
 cat ${tempfile}.xyz |\
-nawk 'NF>6 && /[^1-9.-]/{ \
+awk 'NF>6 && /[^1-9.-]/{ \
 print substr($0,23,8), substr($0,31,8), substr($0,39,8),\
       substr($0,49,8), substr($0,57,8), substr($0,65,8), substr($0,6,8)}' |\
 cat >! ${tempfile}peaks.pick
 if(! $?DEBUG) rm -f ${tempfile}.xyz >& /dev/null
 
+if( "$pickme" == "neg") then
+  awk '{print substr($0,1,54),-$NF}'  ${tempfile}peaks.pick >! ${tempfile}neg.txt
+  mv ${tempfile}neg.txt ${tempfile}peaks.pick
+endif
+
 # filter with sigma cutoff (in case it was changed above)
-echo $origsigma |\
+echo $origsigma  |\
 cat - ${tempfile}peaks.pick |\
 awk 'NR==1{sigma0=sqrt($1*$1);next}\
   {sigma=sqrt($NF*$NF)}\
@@ -155,6 +192,7 @@ awk 'NR==1{sigma0=sqrt($1*$1);next}\
 cat >! ${tempfile}filtered.pick
 set test = `cat ${tempfile}filtered.pick | wc -l`
 if( $test == 0 ) then
+    echo "WARNING: lost all peaks in filtering"
     cp ${tempfile}peaks.pick ${tempfile}filtered.pick
 endif
 
@@ -589,6 +627,22 @@ set sitefile
 
 # scan command line
 foreach arg ( $* )
+    set assign = `echo $arg | awk '{print ( /=/ )}'`
+    set Key = `echo $arg | awk -F "=" '{print $1}'`
+    set Val = `echo $arg | awk -F "=" '{print $2}'`
+    set num = `echo $Val | awk '{print $1+0}'`
+    set int = `echo $Val | awk '{print int($1+0)}'`
+
+    if( $assign ) then
+      # re-set any existing variables
+      set test = `set | awk -F "\t" '{print $1}' | egrep "^${Key}"'$' | wc -l`
+      if ( $test ) then
+          set $Key = $Val
+          echo "$Key = $Val"
+          continue
+      endif
+    endif
+
     # recognize map files
     if(("$arg" =~ *.map)||("$arg" =~ *.ext)) then
         if(! -e "$arg") then
@@ -659,15 +713,30 @@ foreach arg ( $* )
         continue
     endif
 
+    # recognize "extreme peak only" flag
+    if("$arg" =~ "-extreme"*) then
+        set extreme_peaks = `echo $arg | awk -F "=" '{print $2+0}'`
+        if("$extreme_peaks" == "") set extreme_peaks = 1
+        if("$extreme_peaks" == "0") set extreme_peaks = 1
+        continue
+    endif
+
     # recognize "short distances only" flag
     if("$arg" =~ "-fast") then
         set FAST
+        continue
+    endif
+
+    # recognize "debug mode" flag
+    if("$arg" == "-debug" || "$arg" =~ debug* ) then
+        set DEBUG
         continue
     endif
 end
 
 if("$top_peaks" == "1") set top_only
 if("$bottom_peaks" == "1") set bottom_only
+if("$extreme_peaks" == "1") set extreme_only
 set origsigma = "$sigma"
 
 # get map parameters

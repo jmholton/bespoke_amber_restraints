@@ -1,7 +1,7 @@
 #! /bin/tcsh -f
 #
 #        perform some c function on an electron density map
-#        using the "float_func.c" program                                -James Holton 10-26-25
+#        using the "float_func.c" program                                -James Holton 1-1-26
 #
 #
 
@@ -16,9 +16,9 @@ set outfile  = output.map
 set tempfile = ${CCP4_SCR}/map_func$$
 set logfile = /dev/null
 
-set tempfile = tempfile_mapfunc_
+#set tempfile = tempfile_mapfunc_
 #set logfile = /dev/tty
-set logfile = debuglog.log
+set logfile = mapfunc_debug.log
 #echo -n "" >! $logfile
 
 set debug = 0
@@ -50,13 +50,12 @@ while( $i < $#argv )
       if("$key" == "mapfile") set mapfile = "$Val"
       if("$key" == "output") set outfile = "$Val"
       if("$key" == "mapout") set outfile = "$Val"
-    else
-      # no equal sign
-      if("$Key" =~ *.map && "$val" == "") set mapfile = $Key
     endif
+    # no equal sign
+    if("$Key" =~ *.map && "$val" == "") set mapfile = $Key
     
     if( "$mapfile" != "" ) then
-        # found a map
+        if( $debug ) echo "found a map: $mapfile"
         @ user_maps = ( $user_maps + 1 )
         if($user_maps == 1) then
             set mapfile1 = "$mapfile"
@@ -70,13 +69,9 @@ while( $i < $#argv )
         @ i = ( $i + 1 )
         set func  = "$argv[$i]"
     endif
-    if( "$arg" =~ "-seed" && $i < $#argv ) then
+    if( "$arg" =~ {-param,-xrad,-yrad,-zrad,-ignore,-seed} && $i < $#argv ) then
         @ i = ( $i + 1 )
-        set seed  = "$argv[$i]"
-    endif
-    if( "$arg" =~ "-param" && $i < $#argv ) then
-        @ i = ( $i + 1 )
-        set param  = "-param $argv[$i]"
+        set param  = "$param $arg $argv[$i]"
     endif
     if( ( "$arg" =~ "-output" || "$arg" =~ "-outfile" ) && $i < $#argv ) then
         @ i = ( $i + 1 )
@@ -96,23 +91,53 @@ signal.map   is a CCP4 format electron density map
 noise.map    is an optional second map for binary functions
 param        a value to serve as the second map, or a third argument to a ternary function
 func         one of:
-       sqrt, cbrt, ceil, floor, fabs,
-       sin, asin, sinh, asinh, 
-       cos, acos, cosh, acosh,
-       tan, atan, tanh, atanh,
-       erf, erfc, exp, log, log10,
-       j0, j1, jn, y0, y1, yn, gamma, lgamma,
-       pow, erfpow where erfpow is erf(rho)^n
-       norm  the normal distribution
-       urand, grand, lrand, prand, erand, trand for uniform, gaussian, lorentz, poisson, exponential or triangle-random values
+	     sqrt cbrt ceil floor abs sign
+	     zero one set (one output value)
+	     add subtract multiply divide inverse negate maximum minimum 
+	     thresh (1-or-0 threshold)
+	     nanzero (set all NaN and Inf values to zero)
+	     sin asin sinh asinh cos acos cosh acosh tan atan tanh atanh (trigonometry)
+	     pow erf erfpow norm erfc (power and error functions)
+	     exp log log10 (natural or base-10 log)
+	     safexp (safe exponential, wont over/underflow)
+	     j0 j1 jn y0 y1 yn gamma lgamma (Bessel and gamma functions)
+	     urand grand lrand prand erand trand (uniform gaussian lorentzian poisson exponential or triangle randomness)
+	     edge (find rising/falling edges, return 0,1,or -1)
+	     prefft (find edges and condition them to reduce noise from sharp edges in fft)
+	     prefft (find edges and condition them to reduce noise from sharp edges in fft)
+	     gaussblur (real space Gaussian blur)
+	     maxradius (maximum value within radius xrad, yrad, zrad voxels)
+	     avgradius (local average within radius xrad, yrad, zrad  voxels)
+	     medradius (local median within radius xrad, yrad, zrad  voxels)
+	    -param	 second value for add, subtract, set, etc. or parameter needed by the function (such as jn or gaussblur)
+	    -xrad	 max radial extent for gaussblur maxradius avgradius and medradius functions
+	    -yrad -zrad	 radial extent in y and directions
+	    -seed	 seed for random number functions
+	    -ignore	 value found in either input file will pass through
        set = for the output map to have all one value
-       add, subtract, multiply, divide, inverse, negate,
-       maximum, minimum, nanzero,
+       inverse - 1/rho 
+       maximum, minimum, 
+       nanzero (set all NaN and Inf values to zero)
        thresh output 1 or 0 if first map is greather than second
-       maxradius avgradius
+       negate (logical negation (0->1 and 1->0)
+       
 EOF
     exit 9
 endif
+
+# establish temp file location
+foreach tempfile ( $tempfile /dev/shm/${USER}/loademuptemp_$$_ /tmp/${USER}/loademuptemp_$$_ ~/loademuptemp_$$_ )
+    set tempdir = `dirname $tempfile`
+    if(! -w "$tempdir") mkdir -p $tempdir
+    if(-w "$tempdir") break
+end
+if(! -w "$tempdir") then
+    set BAD = "cannot make temporary files"
+    goto exit
+endif
+set t = "${tempfile}"
+set tempdir = `dirname $tempfile`
+
 
 # synonyms
 if("$func" == "mult") set func = "multiply"
@@ -141,7 +166,7 @@ endif
 
 echo go | mapdump mapin $mapfile1 | tee ${tempfile}mapdump.log |\
 awk '/Grid sampling on x, y, z/{gx=$8;gy=$9;gz=$10}\
-     /Maximum density /{max=$NF}\
+     /Maximum density /{gsub("\\.\\."," ");max=$NF}\
      /Cell dimensions /{xs=$4/gx;ys=$5/gy;zs=$6/gz}\
      /Number of columns, rows, sections/{nc=$7;nr=$8;ns=$9}\
  END{print xs,ys,zs,nc,nr,ns,max}' >! ${tempfile}mapstuff.txt
@@ -162,7 +187,7 @@ set zsize = `awk '{print $6}' ${tempfile}mapstuff.txt`
 
 set voxels = `awk '{print $4*$5*$6}' ${tempfile}mapstuff.txt`
 set size = `echo $voxels | awk '{print 4*$1}'`
-set head = `ls -l $mapfile1 | awk -v size=$size '{print $5-size}'`
+set head = `ls -lL $mapfile1 | awk -v size=$size '{print $5-size}'`
 set skip = `echo $head | awk '{print $1+1}'`
 
 if("$param" == "-param voxels") then
@@ -191,10 +216,13 @@ echo "float_func ${tempfile}input1.bin $map2 ${tempfile}output.bin -func $func $
 float_func ${tempfile}input1.bin $map2 -output ${tempfile}output.bin -func $func $param -xsize $xsize -ysize $ysize -zsize $zsize >> $logfile
 if(-e ${tempfile}output.bin) then
     echo "success! "
-    od -w4 --read-bytes=64 -f ${tempfile}input1.bin >! ${tempfile}before.txt
-    od -w4 --read-bytes=64 -f ${tempfile}output.bin >! ${tempfile}after.txt
-    cat ${tempfile}before.txt ${tempfile}after.txt |\
-    awk '! bef[$1]{bef[$1]=$2;next} {print bef[$1],"->",$2}'
+    if( $debug ) then
+      @ dskip = ( $size / 2 )
+      od -v -w4 --skip-bytes=$dskip --read-bytes=64 -f ${tempfile}input1.bin >! ${tempfile}before.txt
+      od -v -w4 --skip-bytes=$dskip --read-bytes=64 -f ${tempfile}output.bin >! ${tempfile}after.txt
+      cat ${tempfile}before.txt ${tempfile}after.txt |\
+      awk '! bef[$1]{bef[$1]=$2;next} {print bef[$1],"->",$2}'
+    endif
     cat ${tempfile}output.bin >> ${tempfile}temp.map
     echo "scale factor 1 0" | mapmask mapin ${tempfile}temp.map mapout $outfile >> $logfile
     #rm -f ${tempfile}output.bin
@@ -221,11 +249,16 @@ if($?BAD) then
     exit 9
 endif
 
-if("$tempfile" == "") set  tempfile = "./"
+if("$tempfile" == "") set tempfile = "./"
 set tempdir = `dirname $tempfile`
-if( $debug && "$tempfile" != "./") then
-    #echo "cleaning up..."
+set tempdir = `cd $tempdir ; pwd`
+set pwd = `pwd`
+if(! $debug && ! ( "$tempfile" == "./" ) ) then
+    echo "cleaning up..."
     rm -f ${tempfile}* >& /dev/null
+else
+    echo "not cleaning up."
+    ls -1rt ${tempfile}*
 endif
 
 
@@ -241,7 +274,7 @@ compile_float_func:
 echo "attempting to generate float_func utility ..."
 cat << EOF >! float_func.c
 
-/* apply a C function to each value in a raw "float" input file                -James Holton               8-24-25
+/* apply a C function to each value in a raw "float" input file                -James Holton               1-1-26
 
 example:
 
@@ -282,7 +315,7 @@ typedef enum { UNKNOWN, SQRT, CBRT, CEIL, FLOOR, FABS,
        REVERSE, STRIDE, STITCH, FLIP, FLOP, FLIPFLOP, SWAPXY,
        MAXPOOL, AVGBOX, GAUSSBLUR,
        MAXRADIUS, AVGRADIUS, MEDRADIUS,
-       SEGMENT, EDGE, FEATHER } func_name;
+       SEGMENT, EDGE, PREFFT } func_name;
 
 /* for byte swapping */
 typedef union {
@@ -464,7 +497,7 @@ int main(int argc, char** argv)
                 if(strstr(argv[i+1],"avgbox"))   func = AVGBOX;
                 if(strstr(argv[i+1],"segment"))  func = SEGMENT;
                 if(strstr(argv[i+1],"edge"))     func = EDGE;
-                if(strstr(argv[i+1],"feather"))  func = FEATHER;
+                if(strstr(argv[i+1],"prefft"))  func = PREFFT;
                 if(strstr(argv[i+1],"gaussblur"))  func = GAUSSBLUR;
                 if(strstr(argv[i+1],"maxradius"))  func = MAXRADIUS;
                 if(strstr(argv[i+1],"avgradius"))  func = AVGRADIUS;
@@ -614,7 +647,7 @@ int main(int argc, char** argv)
         printf("\\t maxpool (maximum value within box with -param edge pixels)\\n");
         printf("\\t avgbox (average value of box with -param edge pixels)\\n");
         printf("\\t edge (find rising/falling edges, return 0,1,or -1)\\n");
-        printf("\\t feather (find edges and soften them)\\n");
+        printf("\\t prefft (find edges and condition them to reduce noise from sharp edges in fft)\\n");
         printf("\\t maxradius (maximum value within radius xrad, yrad, zrad pixels no down-sampling)\\n");
         printf("\\t avgradius (local average within radius xrad, yrad, zrad  pixels, no down-sampling)\\n");
         printf("\\t medradius (local median within radius xrad, yrad, zrad  pixels, no down-sampling)\\n");
@@ -631,6 +664,7 @@ int main(int argc, char** argv)
         printf("\\toutput.bin\\t output binary file containing the results to the desired function\\n");
         exit(9);
     }
+    
 
     printf("selected function: ");
     switch(func){
@@ -693,10 +727,10 @@ int main(int argc, char** argv)
         case POW: printf("POW\\n"); break;
         case SEGMENT: printf("SEGMENT %f\\n",param); break;
         case EDGE: printf("EDGE %f\\n",param); break;
-        case FEATHER: printf("FEATHER %f\\n",param); break;
-        case GAUSSBLUR: printf("GAUSSBLUR %f  %f %f %f\\n",param,xrad,yrad,zrad); break;
-        case AVGRADIUS: printf("AVGRADIUS %f %f %f\\n",xrad,yrad,zrad); break;
-        case MEDRADIUS: printf("MEDRADIUS %f %f %f\\n",xrad,yrad,zrad); break;
+        case PREFFT: printf("PREFFT %f\\n",param); break;
+        case GAUSSBLUR: printf("GAUSSBLUR %f  %d %d %d\\n",param,xrad,yrad,zrad); break;
+        case AVGRADIUS: printf("AVGRADIUS %d %d %d\\n",xrad,yrad,zrad); break;
+        case MEDRADIUS: printf("MEDRADIUS %d %d %d\\n",xrad,yrad,zrad); break;
         case PRAND: printf("PRAND\\n"); break;
         case SET: printf("SET\\n"); break;
         case SIN: printf("SIN\\n"); break;
@@ -962,6 +996,7 @@ awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/
         if(yosize <= 0 ) yosize = 1;
         if(zosize <= 0 ) zosize = 1;
 
+        if(radius<0 && user_param) radius = param;
         if(radius<0) radius = 1.0;
         if(xrad<0) xrad = (int) radius;
         if(yrad<0) yrad = (int) radius;
@@ -1090,6 +1125,8 @@ awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/
             outimage[j+1] = inimage1[i];
         }
     }
+
+printf("GOTHERE: %d %d %d %d\\n",xstart,xsize,ystart,ysize);
 
     for(i=0;i<pixels;++i)
     {
@@ -1404,7 +1441,7 @@ awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/
             }
             if(debug)printf("gaussblur: %d %d %d -> %d %d   %f %f\\n",x,y,z,i,j,inimage1[i],outimage[j]);
         }
-        if( func == EDGE || func == FEATHER ){
+        if( func == EDGE || func == PREFFT ){
             int up=0, down=0, same=0;
             xo = i % xosize;
             yo = ( i / xosize ) % yosize;
@@ -1437,7 +1474,7 @@ awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/
             if( up < down ) outimage[i] = -1.0;
             if( up == down ) outimage[i] = 0.0;
             
-            if( func == FEATHER ) {
+            if( func == PREFFT ) {
                outimage[i] = inimage1[i]-0.25*outimage[i];
             }
 
@@ -1927,7 +1964,7 @@ float fmedian(unsigned long n, float arr[])
 
 /********************************************************************
 *
-*        Fourier()        Numerical Recipes's Fast Fourier Transform
+*        Fourier()        Fast Fourier Transform
 *
 *********************************************************************
 *
@@ -2066,6 +2103,7 @@ float *Fourier(float *data, unsigned long length, int direction)
 
         return data;
 }
+
 EOF
 gcc -o float_func float_func.c -lm 
 set path = ( . $path )
