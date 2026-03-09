@@ -577,6 +577,15 @@ centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
 cp density_restraints.pdb restraints_for_0.pdb
 cp restraints_for_0.pdb current_restraints.pdb
 
+# make sure ligands have restraints
+set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+
+awk '/^CRYST|^ATOM|^HETAT/' refined.pdb |\
+filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+ reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+cp hydration_restraints.pdb restraints_for_0.pdb
+
+
 #if( 0 ) the
 # alternative: restrain to starting point
 set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
@@ -731,7 +740,9 @@ set padwater = `echo $waterslots $gotwater | awk '{print 0+sprintf("%.2g",($1-$3
 #@ padwater = ( 100000 - $gotwater )
 
 # stages=Cpu,Min,Cool,Heat,Equi,EquiMin,Prod
-cp restraints_for_${itr}.pdb initial_restraints.pdb
+#cp restraints_for_${itr}.pdb initial_restraints.pdb
+cp density_restraints.pdb initial_restraints.pdb
+cp density_restraints.pdb restraints_for_0.pdb
 
 leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
@@ -777,6 +788,10 @@ cp ${pdir}/optimize_weights_runme.com .
 # wait for pressure_avglast to become large
 set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print ( $1 > 20 )}'`
 
+# get starting pressure scale for future runs
+grep "pressure scale this time" ../${prevdir}/runme?.log | tee pressure_scale.log
+set pressure_scale = `tail -n 10 pressure_scale.log | tac | awk '{print NR,$NF}' | linfit.awk | awk '{print $2+0}'`
+echo "default pressure scale of $pressure_scale from now on"
 
 cd ..
 ln -sf amber1 template_dir
@@ -809,24 +824,15 @@ cd ../opt${o}
 
   cp ../${prevdir}/refme.pdb .
 
-# density-based restraints
-centroids_nearby_runme.com refme.pdb reffile=all_possible_refpoints.pdb \
-  softener=2 weight=Bfac maxdist=1  \
-  hohscale=1 \
-  outfile=density_restraints.pdb debug=1 | tee c2r_${n}.log
-
-cp density_restraints.pdb restraints_for_0.pdb
-cp restraints_for_0.pdb current_restraints.pdb
-
 
 # rough restraint opt
 @ n = ( $n + 1 )
 cp ${pdir}/optimize_weights_runme.com .
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=auto void_scale=1 \
-    release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0.11 cutoff_weight=0.1 allatom_weight=0 \
+    pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
+    release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.1 \
+    min_lig_weight=0.1 cutoff_weight=0.09 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
