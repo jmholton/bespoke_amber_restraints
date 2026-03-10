@@ -146,7 +146,7 @@ echo "$test non-H protein atoms expected from sequence"
 # check if anything is missing
 awk '/^ATOM|^HETAT/{print substr($0,1,16),substr($0,18)}' $pdbfile |\
 awk '{id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
-filter_pdb.awk -v only=protein |\
+filter_pdb.awk -v only=protein -v skip=H |\
 cat >! noalt.pdb
 
 egrep "^ATOM|^HETAT" noalt.pdb |\

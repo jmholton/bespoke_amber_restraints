@@ -142,7 +142,7 @@ BEGIN {
 #seqres && ! pdb {seqresseq=seq}
 
 # read sequence of a PDB
-/^ATOM / && substr($0,12,5) == "  CA " {
+/^ATOM |^HETAT/ && substr($0,12,5) == "  CA " {
     if(! pdb) seq = ""
     pdb = 1
 
@@ -150,7 +150,7 @@ BEGIN {
     Segid   = substr($0, 22, 1)            # O/Brookhaven-style segment ID
     Resnum  = substr($0, 23, 6)+0
     
-    if(! firstatomres) firstatomres = Resnum
+    if(firstatomres=="") firstatomres = Resnum
     if(seen[Segid Resnum]) next
 
     # check for breaks
@@ -165,6 +165,7 @@ BEGIN {
     # translate three-letter code to one letter
     seq = seq OLC[Restype]
     if(OLC[Restype]=="") seq = seq "X"
+    if( debug > 9 ) print "DEBUG:",Segid,Resnum,seq
 
     ++seen[Segid Resnum]
 }
@@ -226,13 +227,21 @@ if( seqres && pdb ) {
   if(debug) print "seqres:",seqresseq
   if(debug) print " atoms:",pdbseq
 
-  offset=0;
-  subseq=pdbseq;
-  while( ! offset && length(subseq)>0 ) {
-    offset = index(seqresseq,subseq);
-    subseq=substr(subseq,1,length(subseq)-1);
+  for(skip=0;skip<10;++skip) {
+    subseq=pdbseq;
+    offset=0;
+    while( ! offset && length(subseq)>10 ) {
+      offset = index(seqresseq,subseq);
+      if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(subseq,1,10),length(subseq)
+      if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(seqresseq,1,10)
+      subseq=substr(pdbseq,1+skip,length(subseq)-1);
+    }
+    if( offset ) break;
   }
   seqresoffset = offset;
+  if( debug ) print "DEBUG: skip=",skip,"offset=",offset
+  if( debug ) print "DEBUG: seqres("offset"):" substr(seqresseq,offset,10)
+  if( debug ) print "DEBUG: pdbseq("offset"):" subseq
 } 
 
 # break up strings of protein letters into "words"
