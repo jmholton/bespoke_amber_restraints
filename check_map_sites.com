@@ -74,6 +74,10 @@ if("$test" == "0") then
     set test = `grep "Command not found" ${tempfile}mapman.log  | wc -l`
     if( $test ) then
         # try using phenix?
+        set phenixlabel = miller_array.labels.name
+        set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
+        if( "$test" == "1" ) set phenixlabel = label
+
         echo xyzlim cell |\
         mapmask mapin ${mapfile} mapout ${tempfile}cell.map >&! ${tempfile}phenix.log
         echo symm 1 |\
@@ -85,7 +89,7 @@ if("$test" == "0") then
         labin file 1 E1=F E2=PHIF
 EOF
         phenix.map_value_at_point ${tempfile}onecol.mtz ${tempfile}_probe.pdb \
-          label=F scale=volume |\
+          ${phenixlabel}=F scale=volume |\
         tee -a ${tempfile}phenix.log |\
         awk '/Map value:/{print $NF}' | tee ${tempfile}phenixpeeks
     endif
