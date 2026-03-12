@@ -890,6 +890,10 @@ if ( $trigger || ! -e align_ref.pdb ) then
       rmsd2B |\
       awk '/^CRYST/ || substr($0,61,6)+0<12' >! ${t}_ref.pdb
       rholabel_runme.com reference.mtz ${t}_ref.pdb mtzlabel=Fref >> align_${prev}.log
+      if( $status ) then
+        set BAD = "map probe with rholabel failed"
+        goto exit
+      endif
       cat rholabeled.pdb |\
       awk -v s=$pdbscale '! /^ATOM/{next}\
        {pre=substr($0,1,60);rho=$NF/s}\
@@ -954,6 +958,7 @@ if ( $trigger || ! -e align_ref.pdb ) then
     goto exit
   endif
 
+  rm -f aligned.rst7 >& /dev/null
   cpptraj -p xtal.prmtop -y ${laStage}.rst7 -c align_ref.crd << EOF >> align_${prev}.log
   rmsd rmsd reference norotate @$align_mask out rmsd.txt savevectors combined vecsout vecsout.txt
   trajout aligned.rst7
@@ -961,6 +966,7 @@ EOF
   cat rmsd.txt vecsout.txt >> align_${prev}.log
 
   if(-e "$trajectory") then
+    rm -f aligned.nc >& /dev/null
     cpptraj -p xtal.prmtop -y $trajectory -c align_ref.crd << EOF >> align_${prev}.log
     rmsd rmsd reference norotate @$align_mask out rmsd.txt savevectors combined vecsout vecsout.txt
     trajout aligned.nc

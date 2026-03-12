@@ -564,7 +564,18 @@ awk -v B0=$B0 '/^CRYST|^LINK|^SSBO/{print} ! /^ATOM|^HETAT/{next}\
     B=B0*rho}\
     B>B0{B=B0}\
     {printf("%s%6.2f%s\n",pre,B,post)}' |\
-cat >! all_possible_refpoints.pdb
+cat >! refpoints_in_density.pdb
+
+
+# make sure all ligand atoms have potential restraints
+set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+
+awk '/^CRYST|^ATOM|^HETAT/' refined.pdb |\
+filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+ reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+
+combine_pdbs_runme.com lig_restraints.pdb refpoints_in_density.pdb refined.pdb \
+  outfile=all_possible_refpoints.pdb
 
 
 
@@ -574,16 +585,24 @@ centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
   hohscale=1 \
   outfile=density_restraints.pdb debug=$debug | tee c2r_${itr}.log
 
-cp density_restraints.pdb restraints_for_0.pdb
-cp restraints_for_0.pdb current_restraints.pdb
-
 # make sure ligands have restraints
 set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+
+cat amberme.pdb |\
+filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+ reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+
+combine_pdbs_runme.com density_restraints.pdb lig_restraints.pdb all_possible_refpoints.pdb \
+  saveXYZ=1 outfile=initial_restraints.pdb
+cp initial_restraints.pdb restraints_for_0.pdb
 
 awk '/^CRYST|^ATOM|^HETAT/' refined.pdb |\
 filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
  reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
 cp hydration_restraints.pdb restraints_for_0.pdb
+
+cp density_restraints.pdb restraints_for_0.pdb
+cp restraints_for_0.pdb current_restraints.pdb
 
 
 #if( 0 ) the

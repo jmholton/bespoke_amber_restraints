@@ -117,7 +117,7 @@ echo "mtzlabel = $mtzlabel"
 set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.txt`
 
 
-awk '/^ATOM|^HETAT/' $pdbfile >! ${t}.pdb
+awk '/^ATOM|^HETAT/{print substr($0,1,80)}' $pdbfile >! ${t}.pdb
 awk '{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
 phenix.map_value_at_point $mtzfile ${t}.pdb \

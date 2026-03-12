@@ -1,6 +1,6 @@
 #! /bin/awk -f
 #
-#   Process/identify protein sequences in a text/pdb file             -James Holton  3-1-26
+#   Process/identify protein sequences in a text/pdb file             -James Holton  3-11-26
 #   as > 20 consecutive, aa letters
 #
 #   plus a few other goodies, such as monoisotopic mass, identifying 
@@ -131,6 +131,7 @@ BEGIN {
     for(i=4;i<=NF;++i)
     {
         seq = seq OLC[$i]
+        seqresTLC = seqresTLC" "$i
         if($i !~ /^[A-Z][A-Z].$/) continue
         if(OLC[$i]=="") seq = seq "X"
     }
@@ -157,6 +158,7 @@ BEGIN {
     if((Segid != lastSegid)||(nextResnum != Resnum && Resnum != lastResnum)) {
             # break in chain
             seq = seq " "
+            atomtcl = atomtcl" TER"
             lastSegid = Segid
     }
     lastResnum = Resnum
@@ -164,12 +166,16 @@ BEGIN {
 
     # translate three-letter code to one letter
     seq = seq OLC[Restype]
+    atomtlc = atomtlc" "Restype
     if(OLC[Restype]=="") seq = seq "X"
     if( debug > 9 ) print "DEBUG:",Segid,Resnum,seq
 
     ++seen[Segid Resnum]
 }
-/^TER/{seq = seq " "}
+/^TER/{
+    seq = seq " "
+    atomtcl = atomtlc" TER"
+}
 
 # don't do other kinds of search in a PDB file
 pdb || seqres{next}
@@ -230,7 +236,7 @@ if( seqres && pdb ) {
   for(skip=0;skip<10;++skip) {
     subseq=pdbseq;
     offset=0;
-    while( ! offset && length(subseq)>10 ) {
+    while( ! offset && length(subseq)>=10 ) {
       offset = index(seqresseq,subseq);
       if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(subseq,1,10),length(subseq)
       if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(seqresseq,1,10)
@@ -238,7 +244,13 @@ if( seqres && pdb ) {
     }
     if( offset ) break;
   }
-  seqresoffset = offset;
+  if(length(subseq<10)) {
+    print "ERROR: unable to align SEQRRES with atom-derived sequence"
+    seqresoffset = "unknown"
+  }
+  else {
+    seqresoffset = offset;
+  }
   if( debug ) print "DEBUG: skip=",skip,"offset=",offset
   if( debug ) print "DEBUG: seqres("offset"):" substr(seqresseq,offset,10)
   if( debug ) print "DEBUG: pdbseq("offset"):" subseq
@@ -349,7 +361,7 @@ for(n=1;n<=num;++n)
         print Met+0 "met"
         print Cys+0 "cys"
         print His+0 "his"
-        if(seqresoffset) print "seqres start:",firstatomres-seqresoffset+1
+        if(seqresoffset) print "seqres start:",firstatomres-seqresoffset
         print ""
         printf "denatured A(280nm) = %.4f*l*c (c in g/L)\n", A280/weight
         printf "    SeMET MAD Rano = %.3f%%\n", 100*(Met*8^2)/(7^2 * (weight/14))

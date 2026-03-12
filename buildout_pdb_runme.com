@@ -71,6 +71,7 @@ end
 if( "$firstresnum" == "" ) then
   echo "trying to get first residue number from SEQRES"
   set firstresnum = `sequence.awk $pdbfile | awk '/^seqres start/{print $NF}'`
+  echo "it is $firstresnum"
 endif
 if( "$firstresnum" == "" ) set firstresnum = 1
 
@@ -302,6 +303,11 @@ while ( $missing_atoms )
 
    if( $#gaps ) echo "$n GAP $gaps" >> buildorder.txt
 
+   if( $got_all_main && $got_all_side ) then
+     echo "already taken care of"
+     cat new_main.txt new_side.txt >> existing_atoms.txt
+     continue
+   endif
    if( $got_all_main && ! $got_all_side ) then
      echo "just need side"
      echo "$n SIDE $info" >> buildorder.txt
@@ -327,7 +333,7 @@ while ( $missing_atoms )
      continue
    endif
    if( ! $gotCAprev && ! $gotCA && ! $gotCAnext  ) then
-     echo "no neighbors exist for $info"
+     set BAD = "no neighbors exist for $info"
      goto exit
    endif
    set BAD = "dont know what to do with: $info"
