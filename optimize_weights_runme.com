@@ -11,6 +11,7 @@
 #
 #  iteratively optimize restraint weights based on fofc difference map
 #
+#   add the netfrc=0 trick by default?
 #
 
 # defaults for all variables - can be overridden with file: settings.sourceme
@@ -183,7 +184,11 @@ set wrap_itr = 2
 set align_itr = 1
 set align_nstlim = 0
 # type of atoms to use for alignment
+
 set align_target = centroids
+# seems to avoid need for re-centering
+set netfrc = 0
+
 # periodically move water molecules from bad Fo-Fc density to good Fo-Fc density
 set teleport_itr = 1
 set teleport_waters = 10
@@ -2755,7 +2760,8 @@ if( ! $disang && ( $omega_weight != 0 || $chiral_weight != 0 ) && -e chir_omega.
   echo "applying DISANG restraints"
 
   cat ${Stage}.in |\
-  awk 'NF==1 && $1=="/"{;\
+  awk '$1~/^&/{section=substr($1,2)}\
+    NF==1 && $1=="/" && section=="cntrl"{\
     print "  nmropt=1, /";\
     print "&wt type=\047END\047 /";\
     print "DISANG=chir_omega.rst";\
@@ -2772,6 +2778,25 @@ if( $disang && "$omega_weight" == "0" && "$chiral_weight" == "0" ) then
   if( $debug ) diff ${Stage}.in tempfile.in
   mv tempfile.in ${Stage}.in
 endif
+
+
+set netfrc_set = `grep netfrc ${Stage}.in | wc -l`
+if( ! $netfrc_set && "$netfrc" != "1" ) then
+  echo "applying netfrc=$netfrc to stabilize run with weak restarints"
+
+  cat ${Stage}.in |\
+  awk -v netfrc=$netfrc '$1~/^&/{section=substr($1,2)}\
+    NF==1 && $1=="/" && section=="cntrl"{\
+    print prev,"/";\
+    print " &ewald";\
+    print "  netfrc=" netfrc ",";}\
+   {prev=$0;print}' |\
+  cat >! tempfile.in
+  if( $debug ) diff ${Stage}.in tempfile.in
+  mv tempfile.in ${Stage}.in
+endif
+
+
 
 # make input file for re-alignmnent sub-run
 echo $prod_ns $dt $align_nstlim |\

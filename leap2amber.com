@@ -39,6 +39,9 @@ set ignore_clash = 0
 set watertype = opc
 set flexwater = 1
 
+# disable net-force correction that seems to lead to sloshing
+set netfrc = 0
+
 # input defaults
 set pdbfile = refmacout.pdb
 set refpointspdb = ""
@@ -1087,6 +1090,28 @@ if(-e "$restraint_file") then
   end
 endif
 
+
+cat << EOF >! netfrc0_stub.in
+ &ewald /
+   netfrc=0,
+ /
+EOF
+
+if ( $netfrc == 0 ) then
+    echo "applying netfrc=0 to Equi and Prod"
+    foreach Stage ( Equi Prod )  
+        cat ${t}${Stage}.in |\
+        awk -v netfrc=$netfrc '$1~/^&/{section=substr($1,2)}\
+          NF==1 && $1=="/" && section=="cntrl"{\
+          print prev,"/";\
+          print " &ewald";\
+          print "  netfrc=" netfrc ",";}\
+         {prev=$0;print}' |\
+        cat >! ${t}.in
+        if( $debug ) diff ${t}${Stage}.in ${t}.in
+        mv ${t}.in ${t}${Stage}.in
+    end
+endif
 
 
 
