@@ -523,7 +523,7 @@ if( ! $?Stage ) then
   endif
 endif
 if( ! $?Stage && $?i ) then
-  if( -e amber_${i}.nc ) then
+  if( -e amber_${i}.nc && -e amber_${i}.rst7 ) then
     set Stage = amber_${i}
     echo "setting Stage = $Stage"
   endif
@@ -2674,7 +2674,7 @@ awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;nsnb=$4+0;equi_gamma=$5+0;\
     nstlim=int(ns*1000/dt);\
     if(align_nstlim>nstlim)align_nstlim=nstlim; \
     if(align_nstlim)nstlim=align_nstlim;next} \
-  {space=substr($0,1,index($0,$1)-1);split($1,w,"=")}\
+  {space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
   # shorter time step \
   / dt=/{print space w[1] "=" dt ",";next}\
   # turn off shake \
@@ -2697,28 +2697,30 @@ awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;if(dt<1e-6)dt=0.002;\
     nstlim=int(ns*1000/dt);\
     if(align_nstlim>nstlim)align_nstlim=nstlim; \
     if(align_nstlim)nstlim=align_nstlim;next} \
-  {space=substr($0,1,index($0,$1)-1);split($1,w,"=")}\
+  {space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
   # still shorter time step \
-  / dt=/{print space w[1] "=" dt ",";next}\
+  / dt=/{print space w[1] "=" dt "," esc;next}\
   # just a few cycles \
-  / nstlim=/{print space w[1] "=" nstlim ",";next}\
-  / ntpr=| ntwr=/{print space w[1] "=" nstlim ",";next}\
-#  / ntwx=/{print space w[1] "=" 0 ",";next}\
+  / nstlim=/{print space w[1] "=" nstlim "," esc;next}\
+  / ntpr=| ntwr=/{print space w[1] "=" nstlim "," esc;next}\
+#  / ntwx=/{print space w[1] "=" 0 "," esc;next}\
   {print}' |\
 cat >! equi.in
 
 echo $barometer_cycles 0.0005 |\
 cat - ${Stage}.in |\
 awk 'NR==1{n=$1;dt=$2;next}\
-  {space=substr($0,1,index($0,$1)-1);split($1,w,"=");}\
+  {space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
 # just a few cycles \
-/ nstlim=/{print space w[1] "=" n ",";next}\
-/ dt=/{sprint space w[1] "=" dt ",";next}\
-/ ntpr=/{print space w[1] "=" n/10 ",";next}\
-/ ntwx=| ntwr=| ntr=/{print space w[1] "=" 0 ",";next}\
-/ ntb=/{print space "ntb=2,ntp=4,";next}\
+/ nstlim=/{print space w[1] "=" n "," esc;next}\
+/ dt=/{sprint space w[1] "=" dt "," esc;next}\
+/ ntpr=/{print space w[1] "=" n/10 "," esc;next}\
+/ ntwx=| ntwr=| ntr=/{print space w[1] "=" 0 "," esc;next}\
+/ ntb=/{print space "ntb=2,ntp=4," esc;next}\
 /     Specific /{exit}\
-/ restraint|wt type=|DISANG|LISTIN=POUT|dummy |nmropt=1/{next}\
+/ restraint|wt type=|DISANG|LISTIN=POUT|dummy |nmropt=1/{\
+   if(esc != "") print esc;\
+   next}\
 {print}' |\
 cat >! barometer.in
 

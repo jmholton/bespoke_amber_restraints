@@ -1092,7 +1092,7 @@ endif
 
 
 cat << EOF >! netfrc0_stub.in
- &ewald /
+ &ewald 
    netfrc=0,
  /
 EOF

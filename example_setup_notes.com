@@ -804,6 +804,8 @@ cp ${pdir}/optimize_weights_runme.com .
     min_align_weight=0 align_target=centroids align_nstlim=0 \
     maxitr=20 >&! runme${n}.log &
 
+# reset: rm -f `ls -1rt | awk '/xtal_properties.sourceme/,""'`
+
 # wait for pressure_avglast to become large
 set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print ( $1 > 20 )}'`
 
