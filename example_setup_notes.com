@@ -540,7 +540,9 @@ cp ../ligands/*.mol2 .
 cp ../ligands/*.frcmod .
 cp ../ligands/*.pdb .
 set ligs = `ls -1 *.mol2 | awk -F "." '{print $1}'`
-
+foreach lig ( $ligs )
+  cp ../ligands/${lig}.cif .
+end
 
 ln -sf ../refme.mtz .
 
@@ -595,17 +597,10 @@ filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
 combine_pdbs_runme.com density_restraints.pdb lig_restraints.pdb all_possible_refpoints.pdb \
   saveXYZ=1 outfile=initial_restraints.pdb
 cp initial_restraints.pdb restraints_for_0.pdb
-
-awk '/^CRYST|^ATOM|^HETAT/' refined.pdb |\
-filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
- reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
-cp hydration_restraints.pdb restraints_for_0.pdb
-
-cp density_restraints.pdb restraints_for_0.pdb
 cp restraints_for_0.pdb current_restraints.pdb
 
 
-#if( 0 ) the
+if( 0 ) the
 # alternative: restrain to starting point
 set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
 set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
@@ -613,12 +608,12 @@ awk '/^CRYST|^LINK|^SSBO|^ATOM|^HETAT/' refined.pdb |\
 filter_pdb.awk -v only=protein,ligand -v ligands="$liglist" -v skip=H |\
  reformatpdb.awk -v BFAC=$B0 >! uniform_restraints.pdb
 cp uniform_restraints.pdb restraints_for_0.pdb
-#endif
+endif
 
 rmsd current_restraints.pdb refined.pdb | head | grep MAXD
 
 set avgB = `awk '/^ATOM|^HETAT/{print substr($0,61,6)}' all_possible_refpoints.pdb | avg.awk`
-set weight_scaledown = `echo $avgB | awk '{print 5/($1/100)}'`
+#set weight_scaledown = `echo $avgB | awk '{print 5/($1/100)}'`
 
 set CELL = `awk '/^CRYST1/{print $2,$3,$4,$5,$6,$7}' refined.pdb`
 
@@ -743,11 +738,29 @@ reorganize_pdb_runme.com salty.pdb ignore_zero=0 refpdb=refined.pdb \
 filter_pdb.awk -v skip=water,H current_restraints.pdb reorganized.pdb | rmsd | head
 # do a restraint bomb test?
 
+# sometimes tleap hates the hydrogens
 filter_pdb.awk -v skip=water reorganized.pdb | egrep -v "^END" >! amberme.pdb
 filter_pdb.awk -v skip=H -v only=water,atoms reorganized.pdb >> amberme.pdb
 
+# make this the protonation record
 cp HIS_settings.txt protonation.txt
 
+# use refmac for quick B factor optimization
+cat << EOF >! refmac_opts.txt
+solvent no
+blim 2 999
+damp 0 0.5
+weigh matrix 1
+ncyc 5
+make link Y
+make hydr Y
+make hout Y
+EOF
+
+converge_refmac.com refme.mtz amberme.pdb trials=3 $ligcifs append nosalvage >&! refmac_${itr}.log &
+
+
+# estimate how much water could possibly fit
 egrep -v HOH amberme.pdb >! dry.pdb
 echo | rwcontents xyzin dry.pdb >! ${t}rwcontents.log
 grep "% of cell without atoms" ${t}rwcontents.log
@@ -776,7 +789,21 @@ leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
 
 # reset: rm -f `ls -1rt | awk '/xtal_properties.sourceme/,""'`
 
-# essential files for amber setup
+
+# wait for refmac job to finish
+wait 
+set lastB = `tail refmacout.pdb | awk '/^ATOM|^HETAT/{print substr($0,61,6)}' | sort -gr | head -n 1`
+if( "$lastB" == "") then
+  echo "WARNING: could not get last B factors from refmacout.pdb"
+  set lastB = 999
+endif
+grep HOH orignames.pdb >! water.pdb
+combine_pdbs_runme.com B=$lastB water.pdb water.pdb outfile=Bwater.pdb > /dev/null
+combine_pdbs_runme.com refmacout.pdb Bwater.pdb printref=1 orignames.pdb outfile=Bfac.pdb > /dev/null
+cp Bfac.pdb Bfac_${itr}.pdb
+
+
+# essential files for leap2amber setup
 if ( 0 ) then
 mkdir ../amber2
 cd ../amber2
@@ -792,19 +819,43 @@ endif
 set n = 1
 
 # hydrate, and wait for pressure to settle
-cp ${pdir}/optimize_weights_runme.com .
-./optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
-    teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
+cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
+./optimize_weights_runme${n}.com prod_ns=0.5 \
+    adjust_itr=0 max_mult=1 weight_power=1 \
+    Badjust_itr=0 Bfac_maxmod=0 \
+    teleport_waters=0 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
+    min_lig_weight=0.1 cutoff_weight=0.09 allatom_weight=0 \
+    weight_scaledown=1 weight_negscaledown=1 \
+    randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
+    equi_ns=0.01 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
+    netfrc=0 \
+    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
+    >&! runme${n}.log &
+
+# reset: rm -f `ls -1rt | awk '/avg_0.mtz/,""'`
+
+
+# wait for pressure to peek over zero
+
+@ n = ( $n + 1 )
+# start teleporting waters
+cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
+./optimize_weights_runme${n}.com prod_ns=0.5 \
+    adjust_itr=0 max_mult=1 weight_power=1 \
+    Badjust_itr=0 Bfac_maxmod=0 \
+    teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
+    pressure_avglast=auto pressure_scale=auto void_scale=1 \
+    release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
+    min_lig_weight=0.1 cutoff_weight=0.09 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=0 align_target=centroids align_nstlim=0 \
-    maxitr=20 >&! runme${n}.log &
+    netfrc=0 \
+    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
+    refmac_itr=1 >&! runme${n}.log &
 
-# reset: rm -f `ls -1rt | awk '/xtal_properties.sourceme/,""'`
 
 # wait for pressure_avglast to become large
 set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print ( $1 > 20 )}'`
@@ -848,8 +899,8 @@ cd ../opt${o}
 
 # rough restraint opt
 @ n = ( $n + 1 )
-cp ${pdir}/optimize_weights_runme.com .
-./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+cp ${pdir}/optimize_weights_runme${n}.com .
+./optimize_weights_runme${n}.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.1 \
@@ -857,7 +908,7 @@ cp ${pdir}/optimize_weights_runme.com .
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=0.11 align_target=centroids align_nstlim=0 \
+    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
     halfrho_neg=3.5 halfrho_pos=auto |& tee runme${n}.log &
 
 # wait for... ?
@@ -868,11 +919,11 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
+    min_lig_weight=0 cutoff_weight=0.09 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=0.11 align_target=centroids align_nstlim=0 \
+    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
     halfrho_neg=2 halfrho_pos=auto |& tee runme${n}.log &
 
 @ n = ( $n + 1 )
@@ -881,25 +932,27 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
+    min_lig_weight=0 cutoff_weight=0.09 allatom_weight=0 \
     weight_scaledown=0.9 weight_negscaledown=0.5 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=0 align_target=centroids align_nstlim=250000 \
+    min_align_weight=0.1 align_target=centroids align_nstlim=250000 \
     halfrho_neg=2.5 halfrho_pos=auto |& tee runme${n}.log &
 
 
 @ n = ( $n + 1 )
 # start down-weighting - will need substages or alignment weight
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
-    teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
+optimize_weights_runme.com prod_ns=0.5 \
+    max_mult=2 \
+    Bfac_maxmod=1 weight_power=1.1 \
+    teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scaledown=0.95 weight_negscaledown=0.9 \
+    min_lig_weight=0 cutoff_weight=0.09 allatom_weight=0 \
+    weight_scaledown=0.9 weight_negscaledown=0.5 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=0.5 align_target=centroids align_nstlim=250000 \
+    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
     halfrho_neg=auto halfrho_pos=auto |& tee runme${n}.log &
 
 

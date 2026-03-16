@@ -86,6 +86,10 @@ set delete_traj = 0
 set adjust_itr = 1
 # adjust B factors based on difference map
 set Badjust_itr = 1
+# run refmac to optimize B factors
+set refmac_itr = 0
+# run phenix.refine to optimize B factors
+set phenix_itr = 0
 # re-discover reference points every so often
 set repick_itr = 10
 set repick_itr_ramp = none
@@ -232,6 +236,7 @@ set temp_ramp = none
 set thermostat = ""
 set gamma_ln = 1.0
 set equi_gamma = same
+set settle_slowdown = 10
 set barostat = 0
 set kT = 0.6
 
@@ -391,7 +396,7 @@ if(! -e refme.mtz) then
 
 cat << EOF >! refmac_opts.txt
 solvent no
-blim 10 50
+blim 2 999
 damp 0 0.5
 weigh matrix 1
 ncyc 5
@@ -400,9 +405,17 @@ make hydr Y
 make hout Y
 EOF
 
-# might want to add refinement step
 
 endif
+
+set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
+foreach cif ( $ligcifs )
+  if(! -e $cif ) then
+    echo "cp ../ligands/$cif ."
+    cp ../ligands/$cif .
+  endif
+end
+
 
 # in case we need to run tleap
 if(! -e tleap_stub.in) then
@@ -414,17 +427,29 @@ if(! -e tleap_stub.in) then
 endif
 
 if(! -e amberme.pdb) then
-
+  echo "cp ${template_dir}/amberme.pdb amberme.pdb"
   cp ${template_dir}/amberme.pdb amberme.pdb
 endif
 
 # structure factors for best-phased reference map
 if(! -e reference.mtz ) then
+  echo "cp ${template_dir}/reference.mtz reference.mtz"
+  cp  cp ${template_dir}/reference.mtz .
+endif
+if(! -e reference.mtz ) then
+  echo "cp  ../centroids/reference0.mtz reference.mtz"
   cp  ../centroids/reference0.mtz reference.mtz
 endif
 
 # master list of points in space to use as restraint reference points
 if(! -e all_possible_refpoints.pdb ) then
+   # sometimes gets edited
+#  echo "cp ${template_dir}/reference.mtz reference.mtz"
+#  cp  cp ${template_dir}/reference.mtz .
+endif
+# start fresh
+if(! -e all_possible_refpoints.pdb ) then
+  echo "generating all_possible_refpoints.pdb from ../centroids/centroids_in_density.pdb"
   set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
   cat ../centroids/centroids_in_density.pdb |\
   awk -v B0=$B0 '! /^ATOM|^HETAT/{print;next}\
@@ -433,6 +458,18 @@ if(! -e all_possible_refpoints.pdb ) then
      B>B0{B=B0}\
      {printf("%s%6.2f%s\n",pre,B,post)}' |\
   cat >! all_possible_refpoints.pdb
+
+  if( "$min_lig_weight" != "0" ) then
+      mv all_possible_refpoints.pdb refpoints_in_density.pdb
+      set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+      set Blig = `echo $min_lig_weight $pdbscale | awk '{print $1/$2}'`
+      awk '/^CRYST|^ATOM|^HETAT/' this.pdb |\
+      filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+       reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+
+      combine_pdbs_runme.com lig_restraints.pdb refpoints_in_density.pdb this.pdb \
+        outfile=all_possible_refpoints.pdb
+  endif
 endif
 
 if( "$randel_itr" != "0" ) then
@@ -540,11 +577,15 @@ if(! -e orignames.pdb ) then
 endif
 if(! -e Bfac.pdb ) then 
    echo "generating Bfac.pdb from orignames.pdb"
-   cp  orignames.pdb Bfac.pdb 
-#   cat orignames.pdb |\
-#   awk '! /^ATOM|^HETAT/{print;next} \
-#     {printf("%s%6.2f%s\n",substr($0,1,60),10,substr($0,67))}' orignames.pdb |\
-#   cat >! Bfac.pdb 
+#   cp  orignames.pdb Bfac.pdb 
+   cat orignames.pdb |\
+   awk '! /^ATOM|^HETAT/{print;next} \
+     {TYP=substr($0,18,3)}\
+     TYP!="HOH"{print;next}\
+     {B=substr($0,61,6)+0}\
+     B>maxB{maxB=B} B<maxB{B=maxB}\
+     {printf("%s%6.2f%s\n",substr($0,1,60),B,substr($0,67))}' |\
+   cat >! Bfac.pdb 
 endif
 set norig = `egrep "^ATOM|^HETAT" orignames.pdb | wc -l`
 set nBfac = `egrep "^ATOM|^HETAT" Bfac.pdb | wc -l`
@@ -600,6 +641,18 @@ if(! -e all_possible_refpoints.pdb) then
       B>B0{B=B0}\
       {printf("%s%6.2f%s\n",pre,B,post)}' |\
   cat >! all_possible_refpoints.pdb
+
+  if( "$min_lig_weight" != "0" ) then
+      mv all_possible_refpoints.pdb refpoints_in_density.pdb
+      set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+      set Blig = `echo $min_lig_weight $pdbscale | awk '{print $1/$2}'`
+      awk '/^CRYST|^ATOM|^HETAT/' this.pdb |\
+      filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+       reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+
+      combine_pdbs_runme.com lig_restraints.pdb refpoints_in_density.pdb this.pdb \
+        outfile=all_possible_refpoints.pdb
+  endif
 endif
 
 echo "checking for restraint bombs"
@@ -643,6 +696,12 @@ if(! -e ${laStage}.in) then
   goto exit
 endif
 set trajectory = ${laStage}.nc
+if(! -e "$trajectory" ) then
+    # maybe last run crashed early
+    echo "WARNING: no trajectory: $trajectory "
+    set trajectory = ${laStage}_1.nc
+    echo "WARNING: trying $trajectory "
+endif
 if(! -e "$trajectory" ) then
   echo "WARNING: "
   echo "WARNING: no trajectory: $trajectory "
@@ -988,6 +1047,12 @@ EOF
   set drift = `tail -n 1 vecsout.txt | awk '{print $2,$3,$4,"(",sqrt($2*$2+$3*$3+$4*$4),")"}'`
   echo "$prev $drift" | tee -a alignment_drift_vs_itr.txt
 
+  # give a warning for big drift?
+  set test = `echo $drift | awk '{print ( $(NF-1) > 0.1 ) }'`
+  if( $test ) then
+    echo "WARNING: drift > 0.1 A detected! consider lowering align_nstlim or increasing min_align_weight"
+  endif
+
   # update the this and noEP pdb files
   rst2pdb_runme.com ${laStage}.rst7 this.pdb >! rst2pdb.log
   filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
@@ -1008,7 +1073,12 @@ endif
 
 # convert nc file to an mtz
 set nc2log = nc2mtz_${prev}.log
-if(-e "$trajectory" && ( ! -e avg_${prev}.mtz || ! -e trajectory/md.1.pdb ) ) then
+set needtraj = 0
+if( ! -e avg_${prev}.mtz ) set needtraj = 1
+if( ! -e trajectory/md.1.pdb && $adjust_itr != 0 ) set needtraj = 1
+if( ! -e trajectory/md.1.pdb && $Badjust_itr != 0 ) set needtraj = 1
+
+if(-e "$trajectory" && $needtraj ) then
   set minB = 1
   set maxB = 999.99
   if( "$Bfac_file" == "rmsd2B" ) then
@@ -1285,6 +1355,67 @@ endif
 
 
 skipfofc:
+
+
+set trigger = `echo $itr $refmac_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
+if ( $trigger ) then
+  echo "running refmac to refine B factors"
+else
+  goto skiprefmac
+endif
+
+# now use refmac to refine B factors - better than previous?
+rm refmacout.pdb >& /dev/null
+converge_refmac.com refme.mtz refme.pdb trials=1 $ligcifs append nosalvage >&! refmac_${itr}.log
+if( $status || ! -e refmacout.pdb) then
+  set BAD = "refmac failed"
+  goto exit
+endif
+
+cp Bfac.pdb prerefmac_Bfac_${itr}.pdb
+set lastB = `tail refmacout.pdb | awk '/^ATOM|^HETAT/{print substr($0,61,6)}' | sort -gr | head -n 1`
+grep HOH Bfac.pdb >! dummywater.pdb
+combine_pdbs_runme.com B=$lastB dummywater.pdb water.pdb outfile=Bwater.pdb > /dev/null
+combine_pdbs_runme.com refmacout.pdb Bwater.pdb printref=1 Bfac.pdb outfile=new_Bfac.pdb > /dev/null
+cp new_Bfac.pdb Bfac.pdb
+cp Bfac.pdb Bfac_${itr}.pdb
+
+
+skiprefmac:
+
+
+set trigger = `echo $itr $phenix_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
+if ( $trigger ) then
+  echo "running phenix.refine to refine B factors"
+else
+  goto skipphenix
+endif
+
+# now use phenix to refine B factors - better than previous?
+set serial = `echo $itr | awk '{printf("%03d",$1)}'`
+rm -f phenixBrefine_${serial}.pdb >& /dev/null
+phenix.refine refme.mtz refme.pdb $ligcifs \
+  prefix=phenixBrefine serial=$serial strategy=individual_adp >&! phenixBrefine_${itr}.log
+if( $status ) then
+  set BAD = "phenix.refine failed"
+  goto exit
+endif
+
+cp Bfac.pdb prephenix_Bfac_${itr}.pdb
+set lastB = `tail phenixBrefine_${serial}.pdb | awk '/^ATOM|^HETAT/{print substr($0,61,6)}' | sort -gr | head -n 1`
+if( "$lastB" == "") then
+  echo "WARNING: could not get last B factors from phenixBrefine_${serial}.pdb"
+  set lastB = 999
+endif
+grep HOH Bfac.pdb >! dummywater.pdb
+combine_pdbs_runme.com B=$lastB dummywater.pdb water.pdb outfile=Bwater.pdb > /dev/null
+combine_pdbs_runme.com phenixBrefine_${serial}.pdb Bwater.pdb printref=1 Bfac.pdb outfile=new_Bfac.pdb > /dev/null
+cp new_Bfac.pdb Bfac.pdb
+cp Bfac.pdb Bfac_${itr}.pdb
+
+
+skipphenix:
+
 
 echo "measuring challenges to previous restraints"
 filter_pdb.awk -v skip=EP this.pdb |\
@@ -1678,7 +1809,7 @@ awk '/NOTME/{++notme[substr($0,1,24)];next}\
   notme[xyz]{next}\
   {print}' >! teleport_goals.pdb
 pick.com 4.5 fofc.map >! pick.log
-awk '/height.sigma/{print;getline;print}' pick.log
+awk '/height.sigma/{print;getline;print $0,"fofc.map"}' pick.log
 echo "symgen $smallSG" | pdbset xyzin pick.pdb xyzout bigpick.pdb >> /dev/null
 egrep "^ATOM|^HETAT" bigpick.pdb >> teleport_goals.pdb
 
@@ -2658,54 +2789,67 @@ mv tempfile.in ${Stage}.in
 
 if( ! $barostat ) then
  cat ${Stage}.in |\
- awk '{space=substr($0,1,index($0,$1)-1);split($1,w,"=");}\
-  / ntb=/{print space "ntb=1,ntp=0,";next}\
+ awk '{space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
+  / ntb=/{print space "ntb=1,ntp=0," esc;next}\
   {print}' |\
  cat >! tempfile.in
  mv tempfile.in ${Stage}.in
 endif
 
 set nsnb = `head -n 100 ${Stage}.in | awk -F "=" '/ nsnb=/{print $2+0;exit}'`
+if( "$nsnb" == "" ) set nsnb = 0
 echo "equi_ns = $equi_ns"
 echo $equi_ns $equi_dt $align_nstlim $nsnb $equi_gamma |\
 cat - ${Stage}.in |\
-awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;nsnb=$4+0;equi_gamma=$5+0;\
-    if(dt<1e-6)dt=0.002;\
+awk 'NR==1{ns=$1;dt=$2;align_nstlim=$3;nsnb=$4+0;equi_gamma=$5+0;\
+    if(dt<1e-6)dt=1e-6;\
     nstlim=int(ns*1000/dt);\
     if(align_nstlim>nstlim)align_nstlim=nstlim; \
     if(align_nstlim)nstlim=align_nstlim;next} \
   {space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
   # shorter time step \
-  / dt=/{print space w[1] "=" dt ",";next}\
+  / dt=/{print space w[1] "=" dt "," esc;next}\
   # turn off shake \
-#  / ntf=2/{print space "ntf=1";next}\
-#  / ntc=2/{print space "ntc=1";next}\
+#  / ntf=2/{print space "ntf=1 ," esc;next}\
+#  / ntc=2/{print space "ntc=1 ," esc;next}\
   # nonbond updates every cycle \
-#  ! nsnb && / cut=/{print space "nsnb=1,"}\
+#  ! nsnb && / cut=/{print space "nsnb=1," esc}\
   # just a few cycles \
-  / nstlim=/{print space w[1] "=" nstlim ",";next}\
-  / ntpr=| ntwr=/{print space w[1] "=" nstlim ",";next}\
-#  / ntwx=/{print space w[1] "=" 0 ",";next}\
+  / nstlim=/{print space w[1] "=" nstlim "," esc;next}\
+  / ntpr=| ntwr=/{print space w[1] "=" nstlim "," esc;next}\
+  / ntwx=/{print space w[1] "=" 0 "," esc;next}\
   # heavy thermostat \
-  / gamma_ln=/ && equi_gamma{print space w[1] "=" equi_gamma ",";next}\
+  / gamma_ln=/ && equi_gamma{print space w[1] "=" equi_gamma "," esc;next}\
   {print}' |\
-cat >! settle.in
+cat >! equi.in
 
-echo $equi_ns $equi_dt $align_nstlim |\
-cat - ${Stage}.in |\
-awk 'NR==1{ns=$1;dt=$2+0;align_nstlim=$3;if(dt<1e-6)dt=0.002;\
+# additional settling step at 1/10 speed
+echo $equi_ns $equi_dt $align_nstlim $nsnb $equi_gamma $settle_slowdown |\
+cat - equi.in |\
+awk 'NR==1{ns=$1;dt=$2;align_nstlim=$3;nsnb=$4+0;gamma=$5+0;slowdown=$6;\
+    dt=dt/slowdown;\
+    ns=ns/slowdown/slowdown;\
+    gamma=gamma*slowdown;\
+    if(dt<1e-6)dt=1e-6;\
     nstlim=int(ns*1000/dt);\
     if(align_nstlim>nstlim)align_nstlim=nstlim; \
     if(align_nstlim)nstlim=align_nstlim;next} \
   {space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
-  # still shorter time step \
+  # shorter time step \
   / dt=/{print space w[1] "=" dt "," esc;next}\
+  # turn off shake \
+#  / ntf=2/{print space "ntf=1 ," esc;next}\
+#  / ntc=2/{print space "ntc=1 ," esc;next}\
+  # nonbond updates every cycle \
+  ! nsnb && / cut=/{print space "nsnb=1," esc}\
   # just a few cycles \
   / nstlim=/{print space w[1] "=" nstlim "," esc;next}\
   / ntpr=| ntwr=/{print space w[1] "=" nstlim "," esc;next}\
-#  / ntwx=/{print space w[1] "=" 0 "," esc;next}\
+  / ntwx=/{print space w[1] "=" 0 "," esc;next}\
+  # heavy thermostat \
+  / gamma_ln=/ && equi_gamma{print space w[1] "=" equi_gamma "," esc;next}\
   {print}' |\
-cat >! equi.in
+cat >! settle.in
 
 echo $barometer_cycles 0.0005 |\
 cat - ${Stage}.in |\
@@ -2713,7 +2857,7 @@ awk 'NR==1{n=$1;dt=$2;next}\
   {space=substr($0,1,index($0,$1)-1);split($1,w,"=");esc=" "$NF;if(esc!=" /")esc=""}\
 # just a few cycles \
 / nstlim=/{print space w[1] "=" n "," esc;next}\
-/ dt=/{sprint space w[1] "=" dt "," esc;next}\
+/ dt=/{print space w[1] "=" dt "," esc;next}\
 / ntpr=/{print space w[1] "=" n/10 "," esc;next}\
 / ntwx=| ntwr=| ntr=/{print space w[1] "=" 0 "," esc;next}\
 / ntb=/{print space "ntb=2,ntp=4," esc;next}\
@@ -2842,7 +2986,9 @@ foreach substage ( settle equi )
     endif
 
     cat ${ss}.out >> ${Stage}_${substage}.out
-    echo "trajin ${ss}.nc" >> ${t}trajin.txt
+    if(-e ${ss}.nc) then
+      echo "trajin ${ss}.nc" >> ${t}trajin.txt
+    endif
 
     grep NaN ${ss}.out
     if(! $status) break
@@ -2862,13 +3008,23 @@ EOF
     echo -n "drift: "
     echo -n "$itr $i " >> drift_byframe_${substage}.txt 
     echo "$drift"  | tee -a drift_byframe_${substage}.txt 
+
+    # give a warning for big drift?
+    set test = `echo $drift | awk '{print ( $(NF-1) > 0.1 ) }'`
+    if( $test ) then
+      echo "WARNING: drift > 0.1 A detected! consider lowering align_nstlim or increasing min_align_weight"
+  endif
+
   end
 
   cp ${ss}.rst7 ${Stage}_${substage}.rst7
 
-  echo "consolidating nc files into ${Stage}_${substage}.nc"
-  echo "trajout ${Stage}_${substage}.nc" >> ${t}trajin.txt
-  cat ${t}trajin.txt | cpptraj -p xtal.prmtop >! ${t}concat.log
+  set test = `cat ${t}trajin.txt | wc -l`
+  if( $test ) then
+    echo "consolidating nc files into ${Stage}_${substage}.nc"
+    echo "trajout ${Stage}_${substage}.nc" >> ${t}trajin.txt
+    cat ${t}trajin.txt | cpptraj -p xtal.prmtop >! ${t}concat.log
+  endif
 
 end
 
@@ -2885,6 +3041,14 @@ touch ${Stage}.out
 set nstlim0 = `echo $prod_ns $dt | awk '{print int($1/$2*1000)}'`
 set subruns = `echo $nstlim0 $align_nstlim | awk '$2>0{print int($1/$2)}'`
 if( "$subruns" == "" || "$subruns" == "0" ) set subruns = 1
+
+# see if we are aggretating ncfiles or rst7 files
+set nstlimi = `head -n 1000 ${Stage}_i.in | awk -F "=" '/ nstlim=/{print $2+0}'`
+set ntwxi = `head -n 1000 ${Stage}_i.in | awk -F "=" '/ ntwx=/{print $2+0}'`
+set ntwri = `head -n 1000 ${Stage}_i.in | awk -F "=" '/ ntwr=/{print $2+0}'`
+set ext = rst7 ; if( $ntwxi < $nstlimi ) set ext = nc
+echo -n "" >! ${t}trajin.txt
+
 foreach i ( `seq 1 $subruns` )
     echo "running $Stage ( $i / $subruns )"
     $pmemd -O -i ${Stage}_i.in -o ${Stage}_${i}.out \
@@ -2913,11 +3077,22 @@ EOF
     echo "$itr $i $drift" | tee -a drift_byframe.txt 
     cp realigned.rst7 ${Stage}_${i}.rst7
 
+     # give a warning for big drift?
+    set test = `echo $drift | awk '{print ( $(NF-1) > 0.1 ) }'`
+    if( $test ) then
+      echo "WARNING: drift > 0.1 A detected! consider lowering align_nstlim or increasing min_align_weight"
+    endif
+
+
     set laStage = ${Stage}_${i}
    
+    # aggregate output logs
     cat ${Stage}_${i}.out >> ${Stage}.out
     rm ${Stage}_${i}.out
+    # build list of files to merge at the end
+    echo "trajin ${Stage}_${i}.${ext}" >> ${t}trajin.txt
   end
+  # check for errors
   grep NaN ${Stage}.out
   if(! $status) break
   egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
@@ -2925,33 +3100,32 @@ EOF
 
   cp ${Stage}_${i}.rst7 ${Stage}.rst7
 
-  ls -1rt | egrep "^${Stage}_" | awk -F "_" '$3+0>0 && /.rst7$|.nc$/' >! ${t}ls.txt
-  set nstlim = `head -n 1000 ${Stage}_i.in | awk -F "=" '/ nstlim=/{print $2+0}'`
-  set ntwxi = `head -n 1000 ${Stage}_i.in | awk -F "=" '/ ntwx=/{print $2+0}'`
-  set ntwr = `head -n 1000 ${Stage}_i.in | awk -F "=" '/ ntwr=/{print $2+0}'`
-  set ext = rst7 ; if( $ntwxi < $nstlim ) set ext = nc
-  echo "consolidating ${ext} files into ${Stage}.nc"
-  egrep "${ext}"'$' ${t}ls.txt |\
-    awk '{print "trajin",$1}' >! ${t}trajin.txt
-  echo "trajout ${Stage}.nc" >> ${t}trajin.txt
-  cat ${t}trajin.txt | cpptraj -p xtal.prmtop >! ${t}concat.log
+#  ls -1rt | egrep "^${Stage}_" | awk -F "_" '$3+0>0 && /.rst7$|.nc$/' >! ${t}ls.txt
+#  egrep "${ext}"'$' ${t}ls.txt |\
+#    awk '{print "trajin",$1}' >! ${t}trajin.txt
+  set test = `cat ${t}trajin.txt | wc -l`
+  if( $test > 0 ) then
+    echo "consolidating ${ext} files into ${Stage}.nc"
+    echo "trajout ${Stage}.nc" >> ${t}trajin.txt
+    cat ${t}trajin.txt | cpptraj -p xtal.prmtop >! ${t}concat.log
+  endif
 
   awk '/A V E R A/{++p;n=split(FILENAME,w,"_");printf("%d ",w[n]);next}\
       p && /NSTEP/{printf("%s %s %s ",$6,$9,$12);next}\
       p && NF>2{for(i=1;i<=NF;++i)if($i!~/[A-Za-z=]/ && $i!="1-4")printf("%s ",$i)}\
       p && ( /EAMBER/ || /-----------------/ ){print "";p=0}' ${Stage}.out |\
   tail -n 1 |\
-  tee -a amber_energies.txt
+  tee -a amber_energy_vs_itr.txt
 
-  set files = `cat ${t}ls.txt`
-#  echo "deleting $files"
+  set files = `awk '/^trajin/{print $2}' ${t}trajin.txt | awk -F "." '{print $1".rst7";print $1".nc"}'`
+  if( $debug ) echo "deleting $files"
   if( $#files ) rm $files
 #  rm `awk '/^trajin /{print $NF}' ${t}trajin.txt`
 #  rm ${Stage}_*[0-9].out
 #  rm ${Stage}_*[0-9].nc
 
   # reduce number of frames?
-  set skip = `echo $nstlim $ntwx | awk '{print int($2/$1)}'`
+  set skip = `echo $nstlimi $ntwxi | awk '{print int($2/$1)}'`
   if( $skip > 1 ) then
     echo "skipping every $skip frames for final nc file"
     cpptraj -p xtal.prmtop << EOF >> ${t}concat.log
