@@ -526,6 +526,21 @@ converge_refmac.com ../refme.mtz $ciffiles reocced.pdb trials=1 append nosalvage
 
 
 
+# make selection mask so that only loose stuff is minimized
+cat ../centroids/centroids_in_density.pdb |\
+awk '/^ATOM|^HETAT/{print substr($0,22,1),substr($0,23,8)}' |\
+awk '! seen[$0]{++seen[$0];print}' |\
+awk 'NF==2{s = "chain "$1" and resseq "$2;\
+     printf("(%s) or ",s)}' |\
+awk '{$NF="";print "selection = \"not (" $0 ")\""}' >! selection.eff
+
+phenix.geometry_minimization refmacout.pdb selection.eff $ciffiles 
+
+
+
+
+
+
 
 
 
@@ -538,19 +553,21 @@ cd ../amber1
 
 cp ../ligands/*.mol2 .
 cp ../ligands/*.frcmod .
-cp ../ligands/*.pdb .
 set ligs = `ls -1 *.mol2 | awk -F "." '{print $1}'`
 foreach lig ( $ligs )
+  cp ../ligands/${lig}.pdb .
   cp ../ligands/${lig}.cif .
 end
 
 ln -sf ../refme.mtz .
 
 #ln -sf ../super_refine1/confsel_001.pdb starthere.pdb
-ln -sf ../super_refine1/confsel_min.pdb starthere.pdb
+#ln -sf ../super_refine1/confsel_min.pdb starthere.pdb
 #ln -sf ../super_refine1/thisone.pdb  starthere.pdb
 #ln -sf ../centroids/bestgeo_super.pdb starthere.pdb
 #ln -sf ../super_refine1/refmac12.pdb starthere.pdb
+#ln -sf ../super_refine1/refmacout.pdb starthere.pdb
+ln -sf ../super_refine1/refmacout_minimized.pdb starthere.pdb
 cp starthere.pdb refined.pdb
 
 
@@ -569,6 +586,11 @@ awk -v B0=$B0 '/^CRYST|^LINK|^SSBO/{print} ! /^ATOM|^HETAT/{next}\
 cat >! refpoints_in_density.pdb
 
 
+
+
+if ( 1 ) then
+  cp refpoints_in_density.pdb all_possible_refpoints.pdb
+else
 # make sure all ligand atoms have potential restraints
 set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
 
@@ -578,7 +600,7 @@ filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
 
 combine_pdbs_runme.com lig_restraints.pdb refpoints_in_density.pdb refined.pdb \
   outfile=all_possible_refpoints.pdb
-
+endif
 
 
 # first try at restraints
@@ -587,6 +609,10 @@ centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
   hohscale=1 \
   outfile=density_restraints.pdb debug=$debug | tee c2r_${itr}.log
 
+
+if( ! $?restrain_lig_all ) then
+  cp density_restraints.pdb current_restraints.pdb
+else
 # make sure ligands have restraints
 set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
 
@@ -598,9 +624,10 @@ combine_pdbs_runme.com density_restraints.pdb lig_restraints.pdb all_possible_re
   saveXYZ=1 outfile=initial_restraints.pdb
 cp initial_restraints.pdb restraints_for_0.pdb
 cp restraints_for_0.pdb current_restraints.pdb
+endif
 
 
-if( 0 ) the
+if( 0 ) then
 # alternative: restrain to starting point
 set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
 set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
@@ -756,7 +783,6 @@ make link Y
 make hydr Y
 make hout Y
 EOF
-
 converge_refmac.com refme.mtz amberme.pdb trials=3 $ligcifs append nosalvage >&! refmac_${itr}.log &
 
 
@@ -776,7 +802,7 @@ set padwater = `echo $waterslots $gotwater | awk '{print 0+sprintf("%.2g",($1-$3
 cp density_restraints.pdb initial_restraints.pdb
 cp density_restraints.pdb restraints_for_0.pdb
 
-leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
+leap2amber.com amberme.pdb stages=Cool,Heat,Equi,Prod \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
   refpoints=initial_restraints.pdb restraint_mult=1 \
   pdbscale=0.01 \
@@ -826,12 +852,12 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
     teleport_waters=0 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0.1 cutoff_weight=0.09 allatom_weight=0 \
+    min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0.01 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
     netfrc=0 \
-    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
+    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     >&! runme${n}.log &
 
 # reset: rm -f `ls -1rt | awk '/avg_0.mtz/,""'`
@@ -840,20 +866,20 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
 # wait for pressure to peek over zero
 
 @ n = ( $n + 1 )
-# start teleporting waters
+# start teleporting waters, and turn off void calculation and equi steps
 cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
 ./optimize_weights_runme${n}.com prod_ns=0.5 \
     adjust_itr=0 max_mult=1 weight_power=1 \
     Badjust_itr=0 Bfac_maxmod=0 \
     teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=auto void_scale=1 \
+    pressure_avglast=auto pressure_scale=auto void_scale=0 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0.1 cutoff_weight=0.09 allatom_weight=0 \
+    min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     netfrc=0 \
-    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
+    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     refmac_itr=1 >&! runme${n}.log &
 
 
@@ -864,6 +890,27 @@ set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print
 grep "pressure scale this time" ../${prevdir}/runme?.log | tee pressure_scale.log
 set pressure_scale = `tail -n 10 pressure_scale.log | tac | awk '{print NR,$NF}' | linfit.awk | awk '{print $2+0}'`
 echo "default pressure scale of $pressure_scale from now on"
+
+
+# start allowing B factor modifications
+./optimize_weights_runme.com prod_ns=0.5 \
+    adjust_itr=0 max_mult=1 weight_power=1 \
+    Badjust_itr=0 Bfac_maxmod=0 \
+    teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
+    pressure_avglast=auto pressure_scale=auto void_scale=0 \
+    release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
+    min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
+    weight_scaledown=1 weight_negscaledown=1 \
+    randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
+    equi_ns=0 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
+    netfrc=0 \
+    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
+    refmac_itr=0 >& runme${n}.log &
+
+
+
+
+
 
 cd ..
 ln -sf amber1 template_dir

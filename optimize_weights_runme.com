@@ -324,10 +324,11 @@ echo "running as $0 ($md5)"
 # is there another job running?
 set pwd = `pwd`
 set mypid = $$
-set myname = `basename $0`
+set myname = `basename $0 | awk '/[0-9.]/{$0=substr($0,1,match($0,/[0-9.]/)-1)} {print}'`
 set alone = 0
 while ( ! $alone )
-  set pidirs = `ps -fu $USER | tee ${t}debug1.log | egrep "runme.com" | egrep -v " egrep -v | grep -E |^UID" | awk -v pid=$mypid '$2!=pid && ! ( / srun / && /_runme.com/ ) {print "/proc/"$2"/cwd"}'`
+  
+  set pidirs = `ps -fu $USER | tee ${t}debug1.log | egrep "$myname" | egrep -v " egrep -v | grep -E |^UID" | awk -v pid=$mypid '$2!=pid && ! ( / srun / && /optimize_weights/ ) {print "/proc/"$2"/cwd"}'`
 
   set otherpid = `ls -l $pidirs |& tee ${t}debug2.log | awk -v pwd="$pwd" '$NF==pwd{print}' | awk -F "/" '{print $3}'`
   if( "$otherpid" == "") then
@@ -1374,6 +1375,10 @@ endif
 
 cp Bfac.pdb prerefmac_Bfac_${itr}.pdb
 set lastB = `tail refmacout.pdb | awk '/^ATOM|^HETAT/{print substr($0,61,6)}' | sort -gr | head -n 1`
+if( "$lastB" == "") then
+  echo "WARNING: could not get last B factors from refmacout.pdb"
+  set lastB = 999
+endif
 grep HOH Bfac.pdb >! dummywater.pdb
 combine_pdbs_runme.com B=$lastB dummywater.pdb water.pdb outfile=Bwater.pdb > /dev/null
 combine_pdbs_runme.com refmacout.pdb Bwater.pdb printref=1 Bfac.pdb outfile=new_Bfac.pdb > /dev/null
