@@ -435,7 +435,7 @@ endif
 # structure factors for best-phased reference map
 if(! -e reference.mtz ) then
   echo "cp ${template_dir}/reference.mtz reference.mtz"
-  cp  cp ${template_dir}/reference.mtz .
+  cp ${template_dir}/reference.mtz .
 endif
 if(! -e reference.mtz ) then
   echo "cp  ../centroids/reference0.mtz reference.mtz"

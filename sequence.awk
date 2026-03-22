@@ -233,23 +233,25 @@ if( seqres && pdb ) {
   if(debug) print "seqres:",seqresseq
   if(debug) print " atoms:",pdbseq
 
-  for(skip=0;skip<10;++skip) {
+  minseq=length(seqresseq);
+  if(minseq>10) minseq=10;
+  for(skip=0;skip<minseq;++skip) {
     subseq=pdbseq;
     offset=0;
-    while( ! offset && length(subseq)>=10 ) {
+    while( ( ! offset ) && length(subseq)>=minseq ) {
       offset = index(seqresseq,subseq);
-      if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(subseq,1,10),length(subseq)
-      if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(seqresseq,1,10)
+      if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(subseq,1,minseq),length(subseq)
+      if(debug) print "DEBUG: skip=",skip,"offset=",offset,substr(seqresseq,1,minseq)
       subseq=substr(pdbseq,1+skip,length(subseq)-1);
     }
     if( offset ) break;
   }
-  if(length(subseq<10)) {
+  if( ! offset ) {
     print "ERROR: unable to align SEQRRES with atom-derived sequence"
-    seqresoffset = "unknown"
+    seqresstart = "unknown"
   }
   else {
-    seqresoffset = offset;
+    seqresstart = firstatomres-offset+1;
   }
   if( debug ) print "DEBUG: skip=",skip,"offset=",offset
   if( debug ) print "DEBUG: seqres("offset"):" substr(seqresseq,offset,10)
@@ -361,7 +363,7 @@ for(n=1;n<=num;++n)
         print Met+0 "met"
         print Cys+0 "cys"
         print His+0 "his"
-        if(seqresoffset) print "seqres start:",firstatomres-seqresoffset
+        print "seqres start:",seqresstart
         print ""
         printf "denatured A(280nm) = %.4f*l*c (c in g/L)\n", A280/weight
         printf "    SeMET MAD Rano = %.3f%%\n", 100*(Met*8^2)/(7^2 * (weight/14))

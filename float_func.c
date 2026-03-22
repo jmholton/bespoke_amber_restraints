@@ -83,7 +83,7 @@ int main(int argc, char** argv)
     float *inimage2;
     float *scratch;
     long *count;
-    long *segments,*joins,nsegments=0,njoins=0;
+    long *segments,*joins,*segmap,nsegments=0,njoins=0;
     char *headerstuff;
     long header=0,outheader=0;
     func_name func = UNKNOWN;
@@ -748,6 +748,7 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     if( func == SEGMENT ){
         /* allocate enough to hold all segments */
         joins = calloc(pixels,sizeof(int));
+        segmap = calloc(pixels,sizeof(int));
     }
     /* make sure these get set */
     if(xosize <= 0 && yosize <= 0 && zosize <= 0 && xsize > 0 && ysize > 0 && zsize > 0 ) {
@@ -1202,8 +1203,11 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
             if(debug)printf("up: %d down: %d same: %d -> %f at: %d %d %d\n",up,down,same,outimage[i],x,y,z);
         }
         if( func == SEGMENT ){
+            /* anything zero is always its own segment */
             if( inimage1[i] == 0.0 ) continue;
             int segment = 0;
+            int othersegment = 0;
+            /* look at all neighboring pixels */
             xo = i % xosize;
             yo = ( i / xosize ) % yosize;
             zo = i / xosize / yosize;
@@ -1217,21 +1221,30 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
               if( y < 0 || y >= ysize ) continue;
               if( z < 0 || z >= zsize ) continue;
               j = x + xsize*y + z*xsize*ysize;
-              if( outimage[j] > 0.0 ) {
+              /* consider value of neighbor */
+              othersegment = (int) outimage[j];
+              if( othersegment > 0.0 ) {
                  /* must have already been assigned to a segment */
                  if ( segment == 0.0 ) {
                    /* we havent discovered a segment yet, so inherit it */
-                   segment = (int) outimage[j];
+                   segment = othersegment;
                  }
-                 if( segment != (int) outimage[j] ) {
+                 if( segment != othersegment ) {
                    /* hmm, a conflict */
-                   k = (int) outimage[j];
-                   if(k > pixels) printf("PANIC: segment %d > pixels (%d) \n",k,pixels);
-                   joins[k] = (int) segment;
-                   if(njoins<k)njoins=k;
+                   /* this should never happen */
+                   if(k > pixels) printf("PANIC: segment %d > pixels (%d) \n",othersegment,pixels);
+                   /* build a mapping of segments that are connected */
+                    int lo = segment < othersegment ? segment : othersegment;
+  
+                    int hi = segment < othersegment ? othersegment : segment;
+                    /* only record if not already pointing somewhere better */
+                    if( joins[hi] == 0 || joins[hi] > lo ) joins[hi] = lo;
+                    if( njoins < hi ) njoins = hi;
+                    segment = lo;  
+                    /* continue scan using the lower id */
                  }
               }
-              if(debug)printf("segment: %d %d %d -> %d %d   %d   %f %f\n",x,y,z,i,j,segment,inimage1[i],outimage[j]);
+              if(debug > 1)printf("segment: %d %d %d -> %d %d   %d   %f %f\n",x,y,z,i,j,segment,inimage1[i],outimage[j]);
             }
             if( segment == 0.0) {
               /* we must be the first? */
@@ -1369,15 +1382,57 @@ awk '/func = / && $NF !~ /}/{print substr($NF,1,length($NF)-1);}' ~/projects/bin
     }
 
     if( func == SEGMENT ) {
-        printf("%d segment discoveries\n",nsegments);
-        for(k=0;k<njoins;++k)
+        int segment = 0;
+        int othersegment = 0;
+        int minseg = 0;
+        printf("%d segment discoveries and %d joinings\n",nsegments,njoins);
+        for(k=1;k<=nsegments;++k)
         {
-          if(joins[k] == 0) continue;
-          printf("merging segment %d with segment %d\n",joins[k],k);
-          for(j=0;j<outpixels;++j)
-          {
-            if(outimage[j] == (float) k) outimage[j] = (float) joins[k];
-          }
+          if( ! joins[k] ) joins[k]=k;
+          segment = minseg = k;
+          if(debug) printf("segment %d joins with %d\n",k,joins[k]);
+          while ( ! ( joins[segment] == 0 || joins[segment] == segment ) ) {
+            /* not at the end of a chain yet */
+            othersegment = joins[segment];
+            if( othersegment < minseg ) minseg = othersegment;
+            if( segmap[segment]>0 && segmap[segment] < minseg ) minseg = segmap[segment];
+            if( segmap[othersegment]>0 && segmap[othersegment] < minseg ) minseg = segmap[othersegment];
+            if(debug) printf("minseg=%d \n",minseg);
+            segmap[segment] = minseg;
+            segmap[othersegment] = minseg;
+            if(debug) printf("mapping segment %d to %d\n",segment,minseg);\
+            joins[segment] = minseg;
+           segment = othersegment;
+           }
+          if(debug) printf(" min=%d\n",minseg);
+          if(debug) printf("asigning segment %d to segment %d\n",segmap[k],k);
+        }
+        for(k=1;k<=nsegments;++k)
+        {
+            segmap[k]=0;
+        }
+        /* now re-number */
+        int count = 0;
+        for(k=1;k<=nsegments;++k)
+        {
+            segment = joins[k];
+            if(! segment) segment = k;
+            if(! segmap[segment]) 
+            {
+                ++count;
+                segmap[segment]=count;
+            }
+        }
+        nsegments = count;
+        for(j=0;j<outpixels;++j)
+        {
+            segment = (int) outimage[j];
+            outimage[j] = (float) segmap[joins[segment]];
+        }
+
+        for(k=0;k<nsegments;++k)
+        {
+            if(debug) printf("debug: k=%d joins[%d]=%d segmap[%d]=%d\n",k,k,joins[k],k,segmap[k]);
         }
     }
 

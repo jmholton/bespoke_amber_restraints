@@ -5,6 +5,7 @@
 set set pdbfile = ""
 set sequence = ""
 set firstresnum = ""
+set ciffiles = ""
 
 set tempfile = tempfile
 set debug = 0
@@ -43,6 +44,11 @@ foreach Arg ( $* )
         echo "sequence = $sequence"
         continue
       endif
+     if("$Arg" =~ *.cif ) then
+        set ciffiles = ( $ciffiles $Arg )
+        echo "pdbfile = $pdbfile"
+        continue
+      endif
       if("$Arg" =~ *.mtz ) then
         set mtzfile = $Arg
         echo "mtzfile = $mtzfile"
@@ -67,6 +73,11 @@ foreach dependency ( sequence.awk filter_pdb.awk build_n2c.awk build_c2n.awk bui
    endif
 end
 
+set test = `grep SEQRES $pdbfile | wc -l`
+if( ! $test ) then
+  set BAD = "no SEQRES in $pdbfile"
+  goto exit
+endif
 
 if( "$firstresnum" == "" ) then
   echo "trying to get first residue number from SEQRES"
@@ -75,10 +86,6 @@ if( "$firstresnum" == "" ) then
 endif
 if( "$firstresnum" == "" ) set firstresnum = 1
 
-set test = `grep SEQRES $pdbfile | wc -l`
-if( ! $test ) then
-  echo "WARNING: no SEQRES in $pdbfile"
-endif
 
 if(! -e "$sequence") then
   # get full sequence from PDB
@@ -343,7 +350,7 @@ end
 #phipsichi.com noalt.pdb >! phipsichi.txt
 
 egrep "^CRYST1|^LINK|^SSBO|^ATOM|^HETAT" $pdbfile >! initial.pdb
-
+# perhaps filter out ligands?
 cp initial.pdb incomplete.pdb
 
 # make selection mask so that only new stuff is minimized
@@ -474,8 +481,12 @@ foreach n ( `awk '{print $1}' buildorder.txt | sort -u | sort -g` )
           print "    }";}' >> align.eff
     echo "  }\n}" >> align.eff
 
-    phenix.geometry_minimization alignme.pdb align.eff selection.eff \
+    phenix.geometry_minimization alignme.pdb align.eff selection.eff $ciffiles \
       cdl=false apply_all_trans=True > align.log
+    if( $status ) then
+      set BAD = "error closing gap"
+      goto exit
+    endif
 
     cat alignme_minimized.pdb |\
     awk -v chain=$chain '! /^ATOM|^HETAT/{next}\
@@ -557,9 +568,15 @@ foreach n ( `awk '{print $1}' buildorder.txt | sort -u | sort -g` )
   
   if( "$action" != "SIDE" ) then 
 
+    rm built_minimized.pdb >& /dev/null
     echo "minimizing geometry:"
-    phenix.geometry_minimization built.pdb gaps.eff selecton.eff \
+    phenix.geometry_minimization built.pdb gaps.eff selecton.eff $ciffiles \
       write_geo_file=False cdl=false | tee geomin.log | egrep "target:" 
+    if( ! -e built_minimized.pdb ) then
+      set BAD = "error minimizing geometry"
+      goto exit
+    endif
+
 
     cp built_minimized.pdb built.pdb
 

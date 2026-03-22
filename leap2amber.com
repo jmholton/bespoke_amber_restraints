@@ -215,6 +215,12 @@ if("$refpointspdb" != "" && ! -e "$refpointspdb") then
   set BAD = "refpointspdb: $refpointspdb does not exist"
   goto exit
 endif
+foreach file ( $protons_files ) 
+ if(! -e "$file" ) then
+  set BAD = "protonation file: $file does not exist"
+  goto exit
+ endif
+end
 
 
 # get the cell
@@ -1126,7 +1132,7 @@ minimize:
 set laStage = start
 foreach Stage ( $Stages )
 
-  if("$Stage" =~ *Min* && "$Stage" != "Min") then
+  if( ! -e ${t}${Stage}.in && "$Stage" =~ *Min* && "$Stage" !~ Min*) then
       echo "copying Min.in -> ${Stage}.in"
      cp ${t}Min.in ${t}${Stage}.in
   endif
@@ -1153,6 +1159,7 @@ try2:
    -r ${t}${Stage}.rst7 \
    -x ${t}${Stage}.nc \
    -inf ${t}${Stage}.mdinfo
+  set amber_status = $status
 
   if(! -e ${t}${Stage}.rst7 ) then
       echo "rst7 file missing, did that not work? ..."
@@ -1173,7 +1180,7 @@ try2:
           echo "oh, yes it did."
       endif
   endif
-  if(! -e ${t}${Stage}.rst7 && "$pmemdx" != "sander" && ( $Stage =~ Cool* || $Stage =~ Min*  || $Stage =~ Cpu* ) ) then
+  if( "$pmemdx" != "sander" && ( $amber_status || ! -e ${t}${Stage}.rst7 ) && ( $Stage =~ Cool* || $Stage =~ Min*  || $Stage =~ Cpu* ) ) then
       echo "$pmemdx failed at $Stage"
       cp -p ${t}${Stage}.in ${t}${Stage}.in.failed
       cp -p ${t}${Stage}.out ${t}${Stage}.out.failed
@@ -1243,9 +1250,12 @@ EOF
 
     gemmi contact -d 1.2 --sort ${t}${Stage}_orignames.pdb >! ${t}bad_contacts.txt
     set test = `cat ${t}bad_contacts.txt | wc -l`
+    set badclash = `head -n 1 ${t}bad_contacts.txt`
     echo "$test non-bond contacts < 1.2A"
-    if( $test > 0 && $Stage != Cpu && ! $ignore_clash ) then
-       set badclash = `head -n 1 ${t}bad_contacts.txt`
+    if( $test > 0 ) then
+        echo "worst: $badclash"
+    endif
+    if( $test > 0 && ! ( $ignore_clash || $Stage =~ Cpu* || $Stage =~ Min* ) ) then
        set BAD = "bad clash: $badclash"
        goto exit
     endif
@@ -1315,6 +1325,11 @@ EOF
      #echo "laStage = $laStage"
   endif
   if("$Stage" == "Prod") set didProd
+
+  if( $amber_status ) then
+    set BAD = "non-zero exit status from $pmemdx"
+    goto exit
+  endif
 
   if($?BAD) break
 

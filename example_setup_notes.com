@@ -72,6 +72,7 @@ set reso = $reso
 set smallSG = $smallSG
 set smallCELL = ( $smallCELL )
 set nsymops = $nsymops
+set reso = $reso
 # supercell parameters
 set super_mult = $super_mult
 # number of residues in one protein
@@ -122,6 +123,7 @@ rm blank.pdb refme_cell.mtz
 
 
 # try to generate amber input files for any ligands
+# source 
 mkdir ligands
 if( "$ligands" == "" ) then
   set ligands = `filter_pdb.awk -v only=ligand,atoms $pdbfile | awk '/^HETAT|^ATOM/{print substr($0,18,3)}' | sort -u`
@@ -133,7 +135,10 @@ foreach lig ( $ligands $salt )
   endif
   if(-e ${lig}.mol2) continue
 
-  phenix.elbow --chemical_component $lig --id=${lig} --amber_force_field_files --opt --opt_nproc=10
+  phenix.elbow --chemical_component $lig --id=${lig} --amber_force_field_files --opt --memory=1000G
+  if(-e ${lig}.mol2) continue
+
+  phenix.elbow --chemical_component $lig --id=${lig} --amber_force_field_files --amber
 end
 
 cd ..
@@ -151,7 +156,7 @@ tee HIS_settings_asu.txt
 
 
 # quickly use refmac phenix and coot refinement to build missing atoms
-# see sanitize_pdb_notes.com
+# see buildout_pdb_runme.com
 mkdir build1
 cd build1
 
@@ -282,7 +287,7 @@ ln -sf ../refme_small.mtz .
 
 # any needed ligands
 cp ../ligands/*.cif .
-set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
+set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
 
 # how different are they?
 # maybe do something here to normalize nomenclature
@@ -381,7 +386,7 @@ filter_pdb.awk -v skip=H,water centroids_in_density.pdb fulllength_super.pdb | g
 
 
 
-# perhaps optional - refine the supercell structure in phenix
+# perhaps optional - refine the supercell structure in phenix or refmac
 mkdir -p ../super_refine1
 cd ../super_refine1
 
@@ -390,7 +395,7 @@ ln -sf ../centroids/fulllength_super.pdb starthere.pdb
 
 cp ../build1/opts.eff .
 cp ../ligands/???.cif .
-set ligcifs = `ls -1 *.cif |& awk '/.cif/' `
+set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
 set opts = `ls -1 opts.eff |& awk '/.eff$/'`
 
 awk '{print substr($0,1,80)}' starthere.pdb >! refme.pdb
@@ -398,11 +403,19 @@ awk '{print substr($0,1,80)}' starthere.pdb >! refme.pdb
 # fastest option
 #cp refme.pdb thisone.pdb
 
-phenix.refine ../refme.mtz refme.pdb prefix=phenix $opts $ciffiles >&! phenix1.log
+phenix.refine ../refme.mtz refme.pdb prefix=phenix $opts $ligcifs >&! phenix1.log
 
 # might be ok, but better to remove altlocs below
 ln -sf phenix_001.pdb thisone.pdb
 
+
+# make selection mask so that only loose stuff is minimized
+cat ../centroids/centroids_in_density.pdb |\
+awk '/^ATOM|^HETAT/{print substr($0,22,1),substr($0,23,8)}' |\
+awk '! seen[$0]{++seen[$0];print}' |\
+awk 'NF==2{s = "chain "$1" and resseq "$2;\
+     printf("(%s) or ",s)}' |\
+awk '{$NF="";print "selection = \"not (" $0 ")\""}' >! density_select.eff
 
 
 # focus on good geometry
@@ -468,7 +481,9 @@ phenix.geometry_minimization refme_noalt.pdb prefix=confsel_min $ligcifs \
  automatic_linking.link_none=True \
  nonbonded_weight=500 >&! confsel_min.log
 
-phenix.refine ../refme.mtz refme_noalt.pdb prefix=confsel $opts $ligcifs serial=002 >! confsel_refine.log
+phenix.refine ../refme.mtz refme_noalt.pdb prefix=confsel $opts $ligcifs serial=001 >! confsel_refine.log
+
+phenix.refine ../refme.mtz confsel_001.pdb prefix=confsel $opts $ligcifs serial=002 >! confsel_refine.log
 
 #ln -sf confsel_001.pdb thisone.pdb
 ln -sf confsel_002.pdb thisone.pdb
@@ -499,7 +514,7 @@ awk 'BEGIN{print "refinement {\n  geometry_restraints.edits {"}\
 END{print "  }\n}"}' >! omega_fix.eff
 
 @ n = ( $n + 1 )
-phenix.refine $pdbfile refme.mtz prefix=omegafix${n} $ciffiles \
+phenix.refine $pdbfile refme.mtz prefix=omegafix${n} $ligcifs \
  omega_fix.eff >&! phenix_omegafix${n}.log
 
 set pdbfile = omegafix${n}_001.pdb
@@ -518,26 +533,21 @@ restr tors include link PTRANS name omega value 180 sigma 2 period 0
 EOF
 set n = 1
 
-converge_refmac.com ../refme.mtz $ciffiles refme.pdb trials=1 append nosalvage >&! converge${n}.log &
+converge_refmac.com ../refme.mtz $ligcifs refme.pdb trials=1 append nosalvage >&! converge${n}.log &
+wait
 
 reoccupy.awk refmacout.pdb >! reocced.pdb
 
-converge_refmac.com ../refme.mtz $ciffiles reocced.pdb trials=1 append nosalvage >>& converge${n}.log &
+converge_refmac.com ../refme.mtz $ligcifs reocced.pdb trials=1 append nosalvage >>& converge${n}.log &
+
+wait
 
 
+phenix.geometry_minimization refmacout.pdb density_select.eff $ligcifs  >&! geomin_refmacout.log &
 
-# make selection mask so that only loose stuff is minimized
-cat ../centroids/centroids_in_density.pdb |\
-awk '/^ATOM|^HETAT/{print substr($0,22,1),substr($0,23,8)}' |\
-awk '! seen[$0]{++seen[$0];print}' |\
-awk 'NF==2{s = "chain "$1" and resseq "$2;\
-     printf("(%s) or ",s)}' |\
-awk '{$NF="";print "selection = \"not (" $0 ")\""}' >! selection.eff
+phenix.geometry_minimization omegafix2_001.pdb density_select.eff $ligcifs >&! geomin_omegafix2.log &
 
-phenix.geometry_minimization refmacout.pdb selection.eff $ciffiles 
-
-
-
+wait
 
 
 
@@ -550,6 +560,8 @@ phenix.geometry_minimization refmacout.pdb selection.eff $ciffiles
 mkdir -p ../amber1
 cd ../amber1
 
+set debug = 1
+set itr = 0
 
 cp ../ligands/*.mol2 .
 cp ../ligands/*.frcmod .
@@ -571,77 +583,7 @@ ln -sf ../super_refine1/refmacout_minimized.pdb starthere.pdb
 cp starthere.pdb refined.pdb
 
 
-set debug = 1
-set itr = 0
-set weight0 = 1
-set pdbscale = 0.01
-echo "generating all_possible_refpoints.pdb with weight0 = $weight0"
-set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
-cat ../centroids/centroids_in_density.pdb |\
-awk -v B0=$B0 '/^CRYST|^LINK|^SSBO/{print} ! /^ATOM|^HETAT/{next}\
-    {pre=substr($0,1,60);post=substr($0,67);rho=$NF;\
-    B=B0*rho}\
-    B>B0{B=B0}\
-    {printf("%s%6.2f%s\n",pre,B,post)}' |\
-cat >! refpoints_in_density.pdb
-
-
-
-
-if ( 1 ) then
-  cp refpoints_in_density.pdb all_possible_refpoints.pdb
-else
-# make sure all ligand atoms have potential restraints
-set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
-
-awk '/^CRYST|^ATOM|^HETAT/' refined.pdb |\
-filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
- reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
-
-combine_pdbs_runme.com lig_restraints.pdb refpoints_in_density.pdb refined.pdb \
-  outfile=all_possible_refpoints.pdb
-endif
-
-
-# first try at restraints
-centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
-  softener=2 weight=Bfac maxdist=1  \
-  hohscale=1 \
-  outfile=density_restraints.pdb debug=$debug | tee c2r_${itr}.log
-
-
-if( ! $?restrain_lig_all ) then
-  cp density_restraints.pdb current_restraints.pdb
-else
-# make sure ligands have restraints
-set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
-
-cat amberme.pdb |\
-filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
- reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
-
-combine_pdbs_runme.com density_restraints.pdb lig_restraints.pdb all_possible_refpoints.pdb \
-  saveXYZ=1 outfile=initial_restraints.pdb
-cp initial_restraints.pdb restraints_for_0.pdb
-cp restraints_for_0.pdb current_restraints.pdb
-endif
-
-
-if( 0 ) then
-# alternative: restrain to starting point
-set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
-set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
-awk '/^CRYST|^LINK|^SSBO|^ATOM|^HETAT/' refined.pdb |\
-filter_pdb.awk -v only=protein,ligand -v ligands="$liglist" -v skip=H |\
- reformatpdb.awk -v BFAC=$B0 >! uniform_restraints.pdb
-cp uniform_restraints.pdb restraints_for_0.pdb
-endif
-
-rmsd current_restraints.pdb refined.pdb | head | grep MAXD
-
-set avgB = `awk '/^ATOM|^HETAT/{print substr($0,61,6)}' all_possible_refpoints.pdb | avg.awk`
-#set weight_scaledown = `echo $avgB | awk '{print 5/($1/100)}'`
-
+if( ! -e tleap_stub.in ) then
 set CELL = `awk '/^CRYST1/{print $2,$3,$4,$5,$6,$7}' refined.pdb`
 
 # minimalistic tleap input
@@ -667,13 +609,12 @@ saveAmberParm x xtal.prmtop start.crd
 quit
 EOF
 
-# guess charge from single-asu run
-set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' ../amber_asu/tleap.log`
-set ncells = `echo $super_mult | awk -F "[ ,x]" '{print $1*$2*$3}'`
-set nmonomers = `echo $nsymops $ncells | awk '{print $1*$2}'`
-set pcharge = `echo $charge0 $nmonomers | awk '{print $1*$2}'`
-echo "predicted charge from asu run: $pcharge"
-# set charge = $pcharge
+endif
+
+
+# cp -p ../../6c2r_37C_2x/amber12/HIS_settings.txt .
+
+if( ! -e protonation.txt ) then
 
 # bring in qantum-determined HIS protonation states for the monomer
 cp ../HIS_settings_asu.txt HIS_settings_asu.txt 
@@ -701,7 +642,20 @@ awk 'NR==1{modulo=$1;next}\
    print proton[modresnum],chain resnum;}' |\
 cat >! HIS_settings.txt
 
-# cp -p ../../6c2r_37C_2x/amber12/HIS_settings.txt .
+cp HIS_settings.txt protonation.txt
+
+endif
+
+
+if ( $?charge ) goto addsalt
+
+# guess charge from single-asu run
+set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' ../amber_asu/tleap.log`
+set ncells = `echo $super_mult | awk -F "[ ,x]" '{print $1*$2*$3}'`
+set nmonomers = `echo $nsymops $ncells | awk '{print $1*$2}'`
+set pcharge = `echo $charge0 $nmonomers | awk '{print $1*$2}'`
+echo "predicted charge from asu run: $pcharge"
+# set charge = $pcharge
 
 # run tleap now to get charge?
 if ( 0 ) then
@@ -765,26 +719,37 @@ reorganize_pdb_runme.com salty.pdb ignore_zero=0 refpdb=refined.pdb \
 filter_pdb.awk -v skip=water,H current_restraints.pdb reorganized.pdb | rmsd | head
 # do a restraint bomb test?
 
+# simplest option
+cp reorganized.pdb amberme.pdb
+
+if( $?stripH ) then
 # sometimes tleap hates the hydrogens
 filter_pdb.awk -v skip=water reorganized.pdb | egrep -v "^END" >! amberme.pdb
 filter_pdb.awk -v skip=H -v only=water,atoms reorganized.pdb >> amberme.pdb
+endif
 
+if(! -e protonation.txt) then
 # make this the protonation record
 cp HIS_settings.txt protonation.txt
+endif
 
+if( $?refmacB ) then
 # use refmac for quick B factor optimization
 cat << EOF >! refmac_opts.txt
 solvent no
 blim 2 999
-damp 0 0.5
+damp 0 1
 weigh matrix 1
-ncyc 5
+ncyc 15
 make link Y
 make hydr Y
 make hout Y
 EOF
-converge_refmac.com refme.mtz amberme.pdb trials=3 $ligcifs append nosalvage >&! refmac_${itr}.log &
-
+converge_refmac.com refme.mtz reorganized.pdb trials=50 $ligcifs append nosalvage >&! refmac_${itr}.log &
+# will apply these B factors to orignames.pdb once its made
+# wait
+# cp refmacout.pdb amberme.pdb
+endif
 
 # estimate how much water could possibly fit
 egrep -v HOH amberme.pdb >! dry.pdb
@@ -796,24 +761,128 @@ set gotwater = `grep "O   HOH" amberme.pdb | wc -l`
 #set padwater = `echo $waterslots  | awk '{print 0+sprintf("%.1g",($2)*1.5)}'`
 set padwater = `echo $waterslots $gotwater | awk '{print 0+sprintf("%.2g",($1-$3)*1.5)}'`
 #@ padwater = ( 100000 - $gotwater )
+# set padwater = 50000
+echo "padwater set to $padwater"
+
+
+
+
+
+
+
+
+
+
+
+# now get starting restraints
+set weight0 = 1
+set pdbscale = 0.01
+echo "generating all_possible_refpoints.pdb with weight0 = $weight0"
+set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
+cat ../centroids/centroids_in_density.pdb |\
+awk -v B0=$B0 '/^CRYST|^LINK|^SSBO/{print} ! /^ATOM|^HETAT/{next}\
+    {pre=substr($0,1,60);post=substr($0,67);rho=$NF;\
+    B=B0*rho}\
+    B>B0{B=B0}\
+    {printf("%s%6.2f%s\n",pre,B,post)}' |\
+cat >! refpoints_in_density.pdb
+
+cp refpoints_in_density.pdb all_possible_refpoints.pdb
+
+if ( $?restrain_lig_all ) then
+  # make sure all ligand atoms have potential restraints
+  set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+
+  awk '/^CRYST|^ATOM|^HETAT/' refined.pdb |\
+  filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+   reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+
+  combine_pdbs_runme.com lig_restraints.pdb refpoints_in_density.pdb refined.pdb \
+    outfile=all_possible_refpoints.pdb
+endif
+
+
+# first try at restraints 
+centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
+  softener=2 weight=Bfac maxdist=1  \
+  hohscale=1 \
+  twirl=0 \
+  outfile=density_restraints.pdb debug=$debug | tee c2r_${itr}.log
+
+cp density_restraints.pdb current_restraints.pdb
+
+if( $?restrain_lig_all ) then
+  # make sure ligands have restraints
+  set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+
+  cat amberme.pdb |\
+  filter_pdb.awk -v only=ligand -v ligands="$liglist" -v skip=H |\
+   reformatpdb.awk -v BFAC=$B0 >! lig_restraints.pdb
+
+  combine_pdbs_runme.com density_restraints.pdb lig_restraints.pdb all_possible_refpoints.pdb \
+    saveXYZ=1 outfile=initial_restraints.pdb
+  cp initial_restraints.pdb current_restraints.pdb
+endif
+
+
+
+if( 0 ) then
+# alternative: restrain to starting point
+set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
+set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+awk '/^CRYST|^LINK|^SSBO|^ATOM|^HETAT/' refined.pdb |\
+filter_pdb.awk -v only=protein,ligand -v ligands="$liglist" -v skip=H |\
+ reformatpdb.awk -v BFAC=$B0 >! uniform_restraints.pdb
+cp uniform_restraints.pdb restraints_for_0.pdb
+endif
+
+rmsd current_restraints.pdb refined.pdb | head | grep MAXD
+
+set avgB = `awk '/^ATOM|^HETAT/{print substr($0,61,6)}' all_possible_refpoints.pdb | avg.awk`
+#set weight_scaledown = `echo $avgB | awk '{print 5/($1/100)}'`
+
+
 
 # stages=Cpu,Min,Cool,Heat,Equi,EquiMin,Prod
 #cp restraints_for_${itr}.pdb initial_restraints.pdb
-cp density_restraints.pdb initial_restraints.pdb
-cp density_restraints.pdb restraints_for_0.pdb
+cp current_restraints.pdb initial_restraints.pdb
+cp current_restraints.pdb restraints_for_0.pdb
 
-leap2amber.com amberme.pdb stages=Cool,Heat,Equi,Prod \
+
+leap2amber.com amberme.pdb stages=Cpu,Min,Cool,Heat,Equi,Prod \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
   refpoints=initial_restraints.pdb restraint_mult=1 \
+  ignore_clash=0 restraint_wt=1 \
   pdbscale=0.01 \
   gamma_ln=1.0 barostat=1 \
   leapfile=tleap_stub.in padwater=$padwater \
   cool_ns=0.001 heat_ns=0.5 equi_ns=0.5 prod_ns=0.5 \
   cool_slowdown=1 heat_slowdown=1 equi_slowdown=1 \
   restrain_omega=0 omega_weight=0 chiral_weight=0 \
-  debug=1 >&! leap2amber_${itr}.log
+  debug=1 >&! leap2amber_${itr}.log &
+# tail -f leap2amber_${itr}.log &
+wait
 
 # reset: rm -f `ls -1rt | awk '/xtal_properties.sourceme/,""'`
+
+if( $?problems ) then
+# test an individual step:
+set laStage = start
+set Stage = Min0
+set pmemd = sander.OMP
+#set pmemd = 
+set t = "tempfile"
+
+  $pmemd -O -i ${t}${Stage}.in -o ${t}${Stage}.out \
+   -p ${t}xtal.prmtop \
+   -c ${t}${laStage}.rst7 \
+   -ref ${t}ref.crd \
+   -r ${t}${Stage}.rst7 \
+   -x ${t}${Stage}.nc \
+   -inf ${t}${Stage}.mdinfo &
+tail -f ${t}${Stage}.out
+
+endif
 
 
 # wait for refmac job to finish

@@ -160,7 +160,7 @@ wc -l |\
 cat - ${t}wet.pdb |\
 awk 'NR==1{n=$1;next}\
    /^ATOM|^HETAT/{++i} i>n{print}' |\
-convert_pdb.awk -v only=atoms -v fixEe=1 -v OCC=1 -v BFAC=99 >> $outfile
+convert_pdb.awk -v only=atoms -v fixEe=1 -v OCC=1 -v BFAC=999 >> $outfile
 
 cat << EOF
 suggestions: 
