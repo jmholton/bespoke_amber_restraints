@@ -4,72 +4,113 @@
 #
 set pdbfile = starthere_asu.pdb
 
-mkdir sequence
-cd sequence
+source xtal_properties.sourceme
+set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
+set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+set liggrep = `echo $ligands | awk '{gsub(" ","|");print}'`
+set saltgrep = `echo $salt | awk '{gsub(" ","|");print}'`
 
-set deposited = ../${pdbid}.pdb
-set firstresnum = `sequence.awk $deposited | awk '/^seqres start/{print $NF}'`
-if( "$firstresnum" == "" ) set firstresnum = 1
 
-if(! -e seq.fasta) then
-
-    # get full sequence from PDB
-    grep SEQRES $deposited |\
-    sequence.awk |\
-    awk 'NR==1{$0="> "$0} {print} NF==0{exit}' |\
-    tee seq.fasta
-
-   awk '/SEQRES/{print substr($0,18)}' $deposited |\
-   awk '{for(i=1;i<=NF;++i)print $i}' >! tlc.txt
-   awk '{print "BUILD",$1,-60,-40}' tlc.txt | build_n2c.awk >! backbone.pdb
-   awk '{print "BUILD",$1, ++n,"? ? ? ? ?"}' tlc.txt |\
-   cat - backbone.pdb |\
-   build_side.awk >! side.pdb
-   echo "renumber ${firstresnum}\nchain A" | pdbset xyzin side.pdb xyzout helix.pdb
-
-   phenix.geometry_minimization helix.pdb cycles=10
-
-   molprobify_runme.com helix_minimized.pdb keepgeo | tee molprobify_helix.log
-
-endif
-
-cd ..
-
-# quickly use refmac and phenix refinement to build missing atoms
+# use refmac and phenix refinement to build missing atoms
 mkdir build1
 cd build1
 
-cp ../ligands/*.cif .
-set ligcifs = ""
-foreach lig ( $ligands )
-  set ligcifs = ( $ligcifs ${lig}.cif )
+foreach cif ( $ligcifs )
+  cp ../ligands/$cif .
 end
+
 
 ln -sf ../refme_small.mtz refme.mtz
 cp ../$pdbfile starthere.pdb
 
+
+set pdbfile = starthere.pdb
+zerocyc:
 # do zero-cycle refinement in case this is best Rfree in the end
-phenix.refine starthere.pdb refme.mtz $ligcifs \
+phenix.refine $pdbfile refme.mtz $ligcifs \
   prefix=phenix0 main.number_of_macro_cycles=0 >! phenix0.log
+if( $status || ! -e phenix0_001.pdb ) then
+  cat phenix0.log |\
+  awk  '/Number of atoms with unknown nonbonded energy type symbols/{\
+    getline;print substr($0,match($0,/ATOM|HETAT/),27),"REMOVE"}' |\
+  cat - starthere.pdb |\
+  awk '{id=substr($0,12,17)}\
+     $NF=="REMOVE"{++remove[id];next}\
+     remove[id]{next}\
+     {print}' >! pruned.pdb
+  diff starthere.pdb pruned.pdb
+  if( $status ) then
+    set pdbfile = pruned.pdb
+    goto zerocyc
+  else
+    set BAD = "cannot refine"
+    goto exit
+  endif
+endif
+cp phenix0_001.mtz minRfree.mtz
 
+# regular default phenix refine
+phenix.refine $pdbfile refme.mtz $ligcifs \
+  prefix=phenix1 >! phenix1.log
 
-phenix.refine starthere.pdb refme.mtz $ligcifs \
-  automatic_linking.link_none=True nonbonded_weight=500 wxc_scale=0.1 \
-  prefix=phenix_debump2 >! phenix_debump.log
+set phenixopts = ""
+if( $?badlinks ) then
+   egrep -v "^LINK" $pdbfile >! nolinks.pdb
+   set pdbfile = nolinks.pdb
+   set phenixopts = "$phenixopts automatic_linking.link_none=True exclude_from_automatic_linking.selection_1=All exclude_from_automatic_linking.selection_2=All "
+endif 
 
-phenix.refine starthere.pdb refme.mtz $ligcifs \
-  automatic_linking.link_none=True nonbonded_weight=500 \
+# turn up non-bonds to make it easier to move to Amber
+phenix.refine $pdbfile refme.mtz $ligcifs \
+  nonbonded_weight=500 wxc_scale=0.1 \
+  $phenixopts \
+  prefix=phenix_debump >! phenix_debump.log
+
+phenix.refine $pdbfile refme.mtz $ligcifs \
+  nonbonded_weight=500 \
+  $phenixopts \
   prefix=phenix_debump2 >! phenix_debump2.log
 
 
-# check if anything is missing
-# see buildout_pdb_notes.com
+# build in any protein that is missing
+buildout_pdb_runme.com $pdbfile $ligcifs |& tee buildout1.log
+set pdbfile = built.pdb
+#set pdbfile = coot.pdb
 
-set pdbfile = coot.pdb
+set geo_opts = ""
+if( $?badlinks ) then
+   egrep -v "^LINK" $pdbfile >! nolinks.pdb
+   set pdbfile = nolinks.pdb
+   set geo_opts = "$geo_opts link_all=False link_none=True link_ligands=False"
+endif 
+
+# make selection mask so that only loose stuff is minimized
+filter_pdb.awk -v only=ligands,atoms $pdbfile >! ligands.pdb
+rholabel_runme.com $pdbfile phenix0_001.mtz mtzlabel=2FOFCWT
+awk '/^ATOM|^HETAT/ && $NF>1.2 && substr($0,12,5)~/  [CN][A ] /' rholabeled.pdb |\
+cat - ligands.pdb |\
+awk '/^ATOM|^HETAT/{print substr($0,12,5),substr($0,22,1),substr($0,23,8)}' |\
+awk '! seen[$0]{++seen[$0];print}' |\
+awk 'NF==3{s = "name "$1" and chain "$2" and resseq "$3;\
+     printf("(%s) or ",s)}\
+     NF==2{s = "name "$1" and resseq "$2;\
+     printf("(%s) or ",s)}' |\
+awk '{$NF="";print "selection = \"not (" $0 ")\""}' >! density_deselect.eff
+
+phenix.geometry_minimization $pdbfile \
+  density_deselect.eff \
+  $ligcifs $geo_opts \
+  prefix=dd_minimized >&! dd_geomin1.log 
+set pdbfile = dd_minimized.pdb
+
+cp dd_minimized.pdb bestgeo.pdb
 
 
-phenix.refine $pdbfile refme.mtz $ligcifs \
-  prefix=phenix1 >! phenix1.log
+#
+#  might be good enough to stop here
+#
+#
+
 
 
 echo "" >! refmac_opts.txt
@@ -97,7 +138,8 @@ awk '/^CRYST/{print} ! /^ATOM|^HETAT/{next}\
 convert_pdb.awk -v only=atoms -v skip=protein refmacH.pdb >> reocc.pdb
 rmsd reocc.pdb refmacH.pdb 
 
-# does not want to read cif files...
+# try to get full hydrogen decoration
+# reduce does not want to read cif files...
 phenix.reduce reocc.pdb |\
  awk '{gsub(" H1 "," H  ");print}' |\
 cat >! reduced.pdb 
@@ -107,9 +149,11 @@ reconform.com redref.pdb >! reconformed.pdb
 rmsd redref.pdb reconformed.pdb
 converge_refmac.com reconformed.pdb ./refme.mtz trials=1 $ligcifs append >&! refmac_reconformed.log 
 
+# now back to phenix again
 cp refmacout.pdb phenixme.pdb 
 phenix.refine phenixme.pdb refme.mtz prefix=phenixH $ligcifs >! phenixH.log
 
+# and back to refmac
 awk '{gsub(" H1 "," H  ");print}' phenixH_001.pdb  >! refmacme.pdb 
 convert_pdb.awk -v skip=H refmacme.pdb >! occme.pdb
 echo "make hydr Y" >! refmac_opts.txt
@@ -118,8 +162,6 @@ refmac_occupancy_setup.com occme.pdb | tee -a refmac_opts.txt
 rm -f refmacout_minRfree.pdb refmacout.pdb
 converge_refmac.com refmacme.pdb ./refme.mtz $ligcifs append nosalvage keep_zeroocc trials=100 >&! refmac_long.log 
 
-#ln -sf refmacout_minRfree.pdb minRfree.pdb
-# ramp_runme.com refmacout.pdb >&! ramp1.log &
 
 cp refmacout.pdb phenixme2.pdb 
 #phenix.refine phenixme2.pdb refme.mtz prefix=wxc001 wxc_scale=0.01 \
@@ -142,7 +184,7 @@ end
 end
 wait
 
-foreach pdb ( wxc*.pdb refmacout_min*.pdb phenix0_001.pdb )
+foreach pdb ( wxc*.pdb *_min*.pdb phenix*_001.pdb )
   set prefix = `basename $pdb .pdb`
   $srun molprobify_runme.com $pdb $ligcifs >&! molprobify_${prefix}.log &
 end
@@ -216,7 +258,7 @@ ln -sf $pdbfile bestgeo.pdb
 awk '/^ATOM|^HETAT/{print substr($0,1,16),substr($0,18)}' bestgeo.pdb |\
 awk '{id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
 cat >! noalt.pdb
-filter_pdb.awk -v only=protein,atoms -v skip=H noalt.pdb ../sequence/helix.pdb | grep WARN
+filter_pdb.awk -v only=protein,atoms -v skip=H noalt.pdb ../build1/helix.pdb | grep WARN
 # should print nothing
 awk '/^ATOM|^HETAT/ && ! /HOH/{print substr($0,1,16),substr($0,18)}' bestgeo.pdb |\
 awk '{id=substr($0,12,15);occsum[id]+=substr($0,55,6)}\

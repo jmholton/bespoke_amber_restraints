@@ -12,9 +12,12 @@ set pdbid = 6c2r
 # faster to do just one cell
 set super_mult = 2,2,2
 
-set ligands = ""
+set ligands = "auto"
 set salt = ( NH4 SO4 )
 set salt_conc = 0.15
+
+# start from optional config file
+if(-e xtal_properties.sourceme) source xtal_properties.sourceme
 
 # local file configuration stuff
 set pwd = `pwd`
@@ -24,29 +27,41 @@ set t = tempfile
 set path = ( $pdir $path )
 source /programs/amber22/amber.csh
 
+# local clustering commands
 set srun = "srun"
 set debug = 1
 
 
 
 # download the model
-#phenix.fetch_pdb 1aho action=all
-#phenix.cif_as_mtz 1aho-sf.cif 
+#phenix.fetch_pdb ${pdbid} action=all
+#phenix.cif_as_mtz ${pdbid}-sf.cif 
 getcif.com $pdbid
 # get full sequence from PDB
-grep SEQRES ${pdbid}.pdb |\
+egrep "^SEQRES" ${pdbid}.pdb |\
+tee SEQRES.pdb |\
 sequence.awk |\
 awk 'NR==1{$0="> "$0} {print} NF==0{exit}' |\
 tee seq.fasta
+#set modulo = `awk 'NR>1{printf("%s",$1)}' seq.fasta |  wc -c`
 
-set modulo = `awk 'NR>1{printf("%s",$1)}' seq.fasta |  wc -c`
+# get 3-letter-code sequence from PDB
+awk '/^SEQRES/{print substr($0,18)}' SEQRES.pdb |\
+awk '{for(i=1;i<=NF;++i)print $i}' >! seq_TLC.txt
+
+set modulo = `cat seq_TLC.txt |  wc -l`
 
 set pdbfile = ${pdbid}.pdb
 set mtzfile = ${pdbid}.mtz
 
+# if you want to change anything about the composition of the pdb and mtz, do it now
+# watch out for LINK records, they wont be recognized by AMBER/tleap
+cp $pdbfile starthere_asu.pdb
+
 # extract only interesting columns so phenix knows which ones to use
+set F = `mtzdmp $mtzfile | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="F"{print $NF;exit}'`
 cad hklin1 $mtzfile hklout refme_small.mtz << EOF
-labin file 1 E1=F E2=SIGF E3=FreeR_flag
+labin file 1 E1=$F E2=SIG$F E3=FreeR_flag
 labou file 1 E1=FP E2=SIGFP E3=FreeR_flag
 EOF
 
@@ -54,8 +69,13 @@ EOF
 set mtzfile = refme_small.mtz
 set pdbfile = starthere_asu.pdb
 
-
-
+if ( "$ligands" == "auto" ) then
+  set saltgrep = `echo $salt | awk '{gsub(" ","|");print}'`
+  set ligands = `filter_pdb.awk -v only=ligands,atoms -v salts=$saltgrep $pdbfile | awk '{print substr($0,18,4)}' | sort -u`
+endif
+set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
+set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+set liggrep = `echo $ligands | awk '{gsub(" ","|");print}'`
 
 # extract small-cell parameters
 set pdbCELL = `awk '/^CRYST1/{print $2,$3,$4,$5,$6,$7}' $pdbfile`
@@ -66,13 +86,13 @@ set smallCELL = `awk '/Cell Dimensions/{getline;getline;print $1+0,$2+0,$3+0,$4+
 set nsymops = `awk -v SG=$smallSG '$4==SG {print $2}' ${CLIBD}/symop.lib | head -1`
 set reso = `awk '/Resolution Range :/{getline;getline;print $(NF-2)+0;exit}' smallmtzdump.txt | head -1`
 
+
 # record here for many subsequent programs so they dont have to keep doing the above
 cat << EOF >! xtal_properties.sourceme
 set reso = $reso
 set smallSG = $smallSG
 set smallCELL = ( $smallCELL )
 set nsymops = $nsymops
-set reso = $reso
 # supercell parameters
 set super_mult = $super_mult
 # number of residues in one protein
@@ -125,11 +145,15 @@ rm blank.pdb refme_cell.mtz
 # try to generate amber input files for any ligands
 # source 
 mkdir ligands
-if( "$ligands" == "" ) then
-  set ligands = `filter_pdb.awk -v only=ligand,atoms $pdbfile | awk '/^HETAT|^ATOM/{print substr($0,18,3)}' | sort -u`
-endif
+#if( "$ligands" == "auto" ) then
+#  set ligands = `filter_pdb.awk -v only=ligand,atoms $pdbfile | awk '/^HETAT|^ATOM/{print substr($0,18,4)}' | sort -u`
+#endif
 cd ligands
+
+phenix.ready_set ../starthere_asu.pdb
+
 foreach lig ( $ligands $salt )
+  # might really help to have the right cif file 
   if(-e ${lig}.cif) then
     phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files
   endif
@@ -145,7 +169,7 @@ cd ..
 
 
 # use phenix quantum interface to estimate HIS protonations
-# see separate repo for this
+# see HIS_protonation_QM_notes.com
 cp ~/projects/his_flips/${pdbid}/HIS_votes.txt HIS_votes.txt 
 awk '! seen[$1,$NF]{string[$1]=string[$1]" "$NF;++seen[$1,$NF]}\
   END{for(r in string)print r,string[r]}' HIS_votes.txt |\
@@ -155,8 +179,8 @@ tee HIS_settings_asu.txt
 
 
 
-# quickly use refmac phenix and coot refinement to build missing atoms
-# see buildout_pdb_runme.com
+# use refmac phenix and coot refinement to build missing atoms
+# see sanitize_pdb_notes.com
 mkdir build1
 cd build1
 
@@ -164,15 +188,23 @@ ln -sf ../starthere_asu.pdb starthere0.pdb
 cp starthere0.pdb starthere.pdb
 ln -sf ../refme_small.mtz refme.mtz
 
+foreach cif ( $ligcifs )
+  cp ../ligands/$cif .
+end
+
 # see sanitize_pdb_notes.com
-#ln -sf phenix_002.pdb thisone.pdb
-ln -sf bestgeo.pdb thisone.pdb
+
+
+cd ..
+
+
+
 
 
 
 # test amber conversion for just one monomer
-mkdir ../amber_asu/
-cd ../amber_asu
+mkdir amber_asu/
+cd amber_asu
 
 cp ../ligands/*.mol2 .
 cp ../ligands/*.frcmod .
@@ -217,7 +249,8 @@ EOF
 cat HIS_settings.txt amberme.pdb |\
  convert_pdb.awk -v output=amber -v fixEe=1 |\
 awk '/HIS|HIE|HID|HIP/ && $NF=="H"{next} {print}' |\
-egrep -v "LINK" >! tleapme.pdb
+cat >! tleapme.pdb
+grep LINK tleapme.pdb
 
 tleap -f tleap_stub.in  | tee tleap.log
 
@@ -226,20 +259,29 @@ set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' ..
 set charge = `echo $charge0 $nsymops | awk '{print $1*$2}'`
 echo "$charge" | tee cell_charge.txt
 
-#cd ..
+cd ..
+
+
+
+
 
 
 
 # make a pdb file that only has named atoms for things that are certainly correct
 # all others get to be waters
 # this will serve as basis of bespoke restraint reference points
-mkdir -p ../garr1/
-cd ../garr1/
+mkdir -p garr1/
+cd garr1/
 
 ln -sf ../build1/minRfree.pdb starthere0.pdb
 cp starthere0.pdb starthere.pdb
 ln -sf ../refme_small.mtz refme.mtz
 
+foreach cif ( $ligcifs )
+  cp ../ligands/$cif .
+end
+
+# for high-res good structure
 cat << EOF >! opts.eff
 refinement {
   refine {
@@ -256,17 +298,46 @@ refinement {
 }
 EOF
 
-generate_alignment_reference_runme.com starthere.pdb \
+# for poorer-resolution data
+cat << EOF >! opts.eff
+refinement {
+  refine {
+    strategy = *individual_sites individual_sites_real_space rigid_body \
+               *individual_adp group_adp tls occupancies group_anomalous den
+  }
+  pdb_interpretation {
+    flip_symmetric_amino_acids = False
+    correct_hydrogens = False
+    allow_polymer_cross_special_position = True
+    automatic_linking {
+      link_none = True
+    }
+    link_distance_cutoff = 2.1
+    exclude_from_automatic_linking {
+      selection_1 = All
+      selection_2 = All
+    }
+  }
+  main {
+    nqh_flips=False
+  }
+}
+EOF
+
+
+
+generate_alignment_reference_runme.com starthere.pdb $ligcifs \
   repulse_nb=100 crush_nb=100 repulse_scale=0.5 >&! garr.log 
 
+cd ..
 
 
-#cd - 
 
 
 
-mkdir ../centroids/
-cd ../centroids
+# now we make supercells for both full-length and density-centroid-reference models
+mkdir centroids/
+cd centroids
 
 # best map
 grep "Final R" ../build1/*.log ../garr*/*.log | justify.awk  | sort -k7g | tee sorted.txt | head
@@ -286,8 +357,9 @@ ln -sf ../amber_asu/amberme.pdb fulllength_asu.pdb
 ln -sf ../refme_small.mtz .
 
 # any needed ligands
-cp ../ligands/*.cif .
-set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
+foreach cif ( $ligcifs )
+  cp ../ligands/$cif .
+end
 
 # how different are they?
 # maybe do something here to normalize nomenclature
@@ -328,6 +400,7 @@ combine_pdbs_runme.com centroids_asu_noalt.pdb fulllength_asu_noalt.pdb > /dev/n
 filter_pdb.awk -v skip=water new.pdb centroids_asu_noalt.pdb | rmsd
 # should be all zero and no warnings
 
+# first trial expansion to supercell - to generate monomer-ASU map
 expand2supercell_runme.com fulllength_renamed.pdb refme_small.mtz super_mult=$super_mult \
   outprefix=fulllength_super \
   phenix_bumpcheck=0 debug=1 | tee fulllength_expand0.log
@@ -374,7 +447,7 @@ cat rholabeled.pdb |\
 awk '/^CRYST/{print;next} ! /^ATOM|^HETAT/{next}\
   {rho=$NF;pre=substr($0,1,60);post=substr($0,67)}\
   rho>0{printf("%s%6.2f%s\n",pre,rho,post)}' |\
-tee centroids_in_density.pdb | grep LIG
+tee centroids_in_density.pdb | grep "$liggrep"
 
 # make sure these match
 filter_pdb.awk -v skip=water,H centroids_in_density.pdb fulllength_super.pdb | rmsd | head
@@ -382,20 +455,23 @@ filter_pdb.awk -v skip=H,water centroids_in_density.pdb fulllength_super.pdb | g
 # do a test?
 
 
-#cd ..
+cd ..
 
 
 
 # perhaps optional - refine the supercell structure in phenix or refmac
-mkdir -p ../super_refine1
-cd ../super_refine1
+mkdir -p super_refine1
+cd super_refine1
 
 ln -sf ../refme.mtz .
 ln -sf ../centroids/fulllength_super.pdb starthere.pdb
 
 cp ../build1/opts.eff .
-cp ../ligands/???.cif .
-set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
+#cp ../ligands/???.cif .
+#set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
+foreach cif ( $ligcifs )
+  cp ../ligands/$cif .
+end
 set opts = `ls -1 opts.eff |& awk '/.eff$/'`
 
 awk '{print substr($0,1,80)}' starthere.pdb >! refme.pdb
@@ -415,7 +491,7 @@ awk '/^ATOM|^HETAT/{print substr($0,22,1),substr($0,23,8)}' |\
 awk '! seen[$0]{++seen[$0];print}' |\
 awk 'NF==2{s = "chain "$1" and resseq "$2;\
      printf("(%s) or ",s)}' |\
-awk '{$NF="";print "selection = \"not (" $0 ")\""}' >! density_select.eff
+awk '{$NF="";print "selection = \"not (" $0 ")\""}' >! density_deselect.eff
 
 
 # focus on good geometry
@@ -543,13 +619,13 @@ converge_refmac.com ../refme.mtz $ligcifs reocced.pdb trials=1 append nosalvage 
 wait
 
 
-phenix.geometry_minimization refmacout.pdb density_select.eff $ligcifs  >&! geomin_refmacout.log &
+phenix.geometry_minimization refmacout.pdb density_deselect.eff $ligcifs  >&! geomin_refmacout.log &
 
-phenix.geometry_minimization omegafix2_001.pdb density_select.eff $ligcifs >&! geomin_omegafix2.log &
+phenix.geometry_minimization omegafix2_001.pdb density_deselect.eff $ligcifs >&! geomin_omegafix2.log &
 
 wait
 
-
+cd ..
 
 
 
@@ -557,16 +633,16 @@ wait
 
 
 # now set up the amber MD run
-mkdir -p ../amber1
-cd ../amber1
+mkdir -p amber1
+cd amber1
 
 set debug = 1
 set itr = 0
 
 cp ../ligands/*.mol2 .
 cp ../ligands/*.frcmod .
-set ligs = `ls -1 *.mol2 | awk -F "." '{print $1}'`
-foreach lig ( $ligs )
+#set ligands = `ls -1 *.mol2 | awk -F "." '{print $1}'`
+foreach lig ( $ligands $salt )
   cp ../ligands/${lig}.pdb .
   cp ../ligands/${lig}.cif .
 end
@@ -579,7 +655,8 @@ ln -sf ../refme.mtz .
 #ln -sf ../centroids/bestgeo_super.pdb starthere.pdb
 #ln -sf ../super_refine1/refmac12.pdb starthere.pdb
 #ln -sf ../super_refine1/refmacout.pdb starthere.pdb
-ln -sf ../super_refine1/refmacout_minimized.pdb starthere.pdb
+#ln -sf ../super_refine1/refmacout_minimized.pdb starthere.pdb
+ln -sf ../super_refine1/refme.pdb starthere.pdb
 cp starthere.pdb refined.pdb
 
 
@@ -594,7 +671,7 @@ source leaprc.gaff2
 loadAmberParams frcmod.ff19SBmodAA
 loadOff mod_amino19.lib
 EOF
-foreach lig ( $ligs )
+foreach lig ( $ligands $salt )
   cat << EOF >> tleap_stub.in
 $lig = loadMol2 ${lig}.mol2
 loadAmberParams ${lig}.frcmod
@@ -603,7 +680,7 @@ end
 cat << EOF >> tleap_stub.in
 x = loadpdb tleapme.pdb
 set x box { $CELL[1] $CELL[2] $CELL[3] }
-set default FlexibleWater on
+set default FlexibleWater off
 set default nocenter on
 saveAmberParm x xtal.prmtop start.crd
 quit
@@ -617,10 +694,19 @@ endif
 if( ! -e protonation.txt ) then
 
 # bring in qantum-determined HIS protonation states for the monomer
+# see HIS_protonation_QM_notes.com
+# must align them with re-numbering done in the supercell
 cp ../HIS_settings_asu.txt HIS_settings_asu.txt 
+# format: HI[PED] A123
 awk '{print $1,substr($2,2)}' HIS_settings_asu.txt |\
 cat >! unshifted_HIS_settings.txt
-set firstHIS = `grep ATOM refined.pdb | grep HIS | head -n 1 | awk '{print substr($0,23,4)}'`
+# format: HI[PED] 123
+set firstHISlst = `head -n 1 unshifted_HIS_settings.txt | awk '{print $2}'`
+set firstHISpdb = `grep ATOM ../starthere_asu.pdb | grep HIS | head -n 1 | awk '{print substr($0,23,4)}'`
+if( $firstHISlst != $firstHISpdb ) then
+   set BAD = "first HIS in protonation info does not match that of ../starthere_asu.pdb. Protons will be mis-aligned"
+   goto exit
+endif
 if(! $?modulo ) then
  set modulo = `grep OXT refined.pdb | head -n 1 | awk '{print substr($0,23,4)}'`
 endif
@@ -641,8 +727,8 @@ awk 'NR==1{modulo=$1;next}\
    modresnum=(resnum)%modulo;\
    print proton[modresnum],chain resnum;}' |\
 cat >! HIS_settings.txt
-
 cp HIS_settings.txt protonation.txt
+# format HI[PED] 123
 
 endif
 
@@ -849,7 +935,7 @@ cp current_restraints.pdb initial_restraints.pdb
 cp current_restraints.pdb restraints_for_0.pdb
 
 
-leap2amber.com amberme.pdb stages=Cpu,Min,Cool,Heat,Equi,Prod \
+leap2amber.com amberme.pdb stages=Cpu,Cool,Heat,Equi,Prod \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
   refpoints=initial_restraints.pdb restraint_mult=1 \
   ignore_clash=0 restraint_wt=1 \
@@ -924,7 +1010,7 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
     min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
-    equi_ns=0.01 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
+    equi_ns=0 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     >&! runme${n}.log &

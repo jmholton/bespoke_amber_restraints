@@ -510,7 +510,7 @@ if(! -e padded.parm7) then
   if(! -e protonation.txt) cp ${template_dir}/protonation.txt .
   if(! -e tleap_stub.in) cp ${template_dir}/tleap_stub.in .
 
-leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin \
+leap2amber.com amberme.pdb stages=Cpu,Min,Cool,Heat,Equi,EquiMin \
   protons=protonation.txt \
   refpoints=current_restraints.pdb \
   pdbscale=$pdbscale \
@@ -553,6 +553,7 @@ if( ! $?Stage ) then
   else
     set i = 0
   endif
+
   if(-e leap2amber_${i}.log) then
     set itr = "$i"
     echo "checking leap2ampber_${itr}.log"
