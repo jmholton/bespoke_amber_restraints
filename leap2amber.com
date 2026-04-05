@@ -393,7 +393,7 @@ if( $padwater > 0 ) then
   echo $padwater |\
   awk '{for(i=1;i<=$1;++i){\
     j=i%10000;\
-    printf("ATOM      1  O   WAT z%4d       0.000   0.000   0.000  1.00  0.00\n",j);;\
+    printf("ATOM      1  O   WAT z%4d       0.000   0.000   0.000  1.00999.00\n",j);;\
     print "TER";\
     }}' >> ${t}tleapme.pdb
 
@@ -816,7 +816,7 @@ Cool
   ${ntb},
   !ntb=2,ntp=1,taup=99999999999,
   ntt=3,
-  gamma_ln=10.0,
+  gamma_ln=1000.0,
   !ntt=2,vrand=${ntpr},
   nmropt=1,
   nsnb=1,
@@ -1192,6 +1192,8 @@ try2:
         /ntwx=/{print "  ntwr=10,";$0= "  ntwx=0,"}\
         /ntpr=/{$0="  ntpr=10,"}\
         /ntwr=/{$0="  ntwr=10,"}\
+        /ntb=2,ntp=4/{$0="  !" $0}\
+        /taup=9999/{$0="  " substr($0,index($0,$1)+1)}\
         {print}' >! ${t}.x
       mv ${t}.x ${t}${Stage}.in
       goto try2

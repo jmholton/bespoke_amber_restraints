@@ -1,7 +1,7 @@
 #! /bin/tcsh -f
 #
 #        perform some c function on an electron density map
-#        using the "float_func.c" program                                -James Holton 1-1-26
+#        using the "float_func.c" program                                -James Holton 3-25-26
 #
 #
 
@@ -103,7 +103,6 @@ func         one of:
 	     j0 j1 jn y0 y1 yn gamma lgamma (Bessel and gamma functions)
 	     urand grand lrand prand erand trand (uniform gaussian lorentzian poisson exponential or triangle randomness)
 	     edge (find rising/falling edges, return 0,1,or -1)
-	     prefft (find edges and condition them to reduce noise from sharp edges in fft)
 	     prefft (find edges and condition them to reduce noise from sharp edges in fft)
 	     gaussblur (real space Gaussian blur)
 	     maxradius (maximum value within radius xrad, yrad, zrad voxels)
@@ -273,8 +272,7 @@ exit
 compile_float_func:
 echo "attempting to generate float_func utility ..."
 cat << EOF >! float_func.c
-
-/* apply a C function to each value in a raw "float" input file                -James Holton               1-1-26
+/* apply a C function to each value in a raw "float" input file                -James Holton               3-26-26
 
 example:
 
@@ -358,7 +356,8 @@ int main(int argc, char** argv)
     float *inimage2;
     float *scratch;
     long *count;
-    long *segments,*joins,nsegments=0,njoins=0;
+    long *segmap,*joins,nsegments=0,njoins=0;
+    long segment,othersegment,maxseg=0,minseg=0;
     char *headerstuff;
     long header=0,outheader=0;
     func_name func = UNKNOWN;
@@ -664,7 +663,6 @@ int main(int argc, char** argv)
         printf("\\toutput.bin\\t output binary file containing the results to the desired function\\n");
         exit(9);
     }
-    
 
     printf("selected function: ");
     switch(func){
@@ -1024,7 +1022,8 @@ awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/
     }
     if( func == SEGMENT ){
         /* allocate enough to hold all segments */
-        joins = calloc(pixels,sizeof(int));
+        joins  = calloc(pixels,sizeof(int));
+        segmap = calloc(pixels,sizeof(int));
     }
     /* make sure these get set */
     if(xosize <= 0 && yosize <= 0 && zosize <= 0 && xsize > 0 && ysize > 0 && zsize > 0 ) {
@@ -1125,8 +1124,6 @@ awk '/func = / && \$NF !~ /}/{print substr(\$NF,1,length(\$NF)-1);}' ~/projects/
             outimage[j+1] = inimage1[i];
         }
     }
-
-printf("GOTHERE: %d %d %d %d\\n",xstart,xsize,ystart,ysize);
 
     for(i=0;i<pixels;++i)
     {
@@ -1481,8 +1478,11 @@ printf("GOTHERE: %d %d %d %d\\n",xstart,xsize,ystart,ysize);
             if(debug)printf("up: %d down: %d same: %d -> %f at: %d %d %d\\n",up,down,same,outimage[i],x,y,z);
         }
         if( func == SEGMENT ){
+            /* anything zero is always its own segment */
             if( inimage1[i] == 0.0 ) continue;
-            int segment = 0;
+            segment = 0;
+            othersegment = 0;
+            /* look at all neighboring pixels */
             xo = i % xosize;
             yo = ( i / xosize ) % yosize;
             zo = i / xosize / yosize;
@@ -1496,21 +1496,30 @@ printf("GOTHERE: %d %d %d %d\\n",xstart,xsize,ystart,ysize);
               if( y < 0 || y >= ysize ) continue;
               if( z < 0 || z >= zsize ) continue;
               j = x + xsize*y + z*xsize*ysize;
-              if( outimage[j] > 0.0 ) {
+              /* consider value of neighbor */
+              othersegment = (int) outimage[j];
+              if( othersegment > 0.0 ) {
                  /* must have already been assigned to a segment */
                  if ( segment == 0.0 ) {
                    /* we havent discovered a segment yet, so inherit it */
-                   segment = (int) outimage[j];
+                   segment = othersegment;
                  }
-                 if( segment != (int) outimage[j] ) {
+                 if( segment != othersegment ) {
                    /* hmm, a conflict */
-                   k = (int) outimage[j];
-                   if(k > pixels) printf("PANIC: segment %d > pixels (%d) \\n",k,pixels);
-                   joins[k] = (int) segment;
-                   if(njoins<k)njoins=k;
+                   /* this should never happen */
+                   if(k > pixels) printf("PANIC: segment %d > pixels (%d) \\n",othersegment,pixels);
+                   /* build a mapping of segments that are connected */
+                    long lo = segment < othersegment ? segment : othersegment;
+                    long hi = segment < othersegment ? othersegment : segment;
+                    /* only record if not already pointing somewhere better */
+                    if( joins[hi] == 0 || joins[hi] > lo ) joins[hi] = lo;
+                    if( njoins < hi ) njoins = hi;
+                    segment = lo;  
+                    if( hi > maxseg ) maxseg = hi;
+                    /* continue scan using the lower id */
                  }
               }
-              if(debug)printf("segment: %d %d %d -> %d %d   %d   %f %f\\n",x,y,z,i,j,segment,inimage1[i],outimage[j]);
+              if(debug > 1)printf("segment: %d %d %d -> %d %d   %d   %f %f\\n",x,y,z,i,j,segment,inimage1[i],outimage[j]);
             }
             if( segment == 0.0) {
               /* we must be the first? */
@@ -1521,6 +1530,7 @@ printf("GOTHERE: %d %d %d %d\\n",xstart,xsize,ystart,ysize);
             /* label the output image with this assigned segment */
             outimage[i] = (float) segment;
             if(debug)printf("output at: %d %d %d = %f\\n",x,y,z,outimage[i]);
+            if( segment > maxseg ) maxseg = segment;
         }
         if( func == MAXRADIUS ){
             xo = i % xosize;
@@ -1648,15 +1658,68 @@ printf("GOTHERE: %d %d %d %d\\n",xstart,xsize,ystart,ysize);
     }
 
     if( func == SEGMENT ) {
-        printf("%d segment discoveries\\n",nsegments);
-        for(k=0;k<njoins;++k)
+        segment = 0;
+        othersegment = 0;
+        minseg = 0;
+        printf("%d segment discoveries, max was %d and %d joinings\\n",nsegments,maxseg,njoins);
+        for(k=1;k<=maxseg;++k)
         {
-          if(joins[k] == 0) continue;
-          printf("merging segment %d with segment %d\\n",joins[k],k);
-          for(j=0;j<outpixels;++j)
-          {
-            if(outimage[j] == (float) k) outimage[j] = (float) joins[k];
+          if( ! joins[k] ) joins[k]=k;
+          segment = minseg = k;
+          if(debug) printf("segment %d joins with %d\\n",k,joins[k]);
+          int timeout = maxseg*2;
+          while ( ! ( joins[segment] == 0 || joins[segment] == segment ) ) {
+            /* this should never happen */
+            --timeout;
+            if( timeout <=0 ) break;
+            /* not at the end of a chain yet */
+            othersegment = joins[segment];
+            if( othersegment < minseg ) minseg = othersegment;
+            if( segmap[segment]>0 && segmap[segment] < minseg ) minseg = segmap[segment];
+            if( segmap[othersegment]>0 && segmap[othersegment] < minseg ) minseg = segmap[othersegment];
+            if(debug) printf("minseg=%d \\n",minseg);
+            segmap[segment] = minseg;
+            segmap[othersegment] = minseg;
+            if(debug) printf("mapping segment %d to %d\\n",segment,minseg);\\
+            joins[segment] = minseg;
+            segment = othersegment;
           }
+          if( timeout <= 0 ) {
+            joins[k]=minseg;
+            printf("ERROR: infinite loop detected.\\n");
+            /* do something about it? */
+          }
+          if(debug) printf(" min=%d\\n",minseg);
+          if(debug) printf("asigning segment %d to segment %d\\n",segmap[k],k);
+        }
+        for(k=1;k<=maxseg;++k)
+        {
+            segmap[k]=0;
+        }
+        /* now re-number */
+        nsegments = 0;
+        for(k=1;k<=maxseg;++k)
+        {
+            segment = joins[k];
+            if(! segment) segment = k;
+            if(! segmap[segment]) 
+            {
+                ++nsegments;
+                segmap[segment]=nsegments;
+            }
+        }
+
+        for(j=0;j<outpixels;++j)
+        {
+            segment = (int) outimage[j];
+            if( segment > 0 && segment <= maxseg ) {
+                outimage[j] = (float) segmap[joins[segment]];
+            }
+        }
+
+        for(k=0;k<nsegments;++k)
+        {
+            if(debug) printf("debug: k=%d joins[%d]=%d segmap[%d]=%d\\n",k,k,joins[k],k,segmap[k]);
         }
     }
 
@@ -1964,7 +2027,7 @@ float fmedian(unsigned long n, float arr[])
 
 /********************************************************************
 *
-*        Fourier()        Fast Fourier Transform
+*        Fourier()        Cooley-Tukey Fast Fourier Transform
 *
 *********************************************************************
 *
@@ -2103,7 +2166,6 @@ float *Fourier(float *data, unsigned long length, int direction)
 
         return data;
 }
-
 EOF
 gcc -o float_func float_func.c -lm 
 set path = ( . $path )

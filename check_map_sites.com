@@ -47,13 +47,21 @@ echo border 3  |\
   mapmask xyzin ${tempfile}_probe.pdb \
   mapin $mapfile mapout ${tempfile}_probeme.map >&! ${tempfile}mapmask.log
 if( $status ) then
-echo xyzlim cell | mapmask mapin $mapfile mapout ${tempfile}_P1.map >! ${tempfile}mapmask.log
+  mapmask mapin $mapfile mapout ${tempfile}_P1.map << EOF >! ${tempfile}mapmask.log
+  xyzlim cell
+EOF
+  if( $status ) then
+    mapmask mapin $mapfile mapout ${tempfile}_P1.map << EOF >! ${tempfile}mapmask.log
+    xyzlim cell
+    pad 0
+EOF
+  endif
 
-mapmask xyzin ${tempfile}_probe.pdb \
-  mapin ${tempfile}_P1.map mapout ${tempfile}_probeme.map << EOF >> ${tempfile}mapmask.log
-extend xtal
-symm 1
-border 3
+  mapmask xyzin ${tempfile}_probe.pdb \
+    mapin ${tempfile}_P1.map mapout ${tempfile}_probeme.map << EOF >> ${tempfile}mapmask.log
+  extend xtal
+  symm 1
+  border 3
 EOF
 endif
 

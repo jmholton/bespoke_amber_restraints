@@ -23,6 +23,9 @@ set crush_nb = 100
 # re-label water confs so they dont clash
 set reorg_water = 0
 
+# dont allow ligand atoms to be rejected
+set ligand_immunity = 1
+
 
 # minimum density in 2FoFc
 set minrho = 0.8
@@ -39,6 +42,7 @@ set min_CAs = 2
 # only take so many outliers from each category: geo Bfac move
 set topbad = 10
 
+# any cif files
 set ciffiles = ""
 
 set itr = ""
@@ -334,7 +338,7 @@ endif
 rm -f rholabeled.pdb
 filter_pdb.awk -v skip=H centroids_${itr}.pdb | awk '{print substr($0,1,80)}' >! rhome.pdb
 rholabel_runme.com rhome.pdb centroids_${best_itr}.mtz mtzlabel=2FOFCWT outfile=rholabeled.pdb >! rhoprobe.log
-if( $status || ! -e rholabeled.pdb ) then
+if( $status || ! -s rholabeled.pdb ) then
     tail rhoprobe.log 
     set BAD = "rho-label step failed"
     goto exit
@@ -360,16 +364,15 @@ if( $revertants ) then
   combine_pdbs_runme.com revertme.pdb rholabeled.pdb printref=1 outfile=reverted.pdb >! revert.log
 
   combine_pdbs_runme.com xor=1 revertme.pdb rholabeled.pdb outfile=moveme.pdb >! xor.log
-  cat moveme.pdb |\
-  awk 'BEGIN{print "selection="} \
-   ! /^ATOM|^HETAT/{next}\
+  cat revertme.pdb |\
+  awk '! /^ATOM|^HETAT/{next}\
     {a=substr($0,12,5);c=substr($0,22,1);r=substr($0,23,6);f=substr($0,17,1);\
     s = "name "a" and resseq "r}\
     c!=" "{s=s" and chain "c}\
     f!=" "{s=s" and altid "f}\
     {printf("(%s) or ",s)}' |\
-   cat >! sel.txt
-  awk '{$1="refinement.refine.strategy.individual_sites= \"";$NF="\"";print}' sel.txt >! sel.eff
+   cat >! holdme.txt
+  awk '{$NF=")\"";print "refinement.refine.sites.individual= \"not (", $0}' holdme.txt >! sel.eff
   
   awk '{print substr($0,1,80)}' reverted.pdb >! pinchme.pdb
    #phenix.geometry_minimization sel.eff LIG.cif refme.pdb
@@ -457,7 +460,9 @@ cat - badrho.txt badconn.txt |\
       print id," |",badgeo[id]+0,bigmove[id]+0,bigB[id]+0,"BAD"}' |\
 cat >! baddies.txt
 
-head -n 2 badomega.txt badchir.txt |\
+# maybe less of these
+@ topbad_oc  = ( $topbad / 2 + 1 )
+head -n $topbad_oc badomega.txt badchir.txt |\
  awk '/^==/ || NF==0{next}\
    {print}' >> baddies.txt
 
@@ -599,9 +604,10 @@ cat >> solid.pdb
 egrep "^CRYST|HOH" solid.pdb |\
 convert_pdb.awk -v renumber=1 >! oldwater.pdb
 
+set nwaters = `egrep "^ATOM|^HEATAT" oldwater.pdb | wc -l`
 rm -f rewatered.pdb
 reorganize_waters.com oldwater.pdb 
-if( $status || ! -e rewatered.pdb ) then
+if( ( $status || ! -e rewatered.pdb ) && $nwaters ) then
     tail combine.log 
     set BAD = "reorganization of waters step failed"
     goto exit
@@ -640,7 +646,8 @@ endif
 
 echo "final refine"
 rm -f centroids_final_001.pdb
-phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
+#phenix.refine wxc_scale=$crush_scale wxu_scale=$crush_scale nonbonded_weight=$crush_nb \
+phenix.refine  \
  $pdbfile $ciffiles \
   opts.eff phenix_opts_unbump.eff \
   $mtzfile prefix=centroids_final >! centroids_final_refine.log 
@@ -657,6 +664,7 @@ filter_pdb.awk -v skip=water $pdbfile >! ${t}geotest.pdb
 gemmi contact -d 1.2 --sort $pdbfile >! bad_contacts.txt
 set test = `cat bad_contacts.txt | wc -l`
 echo "$test non-bond contacts < 1.2A"
+head -n 1 bad_contacts.txt
 
 set restyps = `awk '/^ATOM|^HETAT/{print substr($0,18,3)}' $pdbfile | sort -u`
 mkdir -p ${t}/list/

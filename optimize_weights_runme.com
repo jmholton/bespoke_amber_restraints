@@ -33,10 +33,12 @@ if(-e xtal_properties.sourceme) then
   source xtal_properties.sourceme
 else
   echo "WARNING: no xtal_properties.sourceme , defaulting to 1aho parameters"
+  echo "confirm?"
+  set in = ( $< )
 endif
 
 if(! -e xtal_properties.sourceme) then
-  echo "WARNING: generating default xtal_properties.sourceme file for 1aho system"
+  echo "WARNING: generating default xtal_properties.sourceme file"
   cat << EOF | tee xtal_properties.sourceme
 set reso = $reso
 set smallSG = $smallSG
@@ -50,10 +52,10 @@ EOF
 endif
 
 # for map generation
-set render_reso = 0.95
+set render_reso = mtz
 set render_B = 10
 # iterative adjustment of overall B factor
-set render_B_min = 10
+set render_B_min = 2
 set render_B_adjust = 0.05
 # for gemmi
 set render_rate = 1.5
@@ -105,7 +107,7 @@ set minwt_itr = 0
 # periodically discard restraints that are not in density
 set rhocheck_itr = 0
 set min_ref_rho = 0.5
-# periodically delete restraints to atoms that have alt lcs
+# periodically delete restraints to atoms that have alt locs
 set delete_altconf_itr = 0
 # periodically just delete most-challenged restraints
 set delete_badrest_itr = 0
@@ -113,7 +115,9 @@ set delete_badrest_itr = 0
 # periodically reset all B factors
 set Breset_itr = 0
 # average B factors through bonds to neighboring atoms
+# fraction to move into neighbors
 set thrubond_avg_B = 0
+# how much to favor larger values
 set thrubond_avg_B_spread = 0
 set thrubond_avg_B_ramp = none
 
@@ -136,7 +140,7 @@ set weight_power_kTmult = 1
 # scale factor for converting "B factors" in restraint file to amber weights
 set pdbscale = 0.01
 # smallest amber weight to use
-set cutoff_weight = 0.01
+set cutoff_weight = 0.009
 set cutoff_weight_ramp = none
 # remember or forget refpoints that dip below cutoff weight
 set cutoff_forget = 0
@@ -147,7 +151,7 @@ set weight0 = 1
 # minimum weight to apply to CA atoms used for alignment 
 set min_CA_weight = 0
 # minimum weight to apply to any atoms used for alignment 
-set min_align_weight = 0
+set min_align_weight = 0.01
 # minimum weight to apply to ligands 
 set min_lig_weight = 0.01
 # weight to apply to CA atoms that have wandered from their reference points
@@ -155,7 +159,7 @@ set errant_CA_weight = 2
 # upon release_itr, also release restraints on symmate atoms
 set release_radius = 1
 # new weight to give to "released" restarints
-set release_weight = 0.1
+set release_weight = 0.01
 # maximum number of highly challenged restraints to release
 set release_maxbad = 10
 # also reset B factors of released atoms
@@ -246,7 +250,9 @@ set max_weight = 9.9999
 set max_mult = 2.0
 set max_mult_ramp = none
 # average restraint weights through bonds to neighboring atoms
+# fraction to move into neighbors
 set thrubond_avg_weight = 0
+# how much to favor larger values
 set thrubond_avg_weight_spread = 1
 set thrubond_avg_weight_ramp = none
 # make things like O1 and O2 on ASP have the same weight
@@ -270,9 +276,12 @@ set scratch = /scratch/${USER}/opt_`hostname -s`_$$_
 mkdir -p /scratch/${USER}
 
 # commands to submit jobs to GPU or CPU cluster queues
-set sruncpu = "srun --partition=refmac --exclude=crush18"
-set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
-
+if( ! $?sruncpu ) then
+  set sruncpu = "srun --partition=refmac --exclude=crush18"
+endif
+if( ! $?pmemd ) then
+  set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+endif
 
 # read the command line to update variables and other settings
 foreach Arg ( $* )
@@ -350,6 +359,9 @@ while ( ! $alone )
 end
 rm -f ${t}debug1.log ${t}debug2.log
 
+if( $render_reso == "mtz" || "$render_reso" == "auto" ) then
+  set render_reso = $reso
+endif 
 
 set test = `echo $min_lig_weight $min_CA_weight $min_align_weight | awk '{print $1+$2+$3}'`
 if( "$minwt_itr" == "0" && "$test" != "0" ) then
@@ -1089,11 +1101,12 @@ if(-e "$trajectory" && $needtraj ) then
   endif
   set nc2mtz_extraopt = ""
   if( -e avg_${prev}.mtz ) set nc2mtz_extraopt = "domaps=0"
-  echo "nc2mtz gemmi $trajectory"
+  echo "nc2mtz gemmi $trajectory  ${render_reso}A $Bfac_file "
   nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
     Bfac_file=$Bfac_file minB=$minB maxB=$maxB \
     keeptraj=1 wrap=1 rate=$render_rate \
+    addmtzs=1 \
     tempfile=${scratch}/nc2mtz_$$_ $nc2mtz_extraopt >>& $nc2log
   if($status) then
     set BAD = "nc2mtz gemmi failed"
@@ -1323,7 +1336,7 @@ cp Bfac.pdb Bfac_${itr}.pdb
 cp sorted_Bmods.txt sorted_Bmods_${itr}.txt
 
 if( "$thrubond_avg_B" != "0" ) then
-  echo "averaging B factors through bonds with avgfac=$thrubond_avg_B"
+  echo "averaging B factors through bonds with avgfac=$thrubond_avg_B and spread=$thrubond_avg_B_spread"
   cp Bfac.pdb presmooth_Bfac_for_${itr}.pdb
   thrubond_avgB_runme.com Bfac.pdb debug=$debug \
     avgfac=$thrubond_avg_B spread=$thrubond_avg_B_spread \
@@ -1380,8 +1393,9 @@ if( "$lastB" == "") then
   echo "WARNING: could not get last B factors from refmacout.pdb"
   set lastB = 999
 endif
+echo "last B was $lastB, applying to unused waters"
 grep HOH Bfac.pdb >! dummywater.pdb
-combine_pdbs_runme.com B=$lastB dummywater.pdb water.pdb outfile=Bwater.pdb > /dev/null
+combine_pdbs_runme.com B=$lastB dummywater.pdb dummywater.pdb outfile=Bwater.pdb > /dev/null
 combine_pdbs_runme.com refmacout.pdb Bwater.pdb printref=1 Bfac.pdb outfile=new_Bfac.pdb > /dev/null
 cp new_Bfac.pdb Bfac.pdb
 cp Bfac.pdb Bfac_${itr}.pdb
@@ -1414,7 +1428,7 @@ if( "$lastB" == "") then
   set lastB = 999
 endif
 grep HOH Bfac.pdb >! dummywater.pdb
-combine_pdbs_runme.com B=$lastB dummywater.pdb water.pdb outfile=Bwater.pdb > /dev/null
+combine_pdbs_runme.com B=$lastB dummywater.pdb dummywater.pdb outfile=Bwater.pdb > /dev/null
 combine_pdbs_runme.com phenixBrefine_${serial}.pdb Bwater.pdb printref=1 Bfac.pdb outfile=new_Bfac.pdb > /dev/null
 cp new_Bfac.pdb Bfac.pdb
 cp Bfac.pdb Bfac_${itr}.pdb
@@ -1504,7 +1518,8 @@ if( "$nwaters" == "" ) then
 endif
 echo "$prev pressure was $press   void: $maxvoid $nbulk_sum $nbulk_max   nwater: $nwaters" |\
   tee -a pressure_vs_itr.txt
-
+# itr "pressure was"  <P> rms(P) nsteps "void:" maxvoid sum(nbulk) max(nbulk)  "nwater:" nwaters
+#  1      2      3     4     5    6      7        8       9          10          11        12
 
 set pressure_avglast_lasttime = 1
 if( $?pressure_avglast_thistime ) then
@@ -1570,6 +1585,7 @@ if( "$pressure_scale" =~ *auto* ) then
       dn/n0>0.05{++somesignal}\
       {print $0,somesignal+0,dn}\
       somesignal>10 && NR>30{exit}' >! ${t}press.txt
+    # format: pressure Nwaters
     sort -k2gr ${t}press.txt |\
      awk 'NR==1{posP=($1>0);maxN=$2} \
           posP && $1<0 && ! zPN{zPN=$2} {print $0,maxN,zPN}\
@@ -2117,7 +2133,7 @@ if( $trigger ) then
 endif
 
 if( "$thrubond_avg_weight" != "0" ) then
-  echo "averaging weights through bonds with avgfac=$thrubond_avg_weight"
+  echo "averaging weights through bonds with avgfac=$thrubond_avg_weight and spread=$thrubond_avg_weight_spread"
   cp current_restraints.pdb presmooth_restraints.pdb
   thrubond_avgB_runme.com current_restraints.pdb debug=$debug \
     avgfac=$thrubond_avg_weight spread=$thrubond_avg_weight_spread >> restraint_update_${itr}.log
@@ -2611,10 +2627,11 @@ set medmad = `awk '{print $1}' sorted_weights.txt | median.awk`
 set max = `awk '{print $1;exit}' sorted_weights.txt`
 set worst = `awk '! t{$1="";print;++t} ! / ZN | SE /{print;exit}' sorted_weights.txt`
 set mults = `awk -F ":" '/^highest|^lowest/{getline;print $2+0}' restraint_update_${itr}.log`
+#if("$max" == "") set max = "-"
 echo -n "worstweight: "
 echo "$itr $max $avg $mults  $medmad  $worst" | tee -a worstweight_vs_itr.txt
 
-set pegged_weight = `echo $max $max_weight | awk '{print ( $1 >= $2 )}'`
+set pegged_weight = `echo $max $max_weight | awk '{print ( NR>=2 && $1 >= $2 )}'`
 if( $pegged_weight ) echo "WARNING: max weight pegged at limit"
 
 echo -n "worst atom: "

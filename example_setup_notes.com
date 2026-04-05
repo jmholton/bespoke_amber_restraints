@@ -4,8 +4,10 @@
 #
 #   requirements: CCP4 Suite, Phenix Suite, Amber 18 or higher, and gnuplot
 #
+#
+# 
 
-# start from scratch
+# nearest pdb id
 set pdbid = 6c2r
 
 # crystal-specific stuff
@@ -16,12 +18,15 @@ set ligands = "auto"
 set salt = ( NH4 SO4 )
 set salt_conc = 0.15
 
+set badlinks = 0
+
 # start from optional config file
-if(-e xtal_properties.sourceme) source xtal_properties.sourceme
+if(-e user_settings.sourceme) source user_settings.sourceme
 
 # local file configuration stuff
 set pwd = `pwd`
 set pdir = $pwd
+set pdir = `dirname $0`
 #set pdir = ~/projects/amber/1aho_refine
 set t = tempfile
 set path = ( $pdir $path )
@@ -33,7 +38,7 @@ set debug = 1
 
 
 
-# download the model
+# download the model - because we need sequence
 #phenix.fetch_pdb ${pdbid} action=all
 #phenix.cif_as_mtz ${pdbid}-sf.cif 
 getcif.com $pdbid
@@ -48,7 +53,6 @@ tee seq.fasta
 # get 3-letter-code sequence from PDB
 awk '/^SEQRES/{print substr($0,18)}' SEQRES.pdb |\
 awk '{for(i=1;i<=NF;++i)print $i}' >! seq_TLC.txt
-
 set modulo = `cat seq_TLC.txt |  wc -l`
 
 set pdbfile = ${pdbid}.pdb
@@ -56,14 +60,26 @@ set mtzfile = ${pdbid}.mtz
 
 # if you want to change anything about the composition of the pdb and mtz, do it now
 # watch out for LINK records, they wont be recognized by AMBER/tleap
-cp $pdbfile starthere_asu.pdb
+
+if ( ! -e starthere_asu.pdb) then
+  cp $pdbfile starthere_asu.pdb
+endif
+if ( ! -e data.mtz) then
+  cp $mtzfile data.mtz
+endif
+
+
 
 # extract only interesting columns so phenix knows which ones to use
-set F = `mtzdmp $mtzfile | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="F"{print $NF;exit}'`
-cad hklin1 $mtzfile hklout refme_small.mtz << EOF
+set F = `mtzdmp data.mtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="F"{print $NF;exit}'`
+cad hklin1 data.mtz hklout refme_small.mtz << EOF
 labin file 1 E1=$F E2=SIG$F E3=FreeR_flag
 labou file 1 E1=FP E2=SIGFP E3=FreeR_flag
 EOF
+if( $status ) then
+    set BAD = "unable to find F in data.mtz"
+    goto exit
+endif
 
 # standard nomenclature from now on
 set mtzfile = refme_small.mtz
@@ -88,7 +104,8 @@ set reso = `awk '/Resolution Range :/{getline;getline;print $(NF-2)+0;exit}' sma
 
 
 # record here for many subsequent programs so they dont have to keep doing the above
-cat << EOF >! xtal_properties.sourceme
+touch xtal_properties.sourceme
+cat << EOF >> xtal_properties.sourceme
 set reso = $reso
 set smallSG = $smallSG
 set smallCELL = ( $smallCELL )
@@ -103,6 +120,10 @@ set ligands = ( $ligands )
 set salt = ( $salt )
 # molar
 set salt_conc = $salt_conc
+#
+# other opts
+set badlinks = $badlinks
+set srun = $srun
 EOF
 source xtal_properties.sourceme
 
@@ -143,17 +164,14 @@ rm blank.pdb refme_cell.mtz
 
 
 # try to generate amber input files for any ligands
-# source 
 mkdir ligands
-#if( "$ligands" == "auto" ) then
-#  set ligands = `filter_pdb.awk -v only=ligand,atoms $pdbfile | awk '/^HETAT|^ATOM/{print substr($0,18,4)}' | sort -u`
-#endif
 cd ligands
 
 phenix.ready_set ../starthere_asu.pdb
 
 foreach lig ( $ligands $salt )
   # might really help to have the right cif file 
+  if(-e ../${lig}.cif) cp ../${lig}.cif .
   if(-e ${lig}.cif) then
     phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files
   endif
@@ -179,11 +197,12 @@ tee HIS_settings_asu.txt
 
 
 
-# use refmac phenix and coot refinement to build missing atoms
+# use refmac phenix or coot refinement to build missing atoms
 # see sanitize_pdb_notes.com
 mkdir build1
 cd build1
 
+ln -sf ../xtal_properties.sourceme
 ln -sf ../starthere_asu.pdb starthere0.pdb
 cp starthere0.pdb starthere.pdb
 ln -sf ../refme_small.mtz refme.mtz
@@ -192,8 +211,15 @@ foreach cif ( $ligcifs )
   cp ../ligands/$cif .
 end
 
-# see sanitize_pdb_notes.com
+set test = `grep SEQRES starthere.pdb | wc -l`
+if( ! $test ) then
+   cat ../SEQRES.pdb >! starthere.pdb
+   cat starthere0.pdb >> starthere.pdb
+endif
 
+sanitize_pdb_runme.com >&! sanitize.log
+
+# produces minRfree.pdb minRfree.mtz and bestgeo.pdb
 
 cd ..
 
@@ -256,8 +282,9 @@ tleap -f tleap_stub.in  | tee tleap.log
 
 grep "unperturbed charge" tleap.log
 set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' ../amber_asu/tleap.log`
-set charge = `echo $charge0 $nsymops | awk '{print $1*$2}'`
-echo "$charge" | tee cell_charge.txt
+set ccharge = `echo $charge0 $nsymops | awk '{print $1*$2}'`
+set pcharge = `echo $charge0 $nsymops $super_mult | awk '{gsub(","," ");print}' | awk '{print $1*$2*$3*$4*$5}'`
+echo "$ccharge" | tee cell_charge.txt
 
 cd ..
 
@@ -273,9 +300,9 @@ cd ..
 mkdir -p garr1/
 cd garr1/
 
+ln -sf ../refme_small.mtz refme.mtz
 ln -sf ../build1/minRfree.pdb starthere0.pdb
 cp starthere0.pdb starthere.pdb
-ln -sf ../refme_small.mtz refme.mtz
 
 foreach cif ( $ligcifs )
   cp ../ligands/$cif .
@@ -327,7 +354,16 @@ EOF
 
 
 generate_alignment_reference_runme.com starthere.pdb $ligcifs \
-  repulse_nb=100 crush_nb=100 repulse_scale=0.5 >&! garr.log 
+  repulse_nb=100 crush_nb=100 \
+  repulse_scale=0.5 crush_scale=10 crush_cycles=3 \
+  maxbaddies=1000 \
+  maxgeo=1000 topbad=1000 | log_timestamp.tcl >&! garr1.log 
+
+generate_alignment_reference_runme.com starthere.pdb $ligcifs \
+  repulse_nb=100 crush_nb=100 \
+  repulse_scale=0.5 crush_scale=2 crush_cycles=3 \
+  maxbaddies=1000 \
+  maxgeo=1000 topbad=1000 | log_timestamp.tcl >&! garr1.log 
 
 cd ..
 
@@ -340,17 +376,25 @@ mkdir centroids/
 cd centroids
 
 # best map
-grep "Final R" ../build1/*.log ../garr*/*.log | justify.awk  | sort -k7g | tee sorted.txt | head
+grep "Final R" ../build*/*.log ../garr*/*.log | justify.awk  | sort -k7g | tee sorted.txt | head
 set minRfree = `awk '/_/{gsub(".log:"," ");print $1;exit}' sorted.txt`
 ln -sf ${minRfree}.mtz minRfree.mtz
 
+# least strain
+grep wE ../*/molprobify_* | sort -k4g | awk '{gsub("/molprobify_|.log:"," ");print}' | tee sorted_geo.txt
+set bestgeo = `awk '/_/{print $1"/"$2;exit}' sorted_geo.txt`
+ln -sf ${bestgeo}.pdb bestgeo.pdb
+
 # reference points
+#ln -sf ${minRfree}.pdb centroids_asu.pdb
 ln -sf ../garr1/centroids_final_001.pdb centroids_asu.pdb
+#ln -sf ../garr1/centroids_goodgeo_001.pdb centroids_asu.pdb
 #cp ../ground_truth.pdb centroids_asu.pdb
 
 # all atoms
-ln -sf ../amber_asu/amberme.pdb fulllength_asu.pdb
+#ln -sf ../amber_asu/amberme.pdb fulllength_asu.pdb
 #cp ../ground_truth.pdb fulllength_asu.pdb
+cp bestgeo.pdb fulllength_asu.pdb
 
 
 # refinement data
@@ -450,8 +494,8 @@ awk '/^CRYST/{print;next} ! /^ATOM|^HETAT/{next}\
 tee centroids_in_density.pdb | grep "$liggrep"
 
 # make sure these match
-filter_pdb.awk -v skip=water,H centroids_in_density.pdb fulllength_super.pdb | rmsd | head
-filter_pdb.awk -v skip=H,water centroids_in_density.pdb fulllength_super.pdb | grep CA | rmsd | head
+filter_pdb.awk -v skip=water,H centroids_in_density.pdb fulllength_super.pdb | rmsd | grep -v Bfac | head
+filter_pdb.awk -v skip=H,water centroids_in_density.pdb fulllength_super.pdb | grep CA | rmsd  | grep -v Bfac | head
 # do a test?
 
 
@@ -657,6 +701,8 @@ ln -sf ../refme.mtz .
 #ln -sf ../super_refine1/refmacout.pdb starthere.pdb
 #ln -sf ../super_refine1/refmacout_minimized.pdb starthere.pdb
 ln -sf ../super_refine1/refme.pdb starthere.pdb
+#ln -sf ../centroids/fulllength_super.pdb starthere.pdb
+
 cp starthere.pdb refined.pdb
 
 
@@ -802,8 +848,8 @@ reorganize_pdb_runme.com salty.pdb ignore_zero=0 refpdb=refined.pdb \
 
 # should not need to re-do centroids_nearby because top waters should keep same names
 # make sure these match
-filter_pdb.awk -v skip=water,H current_restraints.pdb reorganized.pdb | rmsd | head
-# do a restraint bomb test?
+#filter_pdb.awk -v skip=water,H current_restraints.pdb reorganized.pdb | rmsd | head
+# do a restraint bomb test later
 
 # simplest option
 cp reorganized.pdb amberme.pdb
@@ -848,6 +894,8 @@ set gotwater = `grep "O   HOH" amberme.pdb | wc -l`
 set padwater = `echo $waterslots $gotwater | awk '{print 0+sprintf("%.2g",($1-$3)*1.5)}'`
 #@ padwater = ( 100000 - $gotwater )
 # set padwater = 50000
+# set padwater = `egrep "O   HOH" amberme.pdb | wc | awk '{print 70000-$1}'`
+
 echo "padwater set to $padwater"
 
 
@@ -861,11 +909,13 @@ echo "padwater set to $padwater"
 
 
 # now get starting restraints
+set centroids = `ls -l ../centroids | awk '{print $NF}'`
+ln -sf ../$centroids centroids
 set weight0 = 1
 set pdbscale = 0.01
 echo "generating all_possible_refpoints.pdb with weight0 = $weight0"
 set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
-cat ../centroids/centroids_in_density.pdb |\
+cat centroids/centroids_in_density.pdb |\
 awk -v B0=$B0 '/^CRYST|^LINK|^SSBO/{print} ! /^ATOM|^HETAT/{next}\
     {pre=substr($0,1,60);post=substr($0,67);rho=$NF;\
     B=B0*rho}\
@@ -913,18 +963,23 @@ endif
 
 
 if( 0 ) then
-# alternative: restrain to starting point
-set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
-set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
-awk '/^CRYST|^LINK|^SSBO|^ATOM|^HETAT/' refined.pdb |\
-filter_pdb.awk -v only=protein,ligand -v ligands="$liglist" -v skip=H |\
- reformatpdb.awk -v BFAC=$B0 >! uniform_restraints.pdb
-cp uniform_restraints.pdb restraints_for_0.pdb
+  # alternative: restrain to starting point
+  set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`
+  set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+  awk '/^CRYST|^LINK|^SSBO|^ATOM|^HETAT/' refined.pdb |\
+  filter_pdb.awk -v only=protein,ligand -v ligands="$liglist" -v skip=H |\
+   reformatpdb.awk -v BFAC=$B0 >! uniform_restraints.pdb
+  cp uniform_restraints.pdb restraints_for_0.pdb
 endif
+
+
+
+
 
 rmsd current_restraints.pdb refined.pdb | head | grep MAXD
 
 set avgB = `awk '/^ATOM|^HETAT/{print substr($0,61,6)}' all_possible_refpoints.pdb | avg.awk`
+set avgw = `echo $avgB $pdbscale | awk '{print $1*$2}'`
 #set weight_scaledown = `echo $avgB | awk '{print 5/($1/100)}'`
 
 
@@ -935,15 +990,15 @@ cp current_restraints.pdb initial_restraints.pdb
 cp current_restraints.pdb restraints_for_0.pdb
 
 
-leap2amber.com amberme.pdb stages=Cpu,Cool,Heat,Equi,Prod \
+leap2amber.com amberme.pdb stages=Cool,Heat,Equi,Prod \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
   refpoints=initial_restraints.pdb restraint_mult=1 \
   ignore_clash=0 restraint_wt=1 \
   pdbscale=0.01 \
   gamma_ln=1.0 barostat=1 \
   leapfile=tleap_stub.in padwater=$padwater \
-  cool_ns=0.001 heat_ns=0.5 equi_ns=0.5 prod_ns=0.5 \
-  cool_slowdown=1 heat_slowdown=1 equi_slowdown=1 \
+  cool_ns=0.1 heat_ns=0.5 equi_ns=0.5 prod_ns=0.5 \
+  cool_slowdown=5 heat_slowdown=1 equi_slowdown=1 \
   restrain_omega=0 omega_weight=0 chiral_weight=0 \
   debug=1 >&! leap2amber_${itr}.log &
 # tail -f leap2amber_${itr}.log &
@@ -1035,7 +1090,7 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
     equi_ns=0 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
-    refmac_itr=1 >&! runme${n}.log &
+    refmac_itr=0 >&! runme${n}.log &
 
 
 # wait for pressure_avglast to become large
@@ -1043,21 +1098,22 @@ set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print
 
 # get starting pressure scale for future runs
 grep "pressure scale this time" ../${prevdir}/runme?.log | tee pressure_scale.log
-set pressure_scale = `tail -n 10 pressure_scale.log | tac | awk '{print NR,$NF}' | linfit.awk | awk '{print $2+0}'`
+set pressure_scale = `tail -n 5 pressure_scale.log | tac | awk '{print NR,$NF}' | linfit.awk | awk '{print $2+0}'`
 echo "default pressure scale of $pressure_scale from now on"
+
 
 
 # start allowing B factor modifications
 ./optimize_weights_runme.com prod_ns=0.5 \
     adjust_itr=0 max_mult=1 weight_power=1 \
-    Badjust_itr=0 Bfac_maxmod=0 \
+    Badjust_itr=1 Bfac_maxmod=50 \
     teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=0 \
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
-    equi_ns=0 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
+    equi_ns=0 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     refmac_itr=0 >& runme${n}.log &
@@ -1070,7 +1126,7 @@ echo "default pressure scale of $pressure_scale from now on"
 cd ..
 ln -sf amber1 template_dir
 
-set previtr = 112
+set previtr = 20
 set prevdir = template_dir
 set prevprod = amber_${previtr}
 
@@ -1101,17 +1157,20 @@ cd ../opt${o}
 
 # rough restraint opt
 @ n = ( $n + 1 )
-cp ${pdir}/optimize_weights_runme${n}.com .
-./optimize_weights_runme${n}.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
-    teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
+cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
+./optimize_weights_runme${n}.com prod_ns=0.5 \
+    adjust_itr=1 max_mult=2 weight_power=1 \
+    Badjust_itr=0 Bfac_maxmod=50 \
+    teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
-    release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.1 \
-    min_lig_weight=0.1 cutoff_weight=0.09 allatom_weight=0 \
-    weight_scaledown=1 weight_negscaledown=1 \
+    release_itr=1 repick_itr=3 repick_maxdist=4 repick_maxweight=0.11 \
+    min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
+    weight_scaledown=0.9 weight_negscaledown=0.5 \
     randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
-    min_align_weight=0.1 align_target=centroids align_nstlim=0 \
-    halfrho_neg=3.5 halfrho_pos=auto |& tee runme${n}.log &
+    netfrc=0 \
+    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
+    refmac_itr=0 >&! runme${n}.log &
 
 # wait for... ?
 
