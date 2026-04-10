@@ -382,7 +382,7 @@ ln -sf ${minRfree}.mtz minRfree.mtz
 
 # least strain
 grep wE ../*/molprobify_* | sort -k4g | awk '{gsub("/molprobify_|.log:"," ");print}' | tee sorted_geo.txt
-set bestgeo = `awk '/_/{print $1"/"$2;exit}' sorted_geo.txt`
+set bestgeo = `egrep -v "sequence|helix" sorted_geo.txt | awk '/_/{print $1"/"$2;exit}'`
 ln -sf ${bestgeo}.pdb bestgeo.pdb
 
 # reference points
@@ -1045,7 +1045,7 @@ mkdir ../amber2
 cd ../amber2
 
 set prevdir = amber1
-foreach file ( amberme.pdb tleap_stub.in protonation.txt restraints_for_0.pdb )
+foreach file ( amberme.pdb tleap_stub.in protonation.txt restraints_for_0.pdb initial_restraints.pdb )
  cp ../${prevdir}/$file .
 end
 cp ../${prevdir}/*.mol2 ../${prevdir}/*.frcmod .
@@ -1064,16 +1064,22 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
-    randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 equi_dt=0.001 equi_gamma=10 settle_slowdown=10 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
+    render_B_adjust=1.0 \
     >&! runme${n}.log &
 
 # reset: rm -f `ls -1rt | awk '/avg_0.mtz/,""'`
 
 
 # wait for pressure to peek over zero
+while ( 1 )
+  sleep 300
+  set press = `tail -n 1 pressure_vs_itr.txt | awk '{print $4}'`
+  set test = `echo $press | awk '{print ( $1 > 0 ) }'`
+  if( $test ) break
+endif
 
 @ n = ( $n + 1 )
 # start teleporting waters, and turn off void calculation and equi steps
@@ -1086,11 +1092,11 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
     release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 \
-    randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
-    refmac_itr=0 >&! runme${n}.log &
+    render_B_adjust=0.5 \
+     >&! runme${n}.log &
 
 
 # wait for pressure_avglast to become large
@@ -1166,7 +1172,6 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
     release_itr=1 repick_itr=3 repick_maxdist=4 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=0.9 weight_negscaledown=0.5 \
-    randel_itr=0 randel_fraction=0.05 randel_trigger=0 \
     equi_ns=0 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \

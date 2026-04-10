@@ -219,6 +219,8 @@ set void_scale = 1
 set add_radius = 2.4
 # always make sure water count stays the same
 set water_lock = 0
+# always make sure water count always changes by at least one
+set water_dither = 0
 # run pressure measurement after normal amber run with all restraints removed
 set barometer_cycles = 10000
 
@@ -473,6 +475,7 @@ if(! -e all_possible_refpoints.pdb ) then
   cat >! all_possible_refpoints.pdb
 
   if( "$min_lig_weight" != "0" ) then
+      if(! -e this.pdb ) cp ../centroids/fulllength_super.pdb this.pdb
       mv all_possible_refpoints.pdb refpoints_in_density.pdb
       set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
       set Blig = `echo $min_lig_weight $pdbscale | awk '{print $1/$2}'`
@@ -959,7 +962,7 @@ if ( $trigger || ! -e align_ref.pdb ) then
   if( "$align_target" == "centroids" ) then
     set threshlist = ( 1 med )
     echo "aligning $laStage to high-density atoms"
-    if(-e align_ref.pdb) then
+    if(-s align_ref.pdb) then
       echo "re-using align_ref.pdb"
     else
       echo "generating new align_ref.pdb from all_possible_refpoints.pdb"
@@ -1566,7 +1569,7 @@ if( "$pressure_avglast" != "1" && "$pressure_avglast_ramp" == "none" ) then
     awk '{++n;sum+=$4;vsum+=$5*$5} END{print sum/n,sqrt(vsum/n),$6}'
   set count = `cat ${t}countme.txt | wc -l`
   set press = `tail -n $int_pressure_avglast pressure_vs_itr.txt | awk '{++n;sum+=$4;vsum+=$5*$5} END{print sum/n,sqrt(vsum/n),$6}'`
-  echo "using pressure: $press  averaged over $count ($pressure_avglast_thistime) itrs"
+  echo "using pressure: $press  averaged over $count ($pressure_avglast_thistime) itrs at itr $itr"
 endif
 
 # try to automate pressure scale
@@ -1603,6 +1606,7 @@ endif
 
 set changed_waters = 0
 set dehydrate_thistime = 0
+set dehydrate_rounded = 0
 set nadd = 0
 set trigger = `echo $itr $hydrate_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
 if ( $trigger ) then
@@ -1616,10 +1620,11 @@ if ( $trigger ) then
     if( "$dehydrate" == "pressure" ) then
       set dehydrate_thistime = `echo $press $w $pressure_scale_thistime | awk '{print $1*$NF*$(NF-1)}'`
       echo "want to drop $dehydrate_thistime waters"
-      set dehydrate_thistime = `echo $dehydrate_thistime | awk '{printf("%.0f",$1)}'`
+      set dehydrate_rounded = `echo $dehydrate_rounded | awk '{printf("%.0f",$1)}'`
 #      if( $dehydrate_thistime == 0 ) set dehydrate_thistime = 1
     else
       set dehydrate_thistime = "$dehydrate"
+      set dehydrate_rounded = "$dehydrate"
     endif
   endif
 
@@ -1643,15 +1648,29 @@ if ( $trigger ) then
 
   if( $water_lock ) then
     # keep water count constant
-    set dwater = `echo $nadd $dehydrate_thistime | awk '{print int(($1+$2)/2)}'`
+    set dwater = `echo $addp $dehydrate_thistime | awk '{print int(($1+$2)/2)}'`
     echo "average delta-water: $dwater"
     set nadd = $dwater
-    set dehydrate_thistime = $dwater
+    set dehydrate_rounded = $dwater
     set revertStage = $laStage
   endif
 
-  if( $dehydrate_thistime ) then
-    echo "dropping ${dehydrate_thistime} waters"
+  if( $water_dither ) then
+    # keep water count moving, so that pressure scale can be tuned
+    set min_dwater = `echo $press | awk '$1>0{print -1} $1<0{print 1} $1==0{print int(rand()-0.5)}'`
+    set min_dwater = `echo $min_dwater $water_dither | awk '{print $1*$2}'`
+    echo "delta-water signals: $addp $dehydrate_thistime min_dwater= $min_dwater"
+    if( $min_dwater > 0 ) then
+      set nadd = `echo $nadd $min_dwater | awk '$1<$2 && $2>0{$1=$2} {print $1}'`
+    endif
+    if( $min_dwater < 0 ) then
+      set dehydrate_rounded = `echo $dehydrate_rounded $min_dwater | awk '{$2=-$2} $1<$2{$1=$2} {print $1}'`
+    endif
+    echo "new nadd = $nadd dehydrate rounded = $dehydrate_rounded"
+  endif
+
+  if( $dehydrate_rounded ) then
+    echo "dropping ${dehydrate_rounded} waters"
     set changed_waters = 1
 
     echo "remapping waters based on Fo-Fc map..."
@@ -1673,7 +1692,7 @@ if ( $trigger ) then
 #       mv teleported_waters_${prev}.pdb old_teleported_waters_${prev}.pdb
 #    endif
 
-    dehydrate_amber_runme.com xtal.prmtop remapped.rst7 maxreject=${dehydrate_thistime} >> dehydrate_${itr}.log
+    dehydrate_amber_runme.com xtal.prmtop remapped.rst7 maxreject=${dehydrate_rounded} >> dehydrate_${itr}.log
     if( $status || ! -e drier.parm7 ) then
       set BAD = "dehydrate failed"
       goto exit

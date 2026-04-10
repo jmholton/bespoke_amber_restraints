@@ -405,11 +405,11 @@ if( $padwater > 0 ) then
    cat >! ${t}water_autonames.pdb
 
    set lastwater = `tail ${t}oldwater.pdb | awk '/^ATOM|^HETAT/{print $NF}' | tail -n 1`
-   grep "     0.000   0.000   0.000  1.00  0.00" ${t}water_autonames.pdb >! ${t}pad_waters.pdb
+   grep "     0.000   0.000   0.000  1.00999.00" ${t}water_autonames.pdb >! ${t}pad_waters.pdb
 
    cat ${t}oldwater.pdb ${t}pad_waters.pdb |\
    convert_pdb.awk -v dedupe=1 |\
-   grep "     0.000   0.000   0.000  1.00  0.00" |\
+   grep "     0.000   0.000   0.000  1.00999.00" |\
    awk -v oresnum=$lastwater '{print $0,"       ",++oresnum}' >! ${t}new_waters.pdb
 
 #   awk '/^ATOM|^HETAT/{print substr($0,1,80)}' ${t}water_autonames.pdb >! one.pdb
@@ -528,6 +528,19 @@ awk '/^TER/{print "TER";next}\
       }\
       printf("%s%s%s%s%s%s%s%s%s%s %10s %10s\n",pre,atom,conf,type,chain,resnum,xyz,occ,B,rest,oorn,ordresnum)}' |\
 cat >> ${t}tleaped_orignames.pdb
+
+if( 0 ) then
+  # check padded re-numbering makes sense
+  set maxchain4resnum = `awk '! /^ATOM/{next} substr($0,22,1)=="A"{print substr($0,23,6)}' ${t}orig.pdb | tail -n 1`
+  egrep -hv "^REMARK" ${t}orig.pdb |\
+   filter_pdb.awk -v only=protein |\
+   awk '{print substr($0,1,80)}' |\
+   convert_pdb.awk -v renumber=ordinal,w4,watS,chain,chainrestart \
+    -v append=ordresnum \
+    -v maxchain4resnum=$maxchain4resnum |\
+  cat >! ${t}padded_renumbered.pdb
+  rmsd  ${t}tleaped_orignames.pdb ${t}padded_renumbered.pdb
+endif
 
 egrep -v "^REMARK" ${t}tleaped_orignames.pdb >! orignames.pdb
 
