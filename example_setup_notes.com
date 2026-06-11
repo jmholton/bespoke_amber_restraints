@@ -1076,40 +1076,55 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
 # wait for pressure to peek over zero
 while ( 1 )
   sleep 300
-  set press = `tail -n 1 pressure_vs_itr.txt | awk '{print $4}'`
-  set test = `echo $press | awk '{print ( $1 > 0 ) }'`
+  set press = `tail pressure_vs_itr.txt | awk '$4>0{print $4;exit}'`
+  set test = `echo $press | awk '{print ( $1+0 > 0 ) }'`
   if( $test ) break
 endif
+
+backtrack_opts_hist_runme.com
+set opts = `tail -n 1 opts_vs_runme.txt | awk '{$1=$2=$3="";print}'`
 
 @ n = ( $n + 1 )
 # start teleporting waters, and turn off void calculation and equi steps
 cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
-./optimize_weights_runme${n}.com prod_ns=0.5 \
-    adjust_itr=0 max_mult=1 weight_power=1 \
-    Badjust_itr=0 Bfac_maxmod=0 \
-    teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=auto void_scale=0 \
-    release_itr=0 repick_itr=0 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
-    weight_scaledown=1 weight_negscaledown=1 \
-    equi_ns=0 \
-    netfrc=0 \
-    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
-    render_B_adjust=0.5 \
+./optimize_weights_runme${n}.com \
+    $opts \
+    teleport_waters=100 void_scale=0 equi_ns=0 render_B_adjust=0.5 \
      >&! runme${n}.log &
 
 
 # wait for pressure_avglast to become large
-set stable = `awk '/avglast/{print $NF}' runme${n}.log | tail -n 1 | awk '{print ( $1 > 20 )}'`
+set stable = 0 
+while ( ! $stable )
+  set avglast = `awk '/avglast/{print $NF}' runme${n}.log | tail | awk '$1+0>max{max=$1} END{print max+0}'`
+  set stable = `echo $avglast | awk '{print ($1>20)}'`
+  echo "pressure averaging over $avglast itrs, stable=$stable"
+  sleep 300
+end
+
+
+backtrack_opts_hist_runme.com
+set opts = `tail -n 1 opts_vs_runme.txt | awk '{$1=$2=$3="";print}'`
+
+@ n = ( $n + 1 )
+# turn on water dithering to precisely measure pressure scale
+cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
+./optimize_weights_runme${n}.com  \
+    $opts water_dither=1 \
+     >&! runme${n}.log &
+
+
+
 
 # get starting pressure scale for future runs
-grep "pressure scale this time" ../${prevdir}/runme?.log | tee pressure_scale.log
+grep "pressure scale this time" runme?.log | tee pressure_scale.log
+#grep "pressure scale this time" ../${prevdir}/runme?.log | tee pressure_scale.log
 set pressure_scale = `tail -n 5 pressure_scale.log | tac | awk '{print NR,$NF}' | linfit.awk | awk '{print $2+0}'`
 echo "default pressure scale of $pressure_scale from now on"
 
 
-
-# start allowing B factor modifications
+if( 0 ) then
+# start allowing B factor modifications?
 ./optimize_weights_runme.com prod_ns=0.5 \
     adjust_itr=0 max_mult=1 weight_power=1 \
     Badjust_itr=1 Bfac_maxmod=50 \
@@ -1123,7 +1138,7 @@ echo "default pressure scale of $pressure_scale from now on"
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     refmac_itr=0 >& runme${n}.log &
-
+endif
 
 
 
@@ -1164,15 +1179,10 @@ cd ../opt${o}
 # rough restraint opt
 @ n = ( $n + 1 )
 cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
-./optimize_weights_runme${n}.com prod_ns=0.5 \
-    adjust_itr=1 max_mult=2 weight_power=1 \
-    Badjust_itr=0 Bfac_maxmod=50 \
-    teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
+./optimize_weights_runme${n}.com $opts \
+    adjust_itr=1 max_mult=2 \
     release_itr=1 repick_itr=3 repick_maxdist=4 repick_maxweight=0.11 \
-    min_lig_weight=0.1 cutoff_weight=0.009 allatom_weight=0 \
     weight_scaledown=0.9 weight_negscaledown=0.5 \
-    equi_ns=0 \
     netfrc=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     refmac_itr=0 >&! runme${n}.log &

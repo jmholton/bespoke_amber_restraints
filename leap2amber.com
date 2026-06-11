@@ -530,7 +530,7 @@ awk '/^TER/{print "TER";next}\
 cat >> ${t}tleaped_orignames.pdb
 
 if( 0 ) then
-  # check padded re-numbering makes sense
+  # check padded re-numbering makes sense - does not work yet
   set maxchain4resnum = `awk '! /^ATOM/{next} substr($0,22,1)=="A"{print substr($0,23,6)}' ${t}orig.pdb | tail -n 1`
   egrep -hv "^REMARK" ${t}orig.pdb |\
    filter_pdb.awk -v only=protein |\

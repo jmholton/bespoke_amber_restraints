@@ -77,11 +77,12 @@ set smallSGnum = `awk -v sg=$smallSG '$4==sg{print $1;exit}' ${CLIBD}/symop.lib`
 set nsymops = `awk -v n=$smallSGnum '$1==n{print $3;exit}' ${CLIBD}/symop.lib`
 
 if(! -e "$mono_map") set mono_map = monomer_rot_trans.txt
-if(! -e "$mono_map") set mono_map = ../alignment/$mono_map
-if(! -e "$mono_map") set mono_map = ../$mono_map
-if(! -e "$mono_map") set mono_map = ../$mono_map
-if(! -e "$mono_map") set mono_map = ../$mono_map
-if(! -e "$mono_map") set mono_map = ${pdir}/alignment/$mono_map
+set mono_map_file = $mono_map
+if(! -e "$mono_map") set mono_map = ../alignment/$mono_map_file
+if(! -e "$mono_map") set mono_map = ../$mono_map_file
+if(! -e "$mono_map") set mono_map = ../$mono_map_file
+if(! -e "$mono_map") set mono_map = ../$mono_map_file
+if(! -e "$mono_map") set mono_map = ${pdir}/alignment/$mono_map_file
 if(! -e "$mono_map") then
     set BAD = "cannot find monomer_rot_trans.txt"
     goto exit

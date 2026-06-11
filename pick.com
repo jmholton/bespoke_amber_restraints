@@ -116,6 +116,7 @@ set NUMPEAKS
 if("$top_peaks" != "") then
     set NUMPEAKS = "NUMPEAKS $top_peaks"
     echo "looking for $top_peaks peaks only"
+    set CLOSE_peaks = 0.0001
 endif
 if("$bottom_peaks" != "") then
     set NUMPEAKS = "NUMPEAKS $bottom_peaks"
@@ -123,11 +124,22 @@ if("$bottom_peaks" != "") then
     #set sigma = `echo $sigma | awk '{print -$1}'`
     echo scale factor -1 | mapmask mapin ${tempfile}pick.map mapout ${tempfile}neg.map >> $logfile
     set pickme = "neg"
+    set CLOSE_peaks = 0.0001
+endif
+if("$extreme_peaks" != "") then
+    # negate map only if the most extreme features are negative
+    set negneg = `echo $max $min | awk '$2>$1{print "neg"}'`
+    if("$negneg" == "neg") then
+        echo scale factor -1 | mapmask mapin ${tempfile}pick.map mapout ${tempfile}neg.map >> $logfile
+        set pickme = "neg"
+    endif
+    set CLOSE_peaks = 0.0001
 endif
 if( $?DEBUG ) echo "DEBUG1: sigma = $sigma  max= $max  min= $min"
 if($?top_only) set sigma = `echo $max | awk '{print $1*0.99}'`
 #if($?bottom_only) set sigma = `echo $min $max | awk '$1>$2{$1=$2} {print -$1+0.01}'`
 if($?bottom_only) set sigma = `echo $min | awk '{print $1*0.99}'`
+if($?extreme_only) set sigma = `echo $max $min | awk '{m=$1; if($2>m)m=$2; print m*0.99}'`
 if( $?DEBUG ) echo "DEBUG2: sigma = $sigma $?top_only $?bottom_only"
 
 # reformat to peakmax vernacular
@@ -235,6 +247,14 @@ if("$bottom_peaks" != "") then
     sort -k7g ${tempfile}peaks.trimmed |\
     awk -v n=$bottom_peaks '! seen[$NF]{++m;++seen[$NF]}\
        m>n{exit} {print}' >! ${tempfile}
+    mv ${tempfile} ${tempfile}peaks.trimmed
+endif
+if("$extreme_peaks" != "") then
+    # sort by |height| descending, keep top N
+    awk '{h=$7; if(h<0) h=-h; print h,$0}' ${tempfile}peaks.trimmed |\
+    sort -k1gr |\
+    awk -v n=$extreme_peaks '! seen[$NF]{++m;++seen[$NF]}\
+       m>n{exit} {sub(/^[^ ]+ /,""); print}' >! ${tempfile}
     mv ${tempfile} ${tempfile}peaks.trimmed
 endif
 
@@ -389,8 +409,14 @@ cat >! ${tempfile}peaks.interesting
 if(! $?DEBUG) rm -f  ${tempfile}boring_sites.symm >& /dev/null
 if(! $?DEBUG) rm -f  ${tempfile}peaks.final >& /dev/null
 
-# sort the picked peaks by height
-sort -nr -k8 ${tempfile}peaks.interesting >! ${tempfile}
+# sort the picked peaks by height (|height| for extreme_peaks)
+if("$extreme_peaks" != "") then
+    awk '{h=$8; if(h<0) h=-h; print h,$0}' ${tempfile}peaks.interesting |\
+    sort -k1gr |\
+    awk '{sub(/^[^ ]+ /,""); print}' >! ${tempfile}
+else
+    sort -nr -k8 ${tempfile}peaks.interesting >! ${tempfile}
+endif
 mv ${tempfile} ${tempfile}peaks.interesting
 
 # ${tempfile}peaks.interesting now contains only "interesting" peaks

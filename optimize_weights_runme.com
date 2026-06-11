@@ -1585,10 +1585,10 @@ if( "$pressure_scale" =~ *auto* ) then
     tac pressure_vs_itr.txt |\
     awk '{print $4,$12}' |\
     awk '{p=$1;n=$2} n0+0<=0{n0=n} {dn=sqrt((n-n0)^2)}\
-      dn/n0>0.05{++somesignal}\
+      dn/n0>0{++somesignal}\
       {print $0,somesignal+0,dn}\
       somesignal>10 && NR>30{exit}' >! ${t}press.txt
-    # format: pressure Nwaters
+    # format: pressure Nwaters somesignal dn
     sort -k2gr ${t}press.txt |\
      awk 'NR==1{posP=($1>0);maxN=$2} \
           posP && $1<0 && ! zPN{zPN=$2} {print $0,maxN,zPN}\
