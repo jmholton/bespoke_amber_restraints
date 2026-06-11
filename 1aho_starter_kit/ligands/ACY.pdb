@@ -1,0 +1,29 @@
+REMARK  99 electronic Ligand Builder and Optimisation Workbench (eLBOW)
+REMARK  99   - a module of PHENIX version dev-5493-
+REMARK  99   - file written: Mon Mar  3 07:31:15 2025
+REMARK  99
+REMARK  99   Inital geometry file: a 26 line input string
+REMARK  99   Ligand name: acetic acid
+REMARK  99   Quantum optimisation: True
+REMARK  99   Method: AM1
+REMARK  99   Random seed: 3628800
+REMARK  99   SMILES string: CC(O)=O
+FORMUL   1  ACY    C2 H3 O2  (-1)
+HETATM    1  C   ACY A   1       0.025   0.012  -0.005  1.00 20.00      A    C  
+HETATM    2  O   ACY A   1       1.289  -0.003   0.077  1.00 20.00      A    O  
+HETATM    3  OXT ACY A   1      -0.740  -0.013   1.004  1.00 20.00      A    O-1
+HETATM    4  CH3 ACY A   1      -0.607   0.065  -1.395  1.00 20.00      A    C  
+HETATM    5  H1  ACY A   1      -0.206  -0.764  -2.022  1.00 20.00      A    H  
+HETATM    6  H2  ACY A   1      -0.352   1.034  -1.882  1.00 20.00      A    H  
+HETATM    7  H3  ACY A   1      -1.715  -0.028  -1.327  1.00 20.00      A    H  
+CONECT    1    3    4
+CONECT    1    2
+CONECT    1    2
+CONECT    2    1
+CONECT    2    1
+CONECT    3    1
+CONECT    4    1    5    6    7
+CONECT    5    4
+CONECT    6    4
+CONECT    7    4
+END

@@ -81,6 +81,32 @@ The master script expects these files in the working directory:
 
 Low-level utilities for operating on raw binary float files (including CCP4 electron density maps). They compute statistics (mean, RMS, skewness, kurtosis, CC) and can scale/offset/combine float files. Useful for direct map arithmetic outside of CCP4 tools.
 
+## Demo Systems and Starter Kits
+
+Two crystal systems are used for development and demonstration:
+
+### 1aho — scorpion toxin (reference demo)
+64 residues, P212121, 0.965 Å resolution, super_mult=1,1,1 (single unit cell).
+No protein ligand; salt = NH4 + ACY at 0.68 M.  All data is public (PDB deposit).
+MTZ labels are already FP/SIGFP/FreeR_flag — no cad renaming needed.
+
+Starter kit: `1aho_starter_kit/` in this repo.
+Tarball also available: `https://bl831.als.lbl.gov/~jamesh/amber/1aho/example_starter4.tgz`
+See `1aho_starter_kit/CLAUDE.md` for full details.
+
+### 6c2r — Aurora Kinase A (production system)
+272 residues, P41212, two datasets:
+  - AMPPNP (2.4 Å, ligand LIG/AMPPNP, salt NH4+SO4) — projects 6c2r_AMPPNP and 6c2r_LIG
+  - EG7 compound (1.9 Å, ligand EG7, salt NH4+SO4) — project 6c2r_37C_2x
+
+Both use super_mult=2,2,2; data from Dirk's private models; badlinks=1 required
+(phenix creates a spurious Lys-LIG covalent bond that crashes Amber).
+
+Starter kit: `6c2r_AMPPNP/claude/starter_kit/` in the project directory.
+See that kit's `CLAUDE.md` and `PROTOCOL.txt` for full details.
+
 ## Example Workflow
 
-See `example_setup_notes.com` for a complete walkthrough starting from a PDB ID, downloading data, preparing AMBER topology, and running the optimization loop. Example data for the 1aho system is available at: `https://bl831.als.lbl.gov/~jamesh/amber/1aho/example_starter4.tgz`
+See `example_setup_notes.com` for a complete walkthrough starting from a PDB ID,
+downloading data, preparing AMBER topology, and running the optimization loop.
+The 1aho system in `1aho_starter_kit/` is the recommended starting point.

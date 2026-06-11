@@ -1,0 +1,14 @@
+set reso = 0.965
+set smallSG = P212121
+set smallCELL = ( 45.9 40.7 30.1 90 90 90 )
+set nsymops = 4
+# supercell parameters
+set super_mult = 1,1,1
+# number of residues in one protein
+set modulo  = 64
+# any ligands
+set ligands = ""
+# salt used in crystallization
+set salt = ( NH4 ACY )
+# molar
+set salt_conc = 0.68

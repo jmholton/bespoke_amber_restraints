@@ -1,0 +1,66 @@
+# electronic Ligand Builder and Optimisation Workbench (eLBOW)
+#   - a module of PHENIX version dev-5493-
+#   - file written: Mon Mar  3 07:31:11 2025
+#
+#   Inital geometry file: a 17 line input string
+#   Ligand name: ammonium
+#   Quantum optimisation: True
+#   Method: AM1
+#   Random seed: 3628800
+#   SMILES string: [NH4+]
+#
+data_comp_list
+loop_
+_chem_comp.id
+_chem_comp.three_letter_code
+_chem_comp.name
+_chem_comp.group
+_chem_comp.number_atoms_all
+_chem_comp.number_atoms_nh
+_chem_comp.desc_level
+NH4        NH4 'ammonium                 ' ligand 5 1 .
+#
+data_comp_NH4
+#
+loop_
+_chem_comp_atom.comp_id
+_chem_comp_atom.atom_id
+_chem_comp_atom.type_symbol
+_chem_comp_atom.type_energy
+_chem_comp_atom.charge
+_chem_comp_atom.partial_charge
+_chem_comp_atom.x
+_chem_comp_atom.y
+_chem_comp_atom.z
+NH4         N      N   N      1    .      -0.0000   -0.0000   -0.0000
+NH4         HN1    H   H      0    .       1.0250    0.0000   -0.0010
+NH4         HN2    H   H      0    .      -0.3420    0.0000    0.9670
+NH4         HN3    H   H      0    .      -0.3420   -0.8370   -0.4830
+NH4         HN4    H   H      0    .      -0.3420    0.8370   -0.4830
+#
+loop_
+_chem_comp_bond.comp_id
+_chem_comp_bond.atom_id_1
+_chem_comp_bond.atom_id_2
+_chem_comp_bond.type
+_chem_comp_bond.value_dist
+_chem_comp_bond.value_dist_esd
+_chem_comp_bond.value_dist_neutron
+NH4   N       HN1   single        0.890 0.020     1.040
+NH4   N       HN2   single        0.890 0.020     1.040
+NH4   N       HN3   single        0.890 0.020     1.040
+NH4   N       HN4   single        0.890 0.020     1.040
+#
+loop_
+_chem_comp_angle.comp_id
+_chem_comp_angle.atom_id_1
+_chem_comp_angle.atom_id_2
+_chem_comp_angle.atom_id_3
+_chem_comp_angle.value_angle
+_chem_comp_angle.value_angle_esd
+NH4   HN4     N       HN3         109.47 3.000
+NH4   HN4     N       HN2         109.45 3.000
+NH4   HN3     N       HN2         109.45 3.000
+NH4   HN4     N       HN1         109.46 3.000
+NH4   HN3     N       HN1         109.46 3.000
+NH4   HN2     N       HN1         109.53 3.000
