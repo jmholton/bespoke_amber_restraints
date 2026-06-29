@@ -32,8 +32,9 @@ set salt_conc = 0.15
 set badlinks  = 0      # EG7 does not create spurious Lys-LIG bonds
                        # Set badlinks=1 for the AMPPNP / Dirk dataset
 
-set pdir = ~/projects/git/bespoke_amber_restraints
-set skit = ~/projects/amber/6c2r_AMPPNP/claude/starter_kit   # starter kit location
+set pwd  = `pwd`
+set pdir = ${pwd}/bespoke_amber_restraints
+set skit = ${pwd}/starter_kit   # starter kit location
 set t    = tempfile
 set path = ( $pdir $path )
 
@@ -89,7 +90,7 @@ cp ${pdbid}.pdb starthere_asu.pdb
 # Auto-detect structure factor amplitude column from the raw MTZ
 set F    = `mtzdmp $rawmtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="F"{print $NF;exit}'`
 set SIGF = `mtzdmp $rawmtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="Q"{print $NF;exit}'`
-set FREE = `mtzdmp $rawmtz | awk '/FreeR|Free_R|free_R|R-free/{print $NF;exit}'`
+set FREE = `mtzdmp $rawmtz | awk 'NF>10 && $(NF-1)=="I" && /[Ff]ree/{print $NF;exit}'`
 echo "Using columns: F=$F  SIGF=$SIGF  FREE=$FREE"
 if ($F == "" || $SIGF == "" || $FREE == "") then
   echo "ERROR: could not auto-detect MTZ columns — check mtzdmp output above"
@@ -180,6 +181,13 @@ if ($status) then
 endif
 
 foreach lig ( $ligands )
+  # Use pre-computed mol2/frcmod from starter kit if available (avoids QM memory errors)
+  if (! -e ${lig}.mol2 && -e ${skit}/37C_EG7/ligands/${lig}.mol2) then
+    cp ${skit}/37C_EG7/ligands/${lig}.mol2 .
+    cp ${skit}/37C_EG7/ligands/${lig}.frcmod .
+  endif
+  if (-e ${lig}.mol2) continue
+  # Fall back to elbow (QM optimization requires ~16 GB; may fail on memory-limited nodes)
   if (-e ${lig}.cif) then
     phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files
   endif
@@ -188,8 +196,12 @@ foreach lig ( $ligands )
     --opt --opt_nproc=10
 end
 
-# Salt ions — always from PDB library
+# Salt ions — use starter kit files, fall back to elbow
 foreach lig ( $salt )
+  if (! -e ${lig}.mol2 && -e ${skit}/ligands/${lig}.mol2) then
+    cp ${skit}/ligands/${lig}.mol2 .
+    cp ${skit}/ligands/${lig}.frcmod .
+  endif
   if (-e ${lig}.mol2) continue
   phenix.elbow --chemical_component $lig --id=${lig} --amber_force_field_files \
     --opt --opt_nproc=10
@@ -240,13 +252,20 @@ cp ../ligands/*.cif .
 set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
 
 buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
-if (! -e minRfree.pdb) then
-  echo "ERROR: buildout_pdb_runme.com did not produce minRfree.pdb — check buildout.log"
+if (! -e built_minimized.pdb) then
+  echo "ERROR: buildout_pdb_runme.com did not produce built_minimized.pdb — check buildout.log"
   goto exit
 endif
 
-# Review output and pick best model by Rfree:
-grep "Final R" *.log | justify.awk | sort -k7g | head -5
+# Iterative refinement to convergence — produces refmacout_minRfree.pdb
+converge_refmac.com built_minimized.pdb refme.mtz $ligcifs >&! converge.log
+if (! -e refmacout_minRfree.pdb) then
+  echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — check converge.log"
+  goto exit
+endif
+ln -sf refmacout_minRfree.pdb minRfree.pdb
+
+grep "REMARK  FREE R VALUE" refmacout_minRfree.pdb | tail -1
 
 ln -sf minRfree.pdb thisone.pdb
 

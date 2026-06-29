@@ -1206,7 +1206,7 @@ cat ${t}selected_planes.txt |\
 awk '/^PLANE/ && NF>15{sigma=$3;\
    print;\
    printf("extern plane ");\
-   for(i=4;i+4<NF;i+=4){\
+   for(i=4;i+3<=NF;i+=4){\
      a=$i;f=$(i+1);c=$(i+2);r=$(i+3);\
      printf("next chain %s resi %s atom %s altecode %s ",c,r,a,f);}\
    print "sigma",sigma}' |\
