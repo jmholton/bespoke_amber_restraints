@@ -11,6 +11,11 @@ set tempfile = /dev/shm/${USER}/temp_$$_mapsum/
 
 set srun = auto
 
+foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
+   echo "sourcing $sourceme"
+   if(-e $sourceme ) source $sourceme
+end
+
 # read command line
 foreach Arg ( $* )
     # faster to skip rest if map

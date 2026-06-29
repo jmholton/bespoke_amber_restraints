@@ -18,6 +18,11 @@ mkdir -p /dev/shm/${USER}
 setenv CCP4_SCR ${tempfile}_dir/
 mkdir -p $CCP4_SCR
 
+foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
+   echo "sourcing $sourceme"
+   if(-e $sourceme ) source $sourceme
+end
+
 # scan command line for settings
 foreach Arg ( $* )
     set Key = `echo $Arg | awk -F "=" '{print $1}'`
@@ -223,29 +228,3 @@ if(! $?debug) then
 endif
 
 exit
-
-
-
-
-foreach test ( test8 test9 test10_verywet test11 test12 )
-cd ../$test
-foreach itr ( `seq 1 300` )
-if(! -e wrapped_${itr}.pdb) continue
-
-#append_file_date.com pinchedwater_${itr}.log 
-
-set water_radius = `awk '/^water_radius/{print $NF}' pinchedwater_${itr}.log | tail -n 1`
-
-$sruncpu ../pinchedwater_runme.com wrapped_${itr}.pdb \
-     restraints=restraints_for_${itr}.pdb \
-     water_radius=$water_radius energy_thresh=10 max_rejects=1000 \
-     nonbonds=itr${itr}_nonbond_sorted.txt \
-     outprefix=itr${itr}_ |\
-  cat >! pinchedwater_${itr}.log &
-
-sleep 0.2
-
-end
-end
-
-

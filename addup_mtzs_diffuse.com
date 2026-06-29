@@ -16,6 +16,11 @@ set thishost = `hostname -s`
 set CPUs = `grep proc /proc/cpuinfo | wc -l | awk '{print int($1/4)}'`
 if( "$CPUs" == "" ) set CPUs = 1
 
+foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
+   echo "sourcing $sourceme"
+   if(-e $sourceme ) source $sourceme
+end
+
 # read the command line to update variables and other settings
 foreach Arg ( $* )
 #    set arg = `echo $Arg | awk '{print tolower($0)}'`

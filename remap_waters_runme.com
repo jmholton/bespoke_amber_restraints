@@ -34,6 +34,11 @@ if( "$test" == "1" ) set phenixlabel = label
 
 set tempfile = /dev/shm/${USER}/tempfile_remap_$$_
 
+foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
+   echo "sourcing $sourceme"
+   if(-e $sourceme ) source $sourceme
+end
+
 foreach Arg ( $* )
     set arg = `echo $Arg | awk '{print tolower($0)}'`
     set assign = `echo $arg | awk '{print ( /=/ )}'`

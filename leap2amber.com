@@ -105,6 +105,11 @@ set chiral_weight = 10
 set omega_weight = 5
 set restrain_omega = 0
 
+foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
+   echo "sourcing $sourceme"
+   if(-e $sourceme ) source $sourceme
+end
+
 echo "command-line arguments: $* "
 
 foreach Arg ( $* )

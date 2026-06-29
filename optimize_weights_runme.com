@@ -285,6 +285,11 @@ if( ! $?pmemd ) then
   set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
 endif
 
+foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
+   echo "sourcing $sourceme"
+   if(-e $sourceme ) source $sourceme
+end
+
 # read the command line to update variables and other settings
 foreach Arg ( $* )
     set arg = `echo $Arg | awk '{print tolower($0)}'`
