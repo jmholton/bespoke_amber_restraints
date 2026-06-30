@@ -58,27 +58,30 @@ set debug = 1
 #==============================================================================
 # SECTION 1 — Download and sequence
 #==============================================================================
+echo ""
+echo "=== Section 1: Downloading $pdbid from PDB ==="
 # Download structure factors and coordinates from PDB (replaces deprecated getcif.com)
-phenix.fetch_pdb $pdbid action=all
+phenix.fetch_pdb $pdbid action=all >&! fetch_pdb.log
 # Produces: 6c2r.pdb  6c2r-sf.cif
+echo "  fetched: `ls ${pdbid}.pdb ${pdbid}-sf.cif 2>/dev/null`"
 
-phenix.cif_as_mtz ${pdbid}-sf.cif
+phenix.cif_as_mtz ${pdbid}-sf.cif >&! cif_as_mtz.log
 # Produces a .mtz file — name varies by phenix version; grab the newest one:
 set rawmtz = `ls -1t ${pdbid}*.mtz | head -1`
 if ($rawmtz == "") then
-  echo "ERROR: phenix.cif_as_mtz produced no .mtz file"
+  echo "ERROR: phenix.cif_as_mtz produced no .mtz file — check cif_as_mtz.log"
   goto exit
 endif
-echo "Raw MTZ: $rawmtz"
+echo "  raw MTZ: $rawmtz"
 
 # Extract protein sequence from SEQRES
 grep SEQRES ${pdbid}.pdb |\
 sequence.awk |\
 awk 'NR==1{$0="> "$0} {print} NF==0{exit}' |\
-tee seq.fasta
+cat >! seq.fasta
 
 set modulo = `awk 'NR>1{printf("%s",$1)}' seq.fasta | wc -c`
-echo "modulo (residues per chain) = $modulo"
+echo "  modulo (residues per chain) = $modulo"
 
 # Use PDB deposit as starting ASU coordinates
 cp ${pdbid}.pdb starthere_asu.pdb
@@ -87,6 +90,8 @@ cp ${pdbid}.pdb starthere_asu.pdb
 #==============================================================================
 # SECTION 2 — Reflection data and crystal properties
 #==============================================================================
+echo ""
+echo "=== Section 2: Reflection data and crystal properties ==="
 # Auto-detect structure factor amplitude column from the raw MTZ
 set F    = `mtzdmp $rawmtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="F"{print $NF;exit}'`
 set SIGF = `mtzdmp $rawmtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="Q"{print $NF;exit}'`
@@ -130,11 +135,12 @@ EOF
 source xtal_properties.sourceme
 
 # Expand MTZ to 2×2×2 supercell
-cad hklin1 refme_small.mtz hklout expanded.mtz << EOF | tee mtz_expand.log
+echo "  expanding MTZ to $super_mult supercell..."
+cad hklin1 refme_small.mtz hklout expanded.mtz << EOF >&! mtz_expand.log
 labin file 1 all
 outlime space 1
 EOF
-cad hklin1 expanded.mtz hklout refme_cell.mtz << EOF | tee -a mtz_expand.log
+cad hklin1 expanded.mtz hklout refme_cell.mtz << EOF >>&! mtz_expand.log
 labin file 1 all
 symm 1
 EOF
@@ -142,9 +148,9 @@ rm -f expanded.mtz
 
 set reidx = `echo $super_mult | awk -F "[ ,x]" '{print "reindex h"$1",k"$2",l"$3}'`
 echo $reidx |\
-reindex hklin refme_cell.mtz hklout refme.mtz | tee -a mtz_expand.log
+reindex hklin refme_cell.mtz hklout refme.mtz >>&! mtz_expand.log
 if ($status) then
-  echo "ERROR: MTZ expansion to supercell failed"
+  echo "ERROR: MTZ expansion to supercell failed — check mtz_expand.log"
   goto exit
 endif
 rm -f refme_cell.mtz
@@ -153,14 +159,17 @@ echo head | mtzdump hklin refme.mtz >! mtzdump.txt
 set CELL = `awk '/Cell Dimensions/{getline;getline;print $1+0,$2+0,$3+0,$4+0,$5+0,$6+0;exit}' mtzdump.txt`
 
 echo "" >! blank.pdb
-echo "CELL $CELL\nSPACE 1" | pdbset xyzin blank.pdb xyzout ${t}cell.pdb
+echo "CELL $CELL\nSPACE 1" | pdbset xyzin blank.pdb xyzout ${t}cell.pdb > /dev/null
 egrep "^CRYST1" ${t}cell.pdb >! cell.pdb
 rm -f blank.pdb ${t}cell.pdb
+echo "  cell: $CELL   SG: $smallSG   reso: $reso"
 
 
 #==============================================================================
 # SECTION 3 — Ligand force-field files
 #==============================================================================
+echo ""
+echo "=== Section 3: Ligand force-field files ==="
 # Auto-detect ligands from PDB, excluding salt ions and water
 set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
   awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
@@ -213,6 +222,8 @@ cd ..
 #==============================================================================
 # SECTION 4 — HIS protonation (QM-determined)
 #==============================================================================
+echo ""
+echo "=== Section 4: HIS protonation ==="
 # HIS protonation is determined by QM using the Phenix quantum interface.
 # Pre-computed results for this protein are in the starter kit.
 #
@@ -242,6 +253,8 @@ endif
 #==============================================================================
 # SECTION 5 — Build and sanitize starting model (build1)
 #==============================================================================
+echo ""
+echo "=== Section 5: Building starting model (build1) ==="
 mkdir build1
 cd build1
 
@@ -251,6 +264,7 @@ ln -sf ../xtal_properties.sourceme .
 cp ../ligands/*.cif .
 set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
 
+echo "  building missing atoms (check buildout.log)..."
 buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
 if (! -e built_minimized.pdb) then
   echo "ERROR: buildout_pdb_runme.com did not produce built_minimized.pdb — check buildout.log"
@@ -258,6 +272,7 @@ if (! -e built_minimized.pdb) then
 endif
 
 # Iterative refinement to convergence — produces refmacout_minRfree.pdb
+echo "  refmac convergence refinement (check converge.log)..."
 converge_refmac.com built_minimized.pdb refme.mtz $ligcifs >&! converge.log
 if (! -e refmacout_minRfree.pdb) then
   echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — check converge.log"
@@ -275,6 +290,8 @@ cd ..
 #==============================================================================
 # SECTION 6 — ASU tleap charge check (amber_asu)
 #==============================================================================
+echo ""
+echo "=== Section 6: ASU charge check (amber_asu) ==="
 mkdir amber_asu
 cd amber_asu
 
@@ -319,12 +336,11 @@ convert_pdb.awk -v output=amber -v fixEe=1 |\
 awk '/HIS|HIE|HID|HIP/ && $NF=="H"{next} {print}' |\
 egrep -v "LINK" >! tleapme.pdb
 
-tleap -f tleap_stub.in | tee tleap.log
+tleap -f tleap_stub.in >&! tleap.log
 
-grep "unperturbed charge" tleap.log
 set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' tleap.log`
 set charge  = `echo $charge0 $nsymops | awk '{print $1*$2}'`
-echo "ASU charge $charge0, cell charge $charge" | tee cell_charge.txt
+echo "  ASU charge $charge0, cell charge $charge" | tee cell_charge.txt
 
 cd ..
 
@@ -332,6 +348,9 @@ cd ..
 #==============================================================================
 # SECTION 7 — Generate centroid reference points (garr1)
 #==============================================================================
+echo ""
+echo "=== Section 7: Generate centroid reference points (garr1) ==="
+echo "  running generate_alignment_reference (check garr1/garr.log)..."
 mkdir garr1
 cd garr1
 
@@ -362,6 +381,8 @@ cd ..
 #==============================================================================
 # SECTION 8 — Build supercell centroid set (centroids/)
 #==============================================================================
+echo ""
+echo "=== Section 8: Build supercell centroid set (centroids/) ==="
 mkdir centroids
 cd centroids
 
@@ -383,14 +404,14 @@ filter_pdb.awk -v skip=H,water fulllength_asu.pdb flipped.pdb | rmsd | head
 # 2Fo-Fc reference density map
 set Fwt  = `mtzdmp minRfree.mtz | awk 'NF>5 && /2FOFCWT|FWT/ && ! / DELF/ && $(NF-1)=="F"{print $NF;exit}'`
 set PHIwt = `mtzdmp minRfree.mtz | awk 'NF>5 && /PH2FOFCWT|PHWT/ && ! /DEL/ && $(NF-1)=="P"{print $NF;exit}'`
-cad hklin1 minRfree.mtz hklout reference0.mtz << EOF
+cad hklin1 minRfree.mtz hklout reference0.mtz << EOF > /dev/null
 labin file 1 E1=$Fwt E2=$PHIwt
 labou file 1 E1=Fref E2=PHIref
 EOF
-fft hklin reference0.mtz mapout ffted.map << EOF
+fft hklin reference0.mtz mapout ffted.map << EOF > /dev/null
 labin F1=Fref PHI=PHIref
 EOF
-mapmask mapin ffted.map mapout reference0.map << EOF
+mapmask mapin ffted.map mapout reference0.map << EOF > /dev/null
 xyzlim asu
 scale sigma
 EOF
@@ -414,19 +435,21 @@ filter_pdb.awk -v skip=water new.pdb centroids_asu_noalt.pdb | rmsd
 # All RMS should be zero with no warnings
 
 # Expand to supercell — run twice: first to discover monomer map, then apply it
+echo "  expanding full-length ASU to supercell (check fulllength_expand.log)..."
 expand2supercell_runme.com fulllength_renamed.pdb refme_small.mtz super_mult=$super_mult \
-  outprefix=fulllength_super phenix_bumpcheck=0 debug=1 | tee fulllength_expand0.log
+  outprefix=fulllength_super phenix_bumpcheck=0 debug=1 >&! fulllength_expand0.log
 cp fulllength_super.pdb fulllength_super0.pdb
 cp new_monomer_rot_trans.txt monomer_rot_trans.txt
 
 expand2supercell_runme.com fulllength_renamed.pdb refme_small.mtz super_mult=$super_mult \
   outprefix=fulllength_super phenix_bumpcheck=0 debug=1 \
-  mono_map=monomer_rot_trans.txt | tee fulllength_expand.log
+  mono_map=monomer_rot_trans.txt >&! fulllength_expand.log
 
+echo "  expanding centroids to supercell (check centroids_expand.log)..."
 expand2supercell_runme.com centroids_renamed.pdb refme_small.mtz super_mult=$super_mult \
   refpdb=fulllength_renamed.pdb outprefix=centroids_super \
   phenix_bumpcheck=0 debug=1 \
-  mono_map=monomer_rot_trans.txt | tee centroids_expand.log
+  mono_map=monomer_rot_trans.txt >&! centroids_expand.log
 
 filter_pdb.awk -v skip=H,water centroids_super.pdb fulllength_super.pdb | rmsd | head
 filter_pdb.awk -v skip=H,water centroids_super.pdb fulllength_super.pdb | grep CA | rmsd | head
@@ -447,7 +470,8 @@ awk '! /^ATOM|^HETAT/{print;next}\
   {occ=substr($0,55,6)+0}\
   occ>0.01{print substr($0,1,80),"           |",$NF}' >! all_possible_centroids.pdb
 
-rholabel_runme.com all_possible_centroids.pdb reference0.mtz mtzlabel=Fref
+echo "  labeling centroids by 2Fo-Fc density..."
+rholabel_runme.com all_possible_centroids.pdb reference0.mtz mtzlabel=Fref >&! rholabel.log
 
 cat rholabeled.pdb |\
 awk '/^CRYST/{print;next} ! /^ATOM|^HETAT/{next}\
@@ -468,6 +492,8 @@ cd ..
 #==============================================================================
 # SECTION 9 — Supercell phenix refinement (super_refine1)
 #==============================================================================
+echo ""
+echo "=== Section 9: Supercell phenix refinement (super_refine1) ==="
 mkdir super_refine1
 cd super_refine1
 
@@ -498,6 +524,7 @@ refinement {
 EOF
 
 awk '{print substr($0,1,80)}' starthere.pdb >! refme.pdb
+echo "  phenix.refine pass 1 (check super_refine1/phenix1.log)..."
 phenix.refine ../refme.mtz refme.pdb prefix=phenix opts.eff $ligcifs >&! phenix1.log
 if (! -e phenix_001.pdb) then
   echo "ERROR: phenix.refine failed — check phenix1.log"
@@ -521,28 +548,37 @@ awk '! /^ATOM|^HETAT/{print;next}\
   {id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
 cat >! fulllength_noalt.pdb
 
+echo "  reorganizing conformers and waters..."
 reorganize_pdb_runme.com confsel.pdb refpdb=fulllength_noalt.pdb outfile=oneconf.pdb \
-  phenix_bumpcheck=0 debug=1 autorerun=0 | tee reorg_oneconf.log
+  phenix_bumpcheck=0 debug=1 autorerun=0 >&! reorg_oneconf.log
 
 reorganize_waters.com oneconf.pdb super_mult=$super_mult \
-  smallmtz=../centroids/reference0.mtz | tee rewater.log
+  smallmtz=../centroids/reference0.mtz >&! rewater.log
 
 awk '{print substr($0,1,80)}' rewatered.pdb >! reorgme.pdb
 reorganize_pdb_runme.com reorgme.pdb refpdb=fulllength_noalt.pdb outfile=reorged.pdb \
-  phenix_bumpcheck=0 debug=1 autorerun=0 | tee reorg_rewatered.log
+  phenix_bumpcheck=0 debug=1 autorerun=0 >&! reorg_rewatered.log
 
 awk '{print substr($0,1,80)}' reorged.pdb >! refme_noalt.pdb
+echo "  geometry minimization (check super_refine1/confsel_min.log)..."
 phenix.geometry_minimization refme_noalt.pdb prefix=confsel_min $ligcifs \
   automatic_linking.link_none=True nonbonded_weight=500 >&! confsel_min.log
-if (! -e confsel_min_001.pdb) then
+# phenix.geometry_minimization outputs prefix.pdb (not prefix_001.pdb)
+if (! -e confsel_min.pdb) then
   echo "ERROR: phenix.geometry_minimization failed — check confsel_min.log"
   goto exit
 endif
 
 # Fix cis-peptides using generate_omega_fix_runme.com (produces omega_fix.eff)
-generate_omega_fix_runme.com confsel_min_001.pdb >&! omega_fix_gen.log
-phenix.refine confsel_min_001.pdb ../refme.mtz prefix=omegafix1 opts.eff $ligcifs \
+generate_omega_fix_runme.com confsel_min.pdb >&! omega_fix_gen.log
+echo "  phenix.refine with omega fix (check super_refine1/phenix_omegafix1.log)..."
+phenix.refine confsel_min.pdb ../refme.mtz prefix=omegafix1 opts.eff $ligcifs \
   omega_fix.eff >&! phenix_omegafix1.log
+if (! -e omegafix1_001.pdb) then
+  echo "ERROR: phenix.refine omegafix failed — check phenix_omegafix1.log"
+  goto exit
+endif
+echo "  super_refine1 done"
 
 ln -sf omegafix1_001.pdb thisone.pdb
 
@@ -552,6 +588,8 @@ cd ..
 #==============================================================================
 # SECTION 10 — Initial Amber MD run (amber1)
 #==============================================================================
+echo ""
+echo "=== Section 10: Initial Amber MD run (amber1) ==="
 # IMPORTANT: skip Cpu and Min stages — they reliably produce NaN coordinates
 # ("black holes") on 6c2r. Start directly from Cool.
 mkdir amber1
@@ -626,7 +664,7 @@ cat >! all_possible_refpoints.pdb
 
 centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
   softener=2 weight=Bfac maxdist=1 hohscale=1 \
-  outfile=restraints_for_${itr}.pdb debug=$debug | tee c2r_${itr}.log
+  outfile=restraints_for_${itr}.pdb debug=$debug >&! c2r_${itr}.log
 cp restraints_for_${itr}.pdb current_restraints.pdb
 
 # Identify salt cation and anion from mol2 charges
@@ -649,11 +687,13 @@ set ncells     = `echo $super_mult | awk -F "[ ,x]" '{print $1*$2*$3}'`
 set charge     = `echo $cellcharge $ncells | awk '{print $1*$2}'`
 echo "Supercell charge = $charge  (unit cell $cellcharge × $ncells cells)"
 
+echo "  adding salt ions and padding waters..."
 add_salt_runme.com refined.pdb conc=$salt_conc \
-  RIP=4 RIW=3 charge=$charge anion=$anion cation=$cation | tee add_salt.log
+  RIP=4 RIW=3 charge=$charge anion=$anion cation=$cation >&! add_salt.log
 
+echo "  reorganizing supercell..."
 reorganize_pdb_runme.com salty.pdb ignore_zero=0 refpdb=refined.pdb \
-  outfile=reorganized.pdb phenix_bumpcheck=0 declash=1 | tee reorganize_final.log
+  outfile=reorganized.pdb phenix_bumpcheck=0 declash=1 >&! reorganize_final.log
 
 filter_pdb.awk -v skip=water reorganized.pdb | egrep -v "^END" >! amberme.pdb
 filter_pdb.awk -v skip=H -v only=water,atoms reorganized.pdb >> amberme.pdb
@@ -672,6 +712,7 @@ echo "padwater = $padwater"
 cp restraints_for_${itr}.pdb initial_restraints.pdb
 
 # Run MD stages: skip Cpu and Min (cause NaN / black holes on this system)
+echo "  running leap2amber MD stages: Cool → Heat → Equi → EquiMin → Prod (check leap2amber_${itr}.log)..."
 leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
   refpoints=initial_restraints.pdb restraint_mult=1 \
@@ -708,6 +749,8 @@ cd ..
 #==============================================================================
 # SECTION 11 — Weight optimization setup (opt1)
 #==============================================================================
+echo ""
+echo "=== Section 11: Weight optimization (opt1) ==="
 # Set these to point to the last good iteration from amber1 (or a previous opt):
 set previtr  = 0          # last good iteration number (0 = use Prod directly)
 set prevdir  = amber1     # directory containing that iteration
@@ -785,6 +828,8 @@ cd ..
 # SECTION 12 — Continue optimization (opt2 template)
 # Repeat this block for opt3, opt4, ... adjusting parameters as needed.
 #==============================================================================
+echo ""
+echo "=== Section 12: Optimization stage 2 (opt2) ==="
 set prevdir = opt1
 if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — opt1 did not complete"
