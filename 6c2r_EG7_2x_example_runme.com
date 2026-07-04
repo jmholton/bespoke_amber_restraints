@@ -78,7 +78,7 @@ else
   # Produces a .mtz file — name varies by phenix version; grab the newest one:
   set rawmtz = `ls -1t ${pdbid}*.mtz | head -1`
   if ($rawmtz == "") then
-    echo "ERROR: phenix.cif_as_mtz produced no .mtz file — check cif_as_mtz.log"
+    echo "ERROR: phenix.cif_as_mtz produced no .mtz file — details: cif_as_mtz.log"
     goto exit
   endif
   echo "  raw MTZ: $rawmtz"
@@ -119,7 +119,7 @@ else
     goto exit
   endif
 
-  cad hklin1 $rawmtz hklout refme_small.mtz << EOF
+  cad hklin1 $rawmtz hklout refme_small.mtz << EOF > /dev/null
 labin file 1 E1=$F E2=$SIGF E3=$FREE
 labou file 1 E1=FP E2=SIGFP E3=FreeR_flag
 EOF
@@ -167,7 +167,7 @@ EOF
   echo $reidx |\
   reindex hklin refme_cell.mtz hklout refme.mtz >>&! mtz_expand.log
   if ($status) then
-    echo "ERROR: MTZ expansion to supercell failed — check mtz_expand.log"
+    echo "ERROR: MTZ expansion to supercell failed — details: mtz_expand.log"
     goto exit
   endif
   rm -f refme_cell.mtz
@@ -356,18 +356,18 @@ else
   cp ../ligands/*.cif .
   set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
 
-  echo "  building missing atoms (check buildout.log)..."
+  echo "  building missing atoms (details: buildout.log)..."
   buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
   if (! -e built_minimized.pdb) then
-    echo "ERROR: buildout_pdb_runme.com did not produce built_minimized.pdb — check buildout.log"
+    echo "ERROR: buildout_pdb_runme.com did not produce built_minimized.pdb — details: buildout.log"
     goto exit
   endif
 
   # Iterative refinement to convergence — produces refmacout_minRfree.pdb
-  echo "  refmac convergence refinement (check converge.log)..."
+  echo "  refmac convergence refinement (details: converge.log)..."
   converge_refmac.com built_minimized.pdb refme.mtz $ligcifs >&! converge.log
   if (! -e refmacout_minRfree.pdb) then
-    echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — check converge.log"
+    echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — details: converge.log"
     goto exit
   endif
   ln -sf refmacout_minRfree.pdb minRfree.pdb
@@ -452,7 +452,7 @@ if (-e garr1/centroids_final_001.pdb) then
 else
   echo ""
   echo "=== Section 7: Generate centroid reference points (garr1) ==="
-  echo "  running generate_alignment_reference (check garr1/garr.log)..."
+  echo "  running generate_alignment_reference (details: garr1/garr.log)..."
   mkdir -p garr1
   cd garr1
 
@@ -474,7 +474,7 @@ else
   generate_alignment_reference_runme.com starthere.pdb $ligcifs \
     repulse_nb=100 crush_nb=100 repulse_scale=0.5 >&! garr.log
   if (! -e centroids_final_001.pdb) then
-    echo "ERROR: garr did not produce centroids_final_001.pdb — check garr.log"
+    echo "ERROR: garr did not produce centroids_final_001.pdb — details: garr.log"
     goto exit
   endif
   # Re-run (continuing from last itr) if Rfree has not converged.
@@ -547,7 +547,7 @@ EOF
   # All RMS should be zero with no warnings
 
   # Expand to supercell — run twice: first to discover monomer map, then apply it
-  echo "  expanding full-length ASU to supercell (check fulllength_expand.log)..."
+  echo "  expanding full-length ASU to supercell (details: fulllength_expand.log)..."
   expand2supercell_runme.com fulllength_renamed.pdb refme_small.mtz super_mult=$super_mult \
     outprefix=fulllength_super phenix_bumpcheck=0 debug=1 >&! fulllength_expand0.log
   cp fulllength_super.pdb fulllength_super0.pdb
@@ -557,7 +557,7 @@ EOF
     outprefix=fulllength_super phenix_bumpcheck=0 debug=1 \
     mono_map=monomer_rot_trans.txt >&! fulllength_expand.log
 
-  echo "  expanding centroids to supercell (check centroids_expand.log)..."
+  echo "  expanding centroids to supercell (details: centroids_expand.log)..."
   expand2supercell_runme.com centroids_renamed.pdb refme_small.mtz super_mult=$super_mult \
     refpdb=fulllength_renamed.pdb outprefix=centroids_super \
     phenix_bumpcheck=0 debug=1 \
@@ -664,10 +664,10 @@ EOF
 
   if (! -e phenix_001.pdb) then
     awk '{print substr($0,1,80)}' starthere.pdb >! refme.pdb
-    echo "  phenix.refine pass 1 (check super_refine1/phenix1.log)..."
+    echo "  phenix.refine pass 1 (details: super_refine1/phenix1.log)..."
     phenix.refine ../refme.mtz refme.pdb prefix=phenix opts.eff $ligcifs >&! phenix1.log
     if (! -e phenix_001.pdb) then
-      echo "ERROR: phenix.refine failed — check phenix1.log"
+      echo "ERROR: phenix.refine failed — details: phenix1.log"
       goto exit
     endif
   else
@@ -711,12 +711,12 @@ EOF
       phenix_bumpcheck=0 debug=1 autorerun=0 >&! reorg_rewatered.log
 
     awk '{print substr($0,1,80)}' reorged.pdb >! refme_noalt.pdb
-    echo "  geometry minimization (check super_refine1/confsel_min.log)..."
+    echo "  geometry minimization (details: super_refine1/confsel_min.log)..."
     phenix.geometry_minimization refme_noalt.pdb prefix=confsel_min $ligcifs \
       automatic_linking.link_none=True nonbonded_weight=500 >&! confsel_min.log
     # phenix.geometry_minimization outputs prefix.pdb (not prefix_001.pdb)
     if (! -e confsel_min.pdb) then
-      echo "ERROR: phenix.geometry_minimization failed — check confsel_min.log"
+      echo "ERROR: phenix.geometry_minimization failed — details: confsel_min.log"
       goto exit
     endif
   else
@@ -725,11 +725,11 @@ EOF
 
   # Fix cis-peptides using generate_omega_fix_runme.com (produces omega_fix.eff)
   generate_omega_fix_runme.com confsel_min.pdb >&! omega_fix_gen.log
-  echo "  phenix.refine with omega fix (check super_refine1/phenix_omegafix1.log)..."
+  echo "  phenix.refine with omega fix (details: super_refine1/phenix_omegafix1.log)..."
   phenix.refine confsel_min.pdb ../refme.mtz prefix=omegafix1 opts.eff $ligcifs \
     omega_fix.eff >&! phenix_omegafix1.log
   if (! -e omegafix1_001.pdb) then
-    echo "ERROR: phenix.refine omegafix failed — check phenix_omegafix1.log"
+    echo "ERROR: phenix.refine omegafix failed — details: phenix_omegafix1.log"
     goto exit
   endif
   echo "  super_refine1 done"
@@ -850,7 +850,7 @@ EOF
   add_salt_runme.com refined.pdb conc=$salt_conc \
     RIP=4 RIW=3 charge=$charge anion=$anion cation=$cation >&! add_salt.log
   if (! -e salty.pdb) then
-    echo "ERROR: add_salt_runme.com did not produce salty.pdb — check add_salt.log"
+    echo "ERROR: add_salt_runme.com did not produce salty.pdb — details: add_salt.log"
     goto exit
   endif
 
@@ -875,7 +875,7 @@ EOF
   cp restraints_for_${itr}.pdb initial_restraints.pdb
 
   # Run MD stages: skip Cpu and Min (cause NaN / black holes on this system)
-  echo "  running leap2amber MD stages: Cool → Heat → Equi → EquiMin → Prod (check leap2amber_${itr}.log)..."
+  echo "  running leap2amber MD stages: Cool → Heat → Equi → EquiMin → Prod (details: leap2amber_${itr}.log)..."
   leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
     protons=protonation.txt watertype=fb3mod flexwater=0 \
     refpoints=initial_restraints.pdb restraint_mult=1 \
@@ -886,7 +886,7 @@ EOF
     restrain_omega=0 omega_weight=0 chiral_weight=0 \
     debug=1 >&! leap2amber_${itr}.log
   if (! -e Prod.rst7) then
-    echo "ERROR: leap2amber.com did not produce Prod.rst7 — check leap2amber_${itr}.log"
+    echo "ERROR: leap2amber.com did not produce Prod.rst7 — details: leap2amber_${itr}.log"
     goto exit
   endif
   # Produces: Prod.rst7  xtal.prmtop  padded.parm7  orignames.pdb
@@ -936,7 +936,7 @@ else if (-e opt1/runme1.log) then
       min_align_weight=1 align_target=centroids align_nstlim=0 \
       halfrho_neg=3.5 halfrho_pos=auto maxitr=20 >&! runme2.log
   if ($status) then
-    echo "ERROR: optimize_weights Stage 2 failed — check runme2.log"
+    echo "ERROR: optimize_weights Stage 2 failed — details: runme2.log"
     goto exit
   endif
   cd ..
@@ -984,7 +984,7 @@ else
       weight_scale=1 weight_negscale=1 randel_itr=0 \
       min_align_weight=5 maxitr=20 >&! runme1.log
   if ($status) then
-    echo "ERROR: optimize_weights Stage 1 failed — check runme1.log"
+    echo "ERROR: optimize_weights Stage 1 failed — details: runme1.log"
     goto exit
   endif
   if (! -e fofc_Rplot.txt) then
@@ -1002,7 +1002,7 @@ else
       min_align_weight=1 align_target=centroids align_nstlim=0 \
       halfrho_neg=3.5 halfrho_pos=auto maxitr=20 >&! runme2.log
   if ($status) then
-    echo "ERROR: optimize_weights Stage 2 failed — check runme2.log"
+    echo "ERROR: optimize_weights Stage 2 failed — details: runme2.log"
     goto exit
   endif
 
@@ -1073,7 +1073,7 @@ else
       min_align_weight=0.5 align_target=centroids align_nstlim=250000 \
       halfrho_neg=auto halfrho_pos=auto maxitr=20 >&! runme1.log
   if ($status) then
-    echo "ERROR: optimize_weights opt2 failed — check runme1.log"
+    echo "ERROR: optimize_weights opt2 failed — details: runme1.log"
     goto exit
   endif
 

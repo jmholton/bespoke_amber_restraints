@@ -1,0 +1,16 @@
+# compute_settings.sourceme — site-specific compute and program paths
+# Copy this file to your working directory as compute_settings.sourceme and edit.
+# Sourced by leap2amber.com, optimize_weights_runme.com, and related scripts.
+
+# --- Software environments ---
+# Source only if not already set (safe to source this file twice).
+# Edit paths for your site; amber before phenix matters.
+if (! $?AMBERHOME) source /programs/amber22/amber.csh
+if (! $?PHENIX)    source /programs/phenix/phenix_env.csh
+if (! $?CCP4)      source /programs/ccp4-9/bin/ccp4.setup-csh
+
+# --- GPU / SLURM job commands ---
+# Adjust partition names, GPU count, and CPU count for your cluster.
+set pmemd  = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+set pmemin = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_DPFP"
+set sander = "srun --partition=xds sander.OMP"
