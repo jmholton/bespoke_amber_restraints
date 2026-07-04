@@ -72,7 +72,7 @@ else
   # Download structure factors and coordinates from PDB (replaces deprecated getcif.com)
   phenix.fetch_pdb $pdbid action=all >&! fetch_pdb.log
   # Produces: 6c2r.pdb  6c2r-sf.cif
-  echo "  fetched: `ls ${pdbid}.pdb ${pdbid}-sf.cif 2>/dev/null`"
+  echo "  fetched: `ls ${pdbid}.pdb ${pdbid}-sf.cif |& grep -v 'No such file'`"
 
   phenix.cif_as_mtz ${pdbid}-sf.cif >&! cif_as_mtz.log
   # Produces a .mtz file — name varies by phenix version; grab the newest one:
