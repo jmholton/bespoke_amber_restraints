@@ -84,15 +84,28 @@ endif
 
 if(-e cation.pdb) then
   echo "using cation.pdb for cations"
+else if(-e ${cation}.pdb) then
+  cp ${cation}.pdb cation.pdb
 else
   phenix.elbow --chemical_component=$cation --opt --amber_force_field_files
-  cp ${cation}.pdb cation.pdb
+  if(-e ${cation}.pdb) cp ${cation}.pdb cation.pdb
 endif
+if(! -e cation.pdb) then
+  set BAD = "cation.pdb not found for $cation — elbow RM1 fails on Phenix 2.0+ (>1000 MB virtual memory); copy ${cation}.pdb to working directory"
+  goto exit
+endif
+
 if(-e anion.pdb) then
   echo "using anion.pdb for anions"
+else if(-e ${anion}.pdb) then
+  cp ${anion}.pdb anion.pdb
 else
   phenix.elbow --chemical_component=$anion --opt --amber_force_field_files
-  cp ${anion}.pdb anion.pdb
+  if(-e ${anion}.pdb) cp ${anion}.pdb anion.pdb
+endif
+if(! -e anion.pdb) then
+  set BAD = "anion.pdb not found for $anion — elbow RM1 fails on Phenix 2.0+ (>1000 MB virtual memory); copy ${anion}.pdb to working directory"
+  goto exit
 endif
 
 
@@ -138,12 +151,24 @@ set P = `awk '/HOH/{print n;exit} /^ATOM|^HETAT/{++n}' $pdbfile`
 
 AddToBox -c $pdbfile -a cation.pdb -na $cations -P $P -RP $RIP -RW $RIW \
  -o ${t}positive.pdb -V 1 |& tee ${t}addcat.log
+if(! -e ${t}positive.pdb) then
+  set BAD = "AddToBox failed adding cations — check output above"
+  goto exit
+endif
 
 AddToBox -c ${t}positive.pdb -a anion.pdb -na $anions -P $P -RP $RIP -RW $RIW \
  -o ${t}neutral.pdb -V 1 |& tee ${t}addani.log
+if(! -e ${t}neutral.pdb) then
+  set BAD = "AddToBox failed adding anions — check output above"
+  goto exit
+endif
 
 AddToBox -c ${t}neutral.pdb -a ${src}/${watertype}.pdb -na $bulkwaters -RP $RP -RW $RW \
  -o ${t}wet.pdb |& tee ${t}addwater.log
+if(! -e ${t}wet.pdb) then
+  set BAD = "AddToBox failed adding waters — check output above"
+  goto exit
+endif
 
 set added_cations = `awk '/Added/{sum+=$4} END{print sum}' ${t}addcat.log`
 set added_anions = `awk '/Added/{sum+=$4} END{print sum}' ${t}addani.log`
