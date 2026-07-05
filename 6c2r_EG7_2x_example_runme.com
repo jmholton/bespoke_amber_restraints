@@ -895,8 +895,22 @@ EOF
   # template_dir is used by optimize_weights_runme.com to find amberme.pdb,
   # tleap_stub.in, mol2/frcmod, protonation.txt, reference.mtz, orignames.pdb.
   # Point it at amber1 (which has all these files); optimize_weights adds more.
-  # reference.mtz must have Fref/PHIref columns (from garr) — not refme.mtz (FP/SIGFP only).
-  if (! -e reference.mtz) ln -sf ../centroids/reference0.mtz reference.mtz
+  # reference.mtz must have Fref/PHIref columns in the SUPERCELL — rholabel probes
+  # supercell atom positions and fails if the map cell doesn't match.
+  if (! -e reference.mtz) then
+    set reidx_ref = `echo $super_mult | awk -F "[ ,x]" '{print "reindex h"$1",k"$2",l"$3}'`
+    cad hklin1 ../centroids/reference0.mtz hklout expanded_ref.mtz << 'EOF' > /dev/null
+labin file 1 all
+outlime space 1
+EOF
+    cad hklin1 expanded_ref.mtz hklout refcell.mtz << 'EOF' >> /dev/null
+labin file 1 all
+symm 1
+EOF
+    rm -f expanded_ref.mtz
+    echo $reidx_ref | reindex hklin refcell.mtz hklout reference.mtz >> /dev/null
+    rm -f refcell.mtz
+  endif
   if (! -e ../template_dir) ln -sf amber1 ../template_dir
 
   cd ..
