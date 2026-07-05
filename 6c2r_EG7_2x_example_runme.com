@@ -895,7 +895,8 @@ EOF
   # template_dir is used by optimize_weights_runme.com to find amberme.pdb,
   # tleap_stub.in, mol2/frcmod, protonation.txt, reference.mtz, orignames.pdb.
   # Point it at amber1 (which has all these files); optimize_weights adds more.
-  if (! -e reference.mtz) ln -sf refme.mtz reference.mtz
+  # reference.mtz must have Fref/PHIref columns (from garr) — not refme.mtz (FP/SIGFP only).
+  if (! -e reference.mtz) ln -sf ../centroids/reference0.mtz reference.mtz
   if (! -e ../template_dir) ln -sf amber1 ../template_dir
 
   cd ..
@@ -970,7 +971,7 @@ else
   cp ../${prevdir}/xtal.prmtop .
   cp ../${prevdir}/padded.parm7 .
   cp ../${prevdir}/orignames.pdb .
-  cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+  if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
   cp ../${prevdir}/chir_omega0.rst .
   cp chir_omega0.rst chir_omega.rst
   cp ../xtal_properties.sourceme .
@@ -1058,7 +1059,7 @@ else
   cp ../${prevdir}/xtal.prmtop .
   cp ../${prevdir}/padded.parm7 .
   cp ../${prevdir}/orignames.pdb .
-  cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+  if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
   cp ../${prevdir}/chir_omega0.rst .
   cp chir_omega0.rst chir_omega.rst
   cp ../xtal_properties.sourceme .
