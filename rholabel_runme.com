@@ -122,10 +122,12 @@ awk '/Cell Dimensions :/{getline;getline;\
   /Space group =/{split($0,s,"\047");sg=s[2];next}\
   END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' \
   ${t}mtzdump.txt >! ${t}.pdb
-awk '/^ATOM|^HETAT/{\
-  rec=(substr($0,12,1)!=" ")?substr($0,1,6) "     " substr($0,13):substr($0,1,80);\
-  key=substr(rec,12,15)" "substr(rec,22,5);\
-  if(seen[key]++==0){++n;printf "%s%5d%s\n",substr(rec,1,6),(n%99999)+1,substr(rec,12)}}' $pdbfile >> ${t}.pdb
+set test = `tail -50 $pdbfile | awk '/^ATOM|^HETAT/ && substr($0,12,1)!=" "{found=1} END{print found+0}'`
+if( $test ) then
+    set BAD = "register-shifted PDB (6-digit serial numbers) — regenerate with updated rmsd2B"
+    goto exit
+endif
+awk '/^ATOM|^HETAT/{key=substr($0,12,15)" "substr($0,22,5);if(seen[key]++==0)print substr($0,1,80)}' $pdbfile >> ${t}.pdb
 awk '/^ATOM|^HETAT/{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
 phenix.map_value_at_point $mtzfile ${t}.pdb \
