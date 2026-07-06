@@ -118,9 +118,9 @@ set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.tx
 
 
 awk '/Cell Dimensions :/{getline;getline;\
-  a=$1;b=$2;c=$3;d=$4;e=$5;f=$6;next}\
+  a=$1;b=$2;c=$3;al=$4;be=$5;ga=$6;next}\
   /Space group =/{split($0,s,"\047");sg=s[2];next}\
-  END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,d,e,f,sg}' \
+  END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' \
   ${t}mtzdump.txt >! ${t}.pdb
 awk '/^ATOM|^HETAT/{key=substr($0,12,15)" "substr($0,22,5);if(!seen[key]++)print substr($0,1,80)}' $pdbfile >> ${t}.pdb
 awk '/^ATOM|^HETAT/{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
