@@ -103,7 +103,7 @@ END{
             # override if averaging of B factors was selected
             if(averageB) Bfac=meanB[ID]
 
-            printf("ATOM  %5d%14s    %8.3f%8.3f%8.3f%6.2f%6.2f%s%20d\n",i,ID,meanX[ID],meanY[ID],meanZ[ID],meanO[ID],Bfac,rest,count[ID]);        
+            printf("ATOM  %5d%14s    %8.3f%8.3f%8.3f%6.2f%6.2f%s%20d\n",i%10000,ID,meanX[ID],meanY[ID],meanZ[ID],meanO[ID],Bfac,rest,count[ID]);        
         }
     } else {
         # print out the same PDB, but with B-factor labels
