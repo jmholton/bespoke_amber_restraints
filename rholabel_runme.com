@@ -117,8 +117,13 @@ echo "mtzlabel = $mtzlabel"
 set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.txt`
 
 
-awk '/^ATOM|^HETAT/{print substr($0,1,80)}' $pdbfile >! ${t}.pdb
-awk '{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
+awk '/Cell Dimensions :/{getline;getline;\
+  a=$1;b=$2;c=$3;d=$4;e=$5;f=$6;next}\
+  /Space group =/{split($0,s,"\047");sg=s[2];next}\
+  END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,d,e,f,sg}' \
+  ${t}mtzdump.txt >! ${t}.pdb
+awk '/^ATOM|^HETAT/{key=substr($0,12,15)" "substr($0,22,5);if(!seen[key]++)print substr($0,1,80)}' $pdbfile >> ${t}.pdb
+awk '/^ATOM|^HETAT/{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
 phenix.map_value_at_point $mtzfile ${t}.pdb \
           ${phenixlabel}=$mtzlabel scale=sigma |\
@@ -134,6 +139,8 @@ cat - $pdbfile |\
 awk '/^RHO/{rho[$4]=rho[$2]=$NF;next}\
   {gsub("\r","")}\
   ! /^ATOM|^HETAT/{print;next}\
+  {key=substr($0,12,15)" "substr($0,22,5)}\
+  seen[key]++>0{print $0;next}\
   {++n;print $0,"           ",rho[n]}\
   rho[n]==""{print "ERROR: missing rho for atom",n}' |\
 cat >! $outfile
