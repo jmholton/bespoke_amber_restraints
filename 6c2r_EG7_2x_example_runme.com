@@ -869,7 +869,7 @@ EOF
     /% of cell without atoms/{print int(n*$NF/100),int(n)}' ${t}rwcontents.log`
   echo "Room for $waterslots[1] waters ($waterslots[2] total in cell)"
   set gotwater = `grep "O   HOH" amberme.pdb | wc -l`
-  set padwater = `echo $waterslots $gotwater | awk '{print 0+sprintf("%.2g",($1+$3)*1.5)}'`
+  set padwater = `echo $waterslots $gotwater | awk '{v=$1*1.5;t=$2-$3;print 0+sprintf("%.2g",(v>t?v:t))}'`
   echo "padwater = $padwater"
 
   cp restraints_for_${itr}.pdb initial_restraints.pdb
