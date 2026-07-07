@@ -1,6 +1,6 @@
 #! /bin/tcsh -f
 #
-#  label a PDB file with density values from map/mtz                     -James Holton  10-24-24
+#  label a PDB file with density values from map/mtz                     -James Holton 7-7-26
 #
 #
 #
@@ -85,6 +85,14 @@ tempfile = $tempfile
 debug    = $?debug
 EOF
 
+set test = `tail -n 50 $pdbfile | awk '/^ATOM|^HETAT/ && substr($0,12,1)!=" "{found=1} END{print found+0}'`
+if( $test ) then
+    awk '/^ATOM|^HETAT/{print;exit}' $pdbfile
+    tail -n 50 $pdbfile | tac |awk '/^ATOM|^HETAT/{print;exit}' 
+    set BAD = "register-shifted PDB (6-digit atom numbers) please check what generated it"
+    goto exit
+endif
+
 set t = $tempfile
 
 echo head | mtzdump hklin $mtzfile |\
@@ -116,36 +124,32 @@ echo "mtzlabel = $mtzlabel"
 
 set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.txt`
 
-
+# some new versions of phenix must have a cell
+cat ${t}mtzdump.txt |\
 awk '/Cell Dimensions :/{getline;getline;\
   a=$1;b=$2;c=$3;al=$4;be=$5;ga=$6;next}\
   /Space group =/{split($0,s,"\047");sg=s[2];next}\
   END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' \
-  ${t}mtzdump.txt >! ${t}.pdb
-set test = `tail -50 $pdbfile | awk '/^ATOM|^HETAT/ && substr($0,12,1)!=" "{found=1} END{print found+0}'`
-if( $test ) then
-    set BAD = "register-shifted PDB (6-digit serial numbers) — regenerate with updated rmsd2B"
-    goto exit
-endif
-awk '/^ATOM|^HETAT/{key=substr($0,12,15)" "substr($0,22,5);if(seen[key]++==0)print substr($0,1,80)}' $pdbfile >> ${t}.pdb
-awk '/^ATOM|^HETAT/{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
+ >! ${t}.pdb
+awk '/^ATOM|^HETAT/{print substr($0,1,80)}' $pdbfile >> ${t}.pdb
+
+# key could be off name or xyz position, hard to say
+awk '{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
 phenix.map_value_at_point $mtzfile ${t}.pdb \
           ${phenixlabel}=$mtzlabel scale=sigma |\
-tee ${t}debug.txt |\
+tee ${t}debug_rawlog.txt |\
 cat ${t}key.txt - |\
 awk '$NF=="KEY"{n[$1]=$2;next}\
   /Map value:/ && $3~/^\(/{print "RHO",n[$3],$3,++i,$NF;next}\
   /Map value:/ && /^\"/{rho=$NF;point=substr($0,index($0," Point: "));\
      split(point,w);xyz="(" w[2] w[3] w[4] ")";\
      print "RHO",n[xyz],xyz,++i,$NF}' |\
-tee ${t}debug2.txt |\
+tee ${t}debug_rhovalues.txt |\
 cat - $pdbfile |\
 awk '/^RHO/{rho[$4]=rho[$2]=$NF;next}\
   {gsub("\r","")}\
   ! /^ATOM|^HETAT/{print;next}\
-  {key=substr($0,12,15)" "substr($0,22,5)}\
-  seen[key]++>0{print $0;next}\
   {++n;print $0,"           ",rho[n]}\
   rho[n]==""{print "ERROR: missing rho for atom",n}' |\
 cat >! $outfile
