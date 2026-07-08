@@ -3,6 +3,8 @@
 #   look for waters with bad non-bonds  these will probably explode amber
 #   also check for vacuum-filled voids
 #
+set pdir = `dirname $0`
+
 set pdbfile = ""
 
 set outfile = voids.map
@@ -70,6 +72,15 @@ if($status) then
    mv ${t}sfall.log sfall.log
    goto geom
 endif
+if(-x ${pdir}/float_func) set path = ( ${pdir} $path )
+if(-x ./float_func) set path = ( . $path )
+which float_func >& /dev/null
+if( $status && -e ${pdir}/float_func.c ) then
+  gcc -O -o ${pdir}/float_func ${pdir}/float_func.c -lm
+  gcc -O -o ${pdir}/float_add ${pdir}/float_add.c -lm
+  set path = ( ${pdir} $path )
+endif
+
 float_func -func segment -header 1104 -xsize 128 -ysize 128 \
   ${t}voidme.map -outfile ${t}segments.map >! ${t}segment.log
 
