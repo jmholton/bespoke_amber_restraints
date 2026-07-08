@@ -198,6 +198,10 @@ else
     awk -v salt="NH4 SO4 HOH WAT" \
       'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
   echo "Ligands found: $ligands"
+  if( "$ligands" != "" ) then
+    sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
+    echo "Updated xtal_properties.sourceme: ligands = $ligands"
+  endif
 
   mkdir -p ligands
   cd ligands
