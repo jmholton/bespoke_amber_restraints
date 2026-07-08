@@ -21,6 +21,7 @@ set tempfile = /dev/shm/${USER}/temp_rud_$$_
 mkdir -p /dev/shm/${USER}
 mkdir -p ${CCP4_SCR}
 set logfile = details.log
+set debug = 0
 
 # for printing
 set modulo = 10000
@@ -101,10 +102,12 @@ if( "$CPUs" == "" ) set CPUs = 1
 set thishost = `hostname -s`
 # use cluster or not?
 # cannot migrate hosts because of temp files
+set sruncpu = ""
 set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
 if ( $test ) then
   echo "using slurm"
-  set srun = "srun -w $thishost"
+  if( "$sruncpu" == "" ) set sruncpu = "srun"
+  set srun = "$sruncpu -w $thishost"
   set trajdir = `echo ${trajectory} | awk '{gsub("/$","");print}'`
   set trajdir = `ls -ld ${trajdir} | awk '{print $NF}'`
   if( "$trajdir" != "" && -e "$trajdir" ) then
@@ -114,8 +117,9 @@ if ( $test ) then
   set temptest = `echo $tempfile | awk '{print ( ! /\/dev\/shm/ )}'`
   if( $trajtest && $temptest ) then
     echo "full cluster"
-    set srun = "srun"
+    set srun = "$sruncpu"
   endif
+  if( $debug ) set srun = "$srun -p debug"
 else
   set srun = ""
 endif
@@ -210,7 +214,7 @@ diffmap = $diffmap
 refmap  = $refmap
 
 tempfile = $tempfile
-debug    = $?debug
+debug    = $debug
 EOF
 
 # ignore hydrogens here
@@ -517,7 +521,7 @@ endif
 
 if("$tempfile" == "") set  tempfile = "./"
 set tempdir = `dirname $tempfile`
-if(! $?debug && ! ( "$tempdir" == "." || "$tempdir" == "" ) ) then
+if(! $debug && ! ( "$tempdir" == "." || "$tempdir" == "" ) ) then
     echo "clearing temp files"
     rm -f ${t}*
 endif

@@ -9,6 +9,7 @@ set savespace = 1
 set outfile = sum.map
 set tempfile = /dev/shm/${USER}/temp_$$_mapsum/
 
+set debug = 0
 set srun = auto
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )

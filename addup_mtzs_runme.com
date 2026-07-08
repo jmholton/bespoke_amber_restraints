@@ -8,6 +8,7 @@ set mtzs = ( )
 set tempdir = /dev/shm/${USER}/temp_$$_mtzsum/
 set outfile = sum.mtz
 
+set debug = 0
 set srun = "auto"
 set thishost = `hostname -s`
 set CPUs = `grep proc /proc/cpuinfo | wc -l | awk '{print int($1/4)}'`
