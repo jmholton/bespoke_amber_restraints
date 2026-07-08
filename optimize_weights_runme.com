@@ -427,19 +427,8 @@ EOF
 endif
 
 if( "$ligands" == "auto" ) then
-  set pdb_for_lig = ""
-  foreach try ( refme.pdb amberme.pdb this.pdb )
-    if(-e $try && "$pdb_for_lig" == "") set pdb_for_lig = $try
-  end
-  if( "$pdb_for_lig" != "" ) then
-    set ligands = `filter_pdb.awk -v only=ligand,atoms $pdb_for_lig |\
-      awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
-      awk -v salt="$salt HOH WAT EPW" \
-        'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
-    echo "auto-detected ligands from $pdb_for_lig: $ligands"
-  else
     set ligands = ""
-    echo "WARNING: ligands=auto but no pdb found, treating as no ligands"
+    echo "WARNING: ligands=auto means ligands not set up"
   endif
 endif
 
