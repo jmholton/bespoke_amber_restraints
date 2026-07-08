@@ -32,7 +32,7 @@ set domtzs = 0
 set addmtzs = 0
 
 set debug = 0
-
+set sruncpu = ""
 
 set tempfile = /dev/shm/${USER}/temp_$$_traj/
 
@@ -101,12 +101,14 @@ endif
 set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
 if ( $test ) then
   echo "using slurm"
-  set srun = "srun -w $thishost"
+  if( "$sruncpu" == "" ) set sruncpu = "srun"
+  set srun = "$sruncpu -w $thishost"
   set test = `echo $tempfile | awk '{print ( ! /\/dev\/shm/ )}'`
   if( $test ) then
     echo "full cluster"
-    set srun = "srun"
+    set srun = "$sruncpu"
   endif
+  if( $debug ) set srun = "$srun -p debug"
 else
   set srun = ""
 endif

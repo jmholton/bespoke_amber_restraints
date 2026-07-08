@@ -10,6 +10,7 @@ set outfile = sum.mtz
 
 set debug = 0
 set srun = "auto"
+set sruncpu = ""
 set thishost = `hostname -s`
 set CPUs = `grep proc /proc/cpuinfo | wc -l | awk '{print int($1/4)}'`
 if( "$CPUs" == "" ) set CPUs = 1
@@ -56,13 +57,15 @@ if( "$srun" == "auto" ) then
   if ( $test ) then
     # we have slurm
     set CPUs = 1000
+    if( "$sruncpu" == "" ) set sruncpu = "srun"
     if( "$tempdir" =~ /dev/shm/*  ) then
       echo "using slurm on local node"
-      set srun = "srun -w $thishost"
+      set srun = "$sruncpu -w $thishost"
     else
       echo "using slurm on cluster"
-      set srun = "srun"
+      set srun = "$sruncpu"
     endif
+    if( $debug ) set srun = "$srun -p debug"
   else
     set srun = ""
   endif

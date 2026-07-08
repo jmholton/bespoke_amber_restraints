@@ -11,6 +11,7 @@ set tempfile = /dev/shm/${USER}/temp_$$_mapsum/
 
 set debug = 0
 set srun = auto
+set sruncpu = ""
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
    if(-e $sourceme ) then
@@ -61,13 +62,15 @@ if( "$srun" == "auto" ) then
   set thishost = `hostname -s`
   set test = `sinfo -h -n $thishost |& egrep -vi "drain|n/a|Command not found" | wc -l`
   if ( $test ) then
+    if( "$sruncpu" == "" ) set sruncpu = "srun"
     if( "$tempfile" =~ /dev/shm/*  ) then
       echo "using slurm on local node"
-      set srun = "srun -w $thishost"
+      set srun = "$sruncpu -w $thishost"
     else
       echo "using slurm on cluster"
-      set srun = "srun"
+      set srun = "$sruncpu"
     endif
+    if( $debug ) set srun = "$srun -p debug"
   else
     set srun = ""
   endif
