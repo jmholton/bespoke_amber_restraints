@@ -46,8 +46,10 @@ set thishost = `hostname -s`
 set startepoch = `msdate.com | awk '{print $7}'`
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
-   echo "sourcing $sourceme"
-   if(-e $sourceme ) source $sourceme
+   if(-e $sourceme ) then
+      echo "sourcing $sourceme"
+      source $sourceme
+   endif
 end
 
 # read command line

@@ -19,8 +19,10 @@ setenv CCP4_SCR ${tempfile}_dir/
 mkdir -p $CCP4_SCR
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
-   echo "sourcing $sourceme"
-   if(-e $sourceme ) source $sourceme
+   if(-e $sourceme ) then
+      echo "sourcing $sourceme"
+      source $sourceme
+   endif
 end
 
 # scan command line for settings

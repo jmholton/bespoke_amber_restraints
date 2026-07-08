@@ -286,8 +286,10 @@ if( ! $?pmemd ) then
 endif
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
-   echo "sourcing $sourceme"
-   if(-e $sourceme ) source $sourceme
+   if(-e $sourceme ) then
+      echo "sourcing $sourceme"
+      source $sourceme
+   endif
 end
 
 # read the command line to update variables and other settings
