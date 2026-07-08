@@ -426,6 +426,24 @@ EOF
 
 endif
 
+if( "$ligands" == "auto" ) then
+  set pdb_for_lig = ""
+  foreach try ( refme.pdb amberme.pdb this.pdb )
+    if(-e $try && "$pdb_for_lig" == "") set pdb_for_lig = $try
+  end
+  if( "$pdb_for_lig" != "" ) then
+    set saltpat = `echo $salt | awk '{gsub(/[() ]/," ");for(i=1;i<=NF;++i)printf "%s ",$i; print ""}'`
+    set ligands = `awk '/^HETAT/{print substr($0,18,3)}' $pdb_for_lig | sort -u |\
+      awk -v saltstr="$saltpat HOH WAT EPW" \
+        'BEGIN{n=split(saltstr,s);for(i=1;i<=n;i++)bad[s[i]]=1} \
+         $1!="" && !($1 in bad){print}'`
+    echo "auto-detected ligands from $pdb_for_lig: $ligands"
+  else
+    set ligands = ""
+    echo "WARNING: ligands=auto but no pdb found, treating as no ligands"
+  endif
+endif
+
 set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
 foreach cif ( $ligcifs )
   if(! -e $cif ) then
