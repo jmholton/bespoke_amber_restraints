@@ -41,6 +41,14 @@ set skit = ${pwd}/starter_kit   # starter kit location
 set t    = tempfile
 set path = ( $pdir $path )
 
+# Compile utility binaries into pdir if not already in PATH
+which float_func >& /dev/null
+if( $status && -e ${pdir}/float_func.c ) then
+  echo "Compiling float_func and float_add..."
+  gcc -O -o ${pdir}/float_func ${pdir}/float_func.c -lm
+  gcc -O -o ${pdir}/float_add  ${pdir}/float_add.c  -lm
+endif
+
 if (! -d $skit) then
   echo "ERROR: starter kit not found at $skit"
   echo "       Edit the 'set skit = ...' line near the top of this script"
@@ -148,6 +156,7 @@ set ligands    = auto
 set salt       = ( $salt )
 set salt_conc  = $salt_conc
 set badlinks   = $badlinks
+set path       = ( $pdir \$path )
 EOF
   source xtal_properties.sourceme
 
@@ -192,19 +201,7 @@ if (-e ligands/EG7.mol2) then
 else
   echo ""
   echo "=== Section 3: Ligand force-field files ==="
-  # Auto-detect ligands from PDB, excluding salt ions and water
-  set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
-    awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
-    awk -v salt="NH4 SO4 HOH WAT" \
-      'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
-  echo "Ligands found: $ligands"
-  if( "$ligands" != "" ) then
-    sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
-    echo "Updated xtal_properties.sourceme: ligands = $ligands"
-  endif
-
   mkdir -p ligands
-  cd ligands
 
   # EG7: use Dirk's CIF, which has the correct protonation state.
   # The PDB monomer library (--chemical_component EG7) has a different protonation
@@ -214,6 +211,22 @@ else
     echo "ERROR: EG7.cif not found in starter kit at $skit"
     goto exit
   endif
+
+  if( "$ligands" == "auto" ) then
+  # Auto-detect ligands from PDB, excluding salt ions and water
+  set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
+    awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
+    awk -v salt="NH4 SO4 HOH WAT" \
+      'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
+  echo "Ligands found: $ligands"
+  endif
+  if( "$ligands" != "" ) then
+    sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
+    echo "Updated xtal_properties.sourceme: ligands = $ligands"
+  endif
+
+  cd ligands
+
 
   # Antechamber binary for AM1-BCC charge fallback.
   # Elbow --opt fails on Phenix 2.0+ (RM1 semiempirical > 1 GB virtual memory limit).
