@@ -18,6 +18,7 @@ set tempfile = /dev/shm/${USER}/temp_Bud_$$_
 mkdir -p /dev/shm/${USER}
 mkdir -p ${CCP4_SCR}
 set logfile = details.log
+set debug = 0
 
 # for printing
 set modulo = 10000
@@ -174,7 +175,7 @@ mtzfile = $mtzfile
 fft_B = $fft_B
 
 tempfile = $tempfile
-debug    = $?debug
+debug    = $debug
 EOF
 
 set CPUs = `grep proc /proc/cpuinfo | wc -l | awk '{print int($1/4)}'`
@@ -221,18 +222,19 @@ if( $debug ) set t = ${t}_temp_\$\$_
 cp ${t}smallcell.pdb \${t}.pdb
 awk '/EPW|Y1  HOH|Y 1  HOH/{next} \
  /^ATOM|^HETAT/ && substr(\$0,77,2) !~ / H|XP| Y/' \$pdb |\
-tee -a \${t}.pdb |\
+ tee -a \${t}.pdb |\
 awk '{x=substr(\$0,31,8);y=substr(\$0,39,8);z=substr(\$0,47,8);\
-  printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' >! \${t}key.txt
+  printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}'  >! \${t}key.txt
 phenix.map_value_at_point ${t}diffmap.mtz \${t}.pdb \
           ${phenixlabel}=$mtzlabel scale=sigma |\
+tee \${t}debug.log |\
 cat \${t}key.txt - |\
 awk '\$NF=="KEY"{n[\$1]=\$2;next}\
   /Map value:/ && \$3~/^\(/{print n[\$3],\$3,++i,\$NF;next}\
   /Map value:/ && /^"/{point=substr(\$0,index(\$0," Point: "));\
     split(point,w);xyz="(" w[2] w[3] w[4] ")";\
     print n[xyz],xyz,++i,\$NF}'
-rm -f \${t}*
+if( ! $debug ) rm -f \${t}*
 EOF
 chmod a+x ${t}peek.csh
 
@@ -419,7 +421,7 @@ endif
 
 if("$tempfile" == "") set  tempfile = "./"
 set tempdir = `dirname $tempfile`
-if(! $?debug && ! ( "$tempdir" == "." || "$tempdir" == "" ) ) then
+if(! $debug && ! ( "$tempdir" == "." || "$tempdir" == "" ) ) then
     echo "clearing temp files"
     rm -f ${t}*
 endif
