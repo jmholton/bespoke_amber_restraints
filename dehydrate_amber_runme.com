@@ -130,7 +130,13 @@ else
 endif
 
 echo "probing map values"
-phenix.map_value_at_point $mtzfile ${t}disposable.pdb \
+echo head | mtzdump hklin $mtzfile |\
+awk '/Cell Dimensions :/{getline;getline;\
+  a=$1;b=$2;c=$3;al=$4;be=$5;ga=$6;next}\
+  /Space group =/{split($0,s,"\047");sg=s[2];next}\
+  END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' |\
+cat - ${t}disposable.pdb >! ${t}disposable_c1.pdb
+phenix.map_value_at_point $mtzfile ${t}disposable_c1.pdb \
           ${phenixlabel}=$mtzlabel scale=sigma >! ${t}map_values.log
 
 cat ${t}map_values.log ${t}disposable.pdb |\

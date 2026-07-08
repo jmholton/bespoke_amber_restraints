@@ -42,14 +42,22 @@ set phenixlabel = miller_array.labels.name
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
 if( "$test" == "1" ) set phenixlabel = label
 
+set sruncpu = ""
 
 set smallSG = ""
 set smallSGnum = ""
 set smallCELL = ""
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
-   echo "sourcing $sourceme"
-   if(-e $sourceme ) source $sourceme
+    if(-e $sourceme ) then
+      echo "sourcing $sourceme"
+      source $sourceme
+    else
+      if(-e ../$sourceme ) then
+        echo "sourcing ../$sourceme"
+        source ../$sourceme
+      endif
+    endif
 end
 
 foreach Arg ( $* )
@@ -177,7 +185,8 @@ set thishost = `hostname -s`
 set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
 if ( $test ) then
   echo "using slurm"
-  set srun = "srun -w $thishost"
+  if( "$sruncpu" == "" ) set sruncpu = "srun"
+  set srun = "$sruncpu -w $thishost"
   set trajdir = `echo ${trajectory} | awk '{gsub("/$","");print}'`
   set trajdir = `ls -ld ${trajdir} | awk '{print $NF}'`
   if( "$trajdir" != "" && -e "$trajdir" ) then
@@ -187,13 +196,19 @@ if ( $test ) then
   set temptest = `echo $tempfile | awk '{print ( ! /\/dev\/shm/ )}'`
   if( $trajtest && $temptest ) then
     echo "full cluster"
-    set srun = "srun"
+    set srun = "$sruncpu"
   endif
+  if( $debug ) set srun = "$srun -p debug"
 else
   set srun = ""
 endif
 
 set t = $tempfile
+
+set pdbSG = `awk -v SGnum="$smallSGnum" -F "[\047]" '$1+0==SGnum{print $2;exit}' ${CLIBD}/symop.lib`
+echo $smallCELL $pdbSG |\
+awk '{printf("CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %s %s %s %s\n",$1,$2,$3,$4,$5,$6,$7,$8,$9,$10)}' |\
+cat >! ${t}smallcell.pdb
 
 
 cat << EOF >! ${t}peek.csh
@@ -201,16 +216,22 @@ cat << EOF >! ${t}peek.csh
 set pdb = "\$1"
 set t = /dev/shm/${USER}/temp_\$\$_
 mkdir -p /dev/shm/${USER}
+if( $debug ) set t = ${t}_temp_\$\$_
 #set t = tempfile_temp_
+cp ${t}smallcell.pdb \${t}.pdb
 awk '/EPW|Y1  HOH|Y 1  HOH/{next} \
- /^ATOM|^HETAT/ && substr(\$0,77,2) !~ / H|XP| Y/' \$pdb >! \${t}.pdb
+ /^ATOM|^HETAT/ && substr(\$0,77,2) !~ / H|XP| Y/' \$pdb |\
+tee -a \${t}.pdb |\
 awk '{x=substr(\$0,31,8);y=substr(\$0,39,8);z=substr(\$0,47,8);\
-  printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' \${t}.pdb >! \${t}key.txt
+  printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' >! \${t}key.txt
 phenix.map_value_at_point ${t}diffmap.mtz \${t}.pdb \
           ${phenixlabel}=$mtzlabel scale=sigma |\
 cat \${t}key.txt - |\
 awk '\$NF=="KEY"{n[\$1]=\$2;next}\
-  /Map value:/{print n[\$3],\$3,++i,\$NF}'
+  /Map value:/ && \$3~/^\(/{print n[\$3],\$3,++i,\$NF;next}\
+  /Map value:/ && /^"/{point=substr(\$0,index(\$0," Point: "));\
+    split(point,w);xyz="(" w[2] w[3] w[4] ")";\
+    print n[xyz],xyz,++i,\$NF}'
 rm -f \${t}*
 EOF
 chmod a+x ${t}peek.csh
@@ -231,9 +252,13 @@ wait
 
 echo "averaging results"
 cat ${t}peek_*.txt |\
-awk '{sum[$1]+=$NF;++count[$1]} $1>max{max=$1}\
+awk '{sum[$1]+=$NF;++count[$1]} $1>max{max=$1+0}\
   END{for(n=1;n<=max;++n)if(count[n])print n,sum[n]/count[n],count[n],"FOFC"}' |\
 cat >! ${t}avgfofc.txt
+if( ! -s ${t}avgfofc.txt) then
+  set BAD = "no peek results"
+  goto exit
+endif
 
 # sanity checks?
 set test = `awk '{print $3}' ${t}avgfofc.txt | sort -u | wc -l`

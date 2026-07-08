@@ -96,7 +96,13 @@ if("$test" == "0") then
         cad hklin1 ${tempfile}test.mtz hklout ${tempfile}onecol.mtz << EOF >>& ${tempfile}cad.log
         labin file 1 E1=F E2=PHIF
 EOF
-        phenix.map_value_at_point ${tempfile}onecol.mtz ${tempfile}_probe.pdb \
+        echo head | mtzdump hklin ${tempfile}onecol.mtz |\
+        awk '/Cell Dimensions :/{getline;getline;\
+          a=$1;b=$2;c=$3;al=$4;be=$5;ga=$6;next}\
+          /Space group =/{split($0,s,"\047");sg=s[2];next}\
+          END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' |\
+        cat - ${tempfile}_probe.pdb >! ${tempfile}_probe_c1.pdb
+        phenix.map_value_at_point ${tempfile}onecol.mtz ${tempfile}_probe_c1.pdb \
           ${phenixlabel}=F scale=volume |\
         tee -a ${tempfile}phenix.log |\
         awk '/Map value:/{print $NF}' | tee ${tempfile}phenixpeeks
