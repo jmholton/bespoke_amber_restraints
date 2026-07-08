@@ -212,6 +212,8 @@ awk '{printf("CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %s %s %s %s\n",$1,$2,$3,$4,$5
 cat >! ${t}smallcell.pdb
 
 
+set debuglog = ""
+if( $debug ) set debuglog = '| tee ${t}debug.log'
 cat << EOF >! ${t}peek.csh
 #! /bin/tcsh -f
 set pdb = "\$1"
@@ -226,8 +228,7 @@ awk '/EPW|Y1  HOH|Y 1  HOH/{next} \
 awk '{x=substr(\$0,31,8);y=substr(\$0,39,8);z=substr(\$0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}'  >! \${t}key.txt
 phenix.map_value_at_point ${t}diffmap.mtz \${t}.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma |\
-tee \${t}debug.log |\
+          ${phenixlabel}=$mtzlabel scale=sigma $debuglog |\
 cat \${t}key.txt - |\
 awk '\$NF=="KEY"{n[\$1]=\$2;next}\
   /Map value:/ && \$3~/^\(/{print n[\$3],\$3,++i,\$NF;next}\
