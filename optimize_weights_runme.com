@@ -432,11 +432,8 @@ if( "$ligands" == "auto" ) then
     if(-e $try && "$pdb_for_lig" == "") set pdb_for_lig = $try
   end
   if( "$pdb_for_lig" != "" ) then
-    set saltpat = `echo $salt | awk '{gsub(/[() ]/," ");for(i=1;i<=NF;++i)printf "%s ",$i; print ""}'`
-    set ligands = `awk '/^HETAT/{print substr($0,18,3)}' $pdb_for_lig | sort -u |\
-      awk -v saltstr="$saltpat HOH WAT EPW" \
-        'BEGIN{n=split(saltstr,s);for(i=1;i<=n;i++)bad[s[i]]=1} \
-         $1!="" && !($1 in bad){print}'`
+    set saltpat = `echo $salt | awk '{gsub(/[() ]/," ");$1=$1;print}'`
+    set ligands = `awk '/^HETAT/{print substr($0,18,3)}' $pdb_for_lig | sort -u | awk -v s="$saltpat HOH WAT EPW" 'BEGIN{n=split(s,a);for(i=1;i<=n;i++)bad[a[i]]=1} $1!=""&&!($1 in bad){print}'`
     echo "auto-detected ligands from $pdb_for_lig: $ligands"
   else
     set ligands = ""
