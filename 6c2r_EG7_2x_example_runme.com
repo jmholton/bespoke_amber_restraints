@@ -145,6 +145,9 @@ EOF
 
   # Write crystal properties file — this will be linked into each subdirectory
   # and auto-sourced by generate_alignment_reference_runme.com to pass badlinks
+  if(-e xtal_properties.sourceme) then
+    echo "keeping existing xtal_properties.sourceme"
+  else
   cat << EOF >! xtal_properties.sourceme
 set reso       = $reso
 set smallSG    = $smallSG
@@ -156,9 +159,21 @@ set ligands    = auto
 set salt       = ( $salt )
 set salt_conc  = $salt_conc
 set badlinks   = $badlinks
-set path       = ( $pdir \$path )
 EOF
+endif
   source xtal_properties.sourceme
+
+  # computing environment stuff goes here
+  if(-e compute_settings.sourceme) then
+    echo "keeping existing compute_settings.sourceme"
+  else
+  cat << EOF >! compute_settings.sourceme
+set pdir       = $pdir
+#set sruncpu   = $sruncpu
+#set srungpu   = $srungpu
+EOF
+endif
+  source compute_settings.sourceme
 
   # Expand MTZ to 2×2×2 supercell
   echo "  expanding MTZ to $super_mult supercell..."
@@ -203,26 +218,30 @@ else
   echo "=== Section 3: Ligand force-field files ==="
   mkdir -p ligands
 
-  # EG7: use Dirk's CIF, which has the correct protonation state.
-  # The PDB monomer library (--chemical_component EG7) has a different protonation
-  # that does not match the experimental model.
-  cp ${skit}/37C_EG7/ligands/elbow.EG7_04202024.cif EG7.cif
-  if ($status) then
-    echo "ERROR: EG7.cif not found in starter kit at $skit"
-    goto exit
+  if( $?skit ) then
+    # EG7: use user's CIF, which has the correct protonation state.
+    # The PDB monomer library (--chemical_component EG7) has a different protonation
+    # that does not match the experimental model.
+    cp ${skit}/37C_EG7/ligands/elbow.EG7_04202024.cif ligands/EG7.cif
+    if ($status) then
+      echo "ERROR: EG7.cif not found in starter kit at $skit"
+      goto exit
+    endif
   endif
 
   if( "$ligands" == "auto" ) then
   # Auto-detect ligands from PDB, excluding salt ions and water
   set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
     awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
-    awk -v salt="NH4 SO4 HOH WAT" \
+    awk -v salt="$salt HOH WAT" \
       'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
   echo "Ligands found: $ligands"
   endif
   if( "$ligands" != "" ) then
-    sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
-    echo "Updated xtal_properties.sourceme: ligands = $ligands"
+    if( `grep -c "^set ligands.*auto" xtal_properties.sourceme` ) then
+      sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
+      echo "Updated xtal_properties.sourceme: ligands = $ligands"
+    endif
   endif
 
   cd ligands

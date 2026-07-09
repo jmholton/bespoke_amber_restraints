@@ -1629,7 +1629,7 @@ if ( $trigger ) then
     if( "$dehydrate" == "pressure" ) then
       set dehydrate_thistime = `echo $press $w $pressure_scale_thistime | awk '{print $1*$NF*$(NF-1)}'`
       echo "want to drop $dehydrate_thistime waters"
-      set dehydrate_rounded = `echo $dehydrate_rounded | awk '{printf("%.0f",$1)}'`
+      set dehydrate_rounded = `echo $dehydrate_thistime | awk '{printf("%.0f",$1)}'`
 #      if( $dehydrate_thistime == 0 ) set dehydrate_thistime = 1
     else
       set dehydrate_thistime = "$dehydrate"
