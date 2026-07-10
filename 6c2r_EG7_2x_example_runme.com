@@ -1009,57 +1009,56 @@ else
   if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme opt${o}/
   cd opt${o}
 
+  # Resume: runme1.log present means Stage 1 already ran, so skip the one-time
+  # setup and Stage 1 and jump straight to Stage 2.
+  if (-e runme1.log) goto opt1_stage2
+
   # One-time setup: seed opt1 from the last good iteration of the previous run.
-  # Skipped on resume — runme1.log present means Stage 1 has already started.
-  if (! -e runme1.log) then
-    # Set these to point to the last good iteration from amber1 (or a previous opt):
-    set previtr  = 0          # last good iteration number (0 = use Prod directly)
-    set prevdir  = amber1     # directory containing that iteration
-    set prevprod = Prod       # file stem of the amber rst7/in/out/nc to continue from
+  # Set these to point to the last good iteration from amber1 (or a previous opt):
+  set previtr  = 0          # last good iteration number (0 = use Prod directly)
+  set prevdir  = amber1     # directory containing that iteration
+  set prevprod = Prod       # file stem of the amber rst7/in/out/nc to continue from
 
-    cp ${pdir}/optimize_weights_runme.com .
-    cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
-    cp current_restraints.pdb restraints_for_0.pdb
-    cp ../${prevdir}/${prevprod}.rst7 amber_0.rst7
-    cp ../${prevdir}/${prevprod}.in  amber_0.in
-    cp ../${prevdir}/${prevprod}.out amber_0.out
-    if (-e ../${prevdir}/barometer_${previtr}.out) then
-      cp ../${prevdir}/barometer_${previtr}.out barometer_0.out
-    else
-      cp ../${prevdir}/${prevprod}.out barometer_0.out
-    endif
-    if (-e ../${prevdir}/leap2amber_${previtr}.log) cp ../${prevdir}/leap2amber_${previtr}.log .
-    ln -sf ../${prevdir}/${prevprod}.nc amber_0.nc
-    cp ../centroids/centroids_in_density.pdb all_possible_refpoints.pdb
-    cp ../${prevdir}/xtal.prmtop .
-    cp ../${prevdir}/padded.parm7 .
-    cp ../${prevdir}/orignames.pdb .
-    if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
-    cp ../${prevdir}/chir_omega0.rst .
-    cp chir_omega0.rst chir_omega.rst
-    cp ../xtal_properties.sourceme .
+  cp ${pdir}/optimize_weights_runme.com .
+  cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
+  cp current_restraints.pdb restraints_for_0.pdb
+  cp ../${prevdir}/${prevprod}.rst7 amber_0.rst7
+  cp ../${prevdir}/${prevprod}.in  amber_0.in
+  cp ../${prevdir}/${prevprod}.out amber_0.out
+  if (-e ../${prevdir}/barometer_${previtr}.out) then
+    cp ../${prevdir}/barometer_${previtr}.out barometer_0.out
+  else
+    cp ../${prevdir}/${prevprod}.out barometer_0.out
+  endif
+  if (-e ../${prevdir}/leap2amber_${previtr}.log) cp ../${prevdir}/leap2amber_${previtr}.log .
+  ln -sf ../${prevdir}/${prevprod}.nc amber_0.nc
+  cp ../centroids/centroids_in_density.pdb all_possible_refpoints.pdb
+  cp ../${prevdir}/xtal.prmtop .
+  cp ../${prevdir}/padded.parm7 .
+  cp ../${prevdir}/orignames.pdb .
+  if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+  cp ../${prevdir}/chir_omega0.rst .
+  cp chir_omega0.rst chir_omega.rst
+  cp ../xtal_properties.sourceme .
+
+  # Stage 1: hydrate and settle pressure (no weight changes yet)
+  optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
+      teleport_waters=1 hydrate_itr=1 add_radius=1.8 \
+      pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
+      release_itr=0 repick_itr=0 \
+      min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
+      weight_scale=1 weight_negscale=1 randel_itr=0 \
+      min_align_weight=5 maxitr=20 >&! runme1.log
+  if ($status) then
+    echo "ERROR: optimize_weights Stage 1 failed — details: runme1.log"
+    goto exit
+  endif
+  if (! -e fofc_Rplot.txt) then
+    echo "ERROR: optimize_weights Stage 1 produced no fofc_Rplot.txt"
+    goto exit
   endif
 
-  # Stage 1: hydrate and settle pressure (no weight changes yet).
-  # Skipped on resume once runme1.log exists.
-  if (! -e runme1.log) then
-    optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
-        teleport_waters=1 hydrate_itr=1 add_radius=1.8 \
-        pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
-        release_itr=0 repick_itr=0 \
-        min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-        weight_scale=1 weight_negscale=1 randel_itr=0 \
-        min_align_weight=5 maxitr=20 >&! runme1.log
-    if ($status) then
-      echo "ERROR: optimize_weights Stage 1 failed — details: runme1.log"
-      goto exit
-    endif
-    if (! -e fofc_Rplot.txt) then
-      echo "ERROR: optimize_weights Stage 1 produced no fofc_Rplot.txt"
-      goto exit
-    endif
-  endif
-
+opt1_stage2:
   # Stage 2: scale up max_mult — let pressure re-equilibrate before enabling Bfac_maxmod
   optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1.1 \
       teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
