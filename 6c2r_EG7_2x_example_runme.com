@@ -222,20 +222,30 @@ else
     # EG7: use user's CIF, which has the correct protonation state.
     # The PDB monomer library (--chemical_component EG7) has a different protonation
     # that does not match the experimental model.
-    cp ${skit}/37C_EG7/ligands/elbow.EG7_04202024.cif ligands/EG7.cif
-    if ($status) then
-      echo "ERROR: EG7.cif not found in starter kit at $skit"
-      goto exit
+    set lig = EG7
+    foreach ext ( cif pdb mol2 frcmod )
+      set candidate = `find $skit -name 'elbow.'${lig}'*'.$ext | head -n 1`
+      if(-e "$candidate") then
+        echo "taking $candidate as ${lig}.cif from $skit"
+        #cp ${skit}/37C_EG7/ligands/elbow.EG7_04202024.cif ligands/EG7.cif
+        cp $candidate ligands/${lig}.cif
+      endif
+    end
+    # 1. Starter kit — fastest, no QM
+    if (! -e ${lig}.mol2 && -e ${skit}/37C_EG7/ligands/${lig}.mol2) then
+      echo "taking $lig from $skit"
+      cp ${skit}/37C_EG7/ligands/${lig}.mol2 ligands/
+      cp ${skit}/37C_EG7/ligands/${lig}.frcmod ligands/
     endif
   endif
 
   if( "$ligands" == "auto" ) then
-  # Auto-detect ligands from PDB, excluding salt ions and water
-  set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
-    awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
-    awk -v salt="$salt HOH WAT" \
-      'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
-  echo "Ligands found: $ligands"
+    # Auto-detect ligands from PDB, excluding salt ions and water
+    set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
+      awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
+      awk -v salt="$salt HOH WAT" \
+        'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
+    echo "Ligands found: $ligands"
   endif
   if( "$ligands" != "" ) then
     if( `grep -c "^set ligands.*auto" xtal_properties.sourceme` ) then
@@ -263,26 +273,37 @@ else
     endif
   end
 
+  touch elbow.log
   foreach lig ( $ligands )
-    # 1. Starter kit — fastest, no QM
-    if (! -e ${lig}.mol2 && -e ${skit}/37C_EG7/ligands/${lig}.mol2) then
-      cp ${skit}/37C_EG7/ligands/${lig}.mol2 .
-      cp ${skit}/37C_EG7/ligands/${lig}.frcmod .
-    endif
-    if (-e ${lig}.mol2) continue
+    if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
     # 2. Elbow with --opt (full QM; ~16 GB; works on Phenix dev-5353 and earlier)
     if (-e ${lig}.cif) then
-      phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files
+      echo "elbow $lig from cif..."
+      phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files >> elbow.log
     endif
-    if (-e ${lig}.mol2) continue
+    if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
+    if (-e ${lig}.cif ) then
+      echo "elbow $lig from cif with more memory..."
+      phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files --memory=128G >> elbow.log
+    endif
+    echo "elbow $lig from scratch"
     phenix.elbow --chemical_component $lig --id=${lig} --opt --opt_nproc=10 \
-      --amber_force_field_files
-    if (-e ${lig}.mol2) continue
+      --amber_force_field_files >> elbow.log
+    if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
+    echo "elbow $lig with more memory"
+    phenix.elbow --chemical_component $lig --id=${lig} --opt --opt_nproc=10 \
+      --amber_force_field_files --memory=128G >> elbow.log
+    if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
+    if (! -e ${lig}.pdb && -e ${lig}.mol2) then
+      echo "elbow to get pdb from ${lig}.mol2"
+      phenix.elbow ${lig}.mol2 --id=${lig} >> elbow.log
+    endif
+    if (! -e ${lig}.pdb) then
+      echo "elbow to get pdb from scratch"
+      phenix.elbow --chemical_component $lig --id=${lig} >> elbow.log
+    endif
     # 3. Antechamber AM1-BCC fallback (bypasses Phenix RM1 limit)
     # Elbow geometry-only (no --opt) produces .pdb and .cif without QM charges.
-    if (! -e ${lig}.pdb) then
-      phenix.elbow --chemical_component $lig --id=${lig} > ${lig}_elbow_geom.log
-    endif
     if (-e ${lig}.pdb && "$antechamber_cmd" != "") then
       set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
         in_a && /^[A-Z][A-Z0-9]* / && NF>=5{sum+=$5} \
@@ -389,8 +410,10 @@ else
   ln -sf ../starthere_asu.pdb starthere.pdb
   ln -sf ../refme_small.mtz refme.mtz
   ln -sf ../xtal_properties.sourceme .
-  cp ../ligands/*.cif .
-  set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
+  foreach lig ( $ligands $salt )
+    cp ../ligands/${lig}.cif .
+  end
+  set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
 
   echo "  building missing atoms (details: buildout.log)..."
   buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
@@ -428,8 +451,11 @@ else
   mkdir -p amber_asu
   cd amber_asu
 
-  cp ../ligands/*.mol2 .
-  cp ../ligands/*.frcmod .
+  foreach lig ( $ligands $salt )
+    foreach ext ( cif pdb mol2 frcmod )
+      cp ../ligands/${lig}.${ext} .
+    end
+  end
   ln -sf ../build1/thisone.pdb starthere.pdb
   cp ../HIS_settings_asu.txt HIS_settings.txt
 
@@ -494,10 +520,15 @@ else
 
   ln -sf ../build1/thisone.pdb starthere.pdb
   ln -sf ../refme_small.mtz refme.mtz
-  cp ../ligands/*.cif .
+  foreach lig ( $ligands $salt )
+    foreach ext ( cif )
+      cp ../ligands/${lig}.${ext} .
+    end
+  end
   ln -sf ../xtal_properties.sourceme .   # REQUIRED: passes badlinks to no_new_nonbonds_runme.com
   if( ! $?ligcifs ) then
-    set ligcifs = `cd ../ligands ; ls -1 *.cif |& awk '/.cif/'`
+    set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
+    #set ligcifs = `cd ../ligands ; ls -1 *.cif |& awk '/.cif/'`
   endif
 
   # Note on badlinks (AMPPNP only): badlinks=1 suppresses a spurious Lys141-NZ to
@@ -540,8 +571,13 @@ else
   ln -sf ../garr1/centroids_final_001.pdb centroids_asu.pdb
   ln -sf ../build1/thisone.pdb fulllength_asu.pdb
   ln -sf ../refme_small.mtz .
-  cp ../ligands/*.cif .
-  set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
+  foreach lig ( $ligands $salt )
+    foreach ext ( cif )
+      cp ../ligands/${lig}.${ext} .
+    end
+  end
+  set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
+  #set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
 
   # Verify centroid orientation vs full-length model
   echo "flip to target:"
@@ -657,9 +693,14 @@ else
 
   ln -sf ../refme.mtz .
   ln -sf ../centroids/fulllength_super.pdb starthere.pdb
-  cp ../ligands/*.cif .
+  foreach lig ( $ligands $salt )
+    foreach ext ( cif )
+      cp ../ligands/${lig}.${ext} .
+    end
+  end
   if( ! $?ligcifs ) then
-    set ligcifs = `cd ../ligands ; ls -1 *.cif |& awk '/.cif/'`
+    set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
+    #set ligcifs = `cd ../ligands ; ls -1 *.cif |& awk '/.cif/'`
   endif
 
   cat << EOF >! opts.eff
@@ -791,10 +832,12 @@ else
   if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme amber1/
   cd amber1
 
-  cp ../ligands/*.mol2 .
-  cp ../ligands/*.frcmod .
-  cp ../ligands/*.pdb .
-  set ligs = `ls -1 *.mol2 | awk -F "." '{print $1}'`
+  foreach lig ( $ligands $salt )
+    foreach ext ( cif pdb mol2 frcmod )
+      cp ../ligands/${lig}.${ext} .
+    end
+  end
+  #set ligs = `ls -1 *.mol2 | awk -F "." '{print $1}'`
   ln -sf ../refme.mtz .
   ln -sf ../super_refine1/thisone.pdb starthere.pdb
   cp starthere.pdb refined.pdb
@@ -832,7 +875,7 @@ source leaprc.gaff2
 loadAmberParams frcmod.ff19SBmodAA
 loadOff mod_amino19.lib
 EOF
-  foreach lig ( $ligs )
+  foreach lig ( $ligands $salt )
     cat << EOF >> tleap_stub.in
 $lig = loadMol2 ${lig}.mol2
 loadAmberParams ${lig}.frcmod

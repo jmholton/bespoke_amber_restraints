@@ -818,7 +818,9 @@ filter_pdb.awk -v skip=EP this.pdb >! refme.pdb
 
 # check for inverted chiral centers and cis peptides
 echo "checking chiral centers and peptide bonds"
-awk '! /HOH/{print substr($0,1,80)}' refme.pdb >! protein.pdb
+set liglist = `echo $ligands | awk '{gsub(" ",",");print}'`
+filter_pdb.awk -v only=protein,ligand -v ligand=$liglist -v skip=H,water refme.pdb |\
+awk '{print substr($0,1,80)}' >! protein.pdb
 ( phenix.omegalyze protein.pdb >! omegalyze_${prev}.log ) >& /dev/null &
 ( phenix.chiral_validation protein.pdb >! chiralyze_${prev}.log ) >& /dev/null &
 
