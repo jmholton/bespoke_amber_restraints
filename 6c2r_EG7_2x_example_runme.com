@@ -230,12 +230,12 @@ if( $?skit ) then
   # The PDB monomer library (--chemical_component EG7) has a different protonation
   # that does not match the experimental model.
   set lig = EG7
+  # find -L: $skit is often a symlink, and plain find will not descend into it
   foreach ext ( cif pdb mol2 frcmod )
-    set candidate = `find $skit -name 'elbow.'${lig}'*'.$ext | head -n 1`
+    set candidate = `find -L $skit -name 'elbow.'${lig}'*'.$ext | head -n 1`
     if(-e "$candidate") then
-      echo "taking $candidate as ${lig}.cif from $skit"
-      #cp ${skit}/37C_EG7/ligands/elbow.EG7_04202024.cif ligands/EG7.cif
-      cp $candidate ligands/${lig}.cif
+      echo "taking $candidate as ${lig}.$ext from $skit"
+      cp $candidate ligands/${lig}.$ext
     endif
   end
   # 1. Starter kit — fastest, no QM
@@ -283,6 +283,19 @@ end
 touch elbow.log
 foreach lig ( $ligands )
   if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
+  # If the FF files are already in hand (e.g. from the starter kit) and only the
+  # pdb is missing, derive it cheaply — do NOT fall through to the elbow --opt
+  # tiers, which waste ~16 GB/time and can overwrite the good .cif.
+  if (-e ${lig}.mol2 && -e ${lig}.cif && -e ${lig}.frcmod && ! -e ${lig}.pdb) then
+    echo "deriving ${lig}.pdb from ${lig}.mol2 (no QM)"
+    if ("$antechamber_cmd" != "") then
+      ${antechamber_cmd} -i ${lig}.mol2 -fi mol2 -o ${lig}.pdb -fo pdb >>& elbow.log
+    endif
+    if (! -e ${lig}.pdb) then
+      phenix.elbow ${lig}.mol2 --id=${lig} >> elbow.log
+    endif
+  endif
+  if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
   # 2. Elbow with --opt (full QM; ~16 GB; works on Phenix dev-5353 and earlier)
   if (-e ${lig}.cif) then
     echo "elbow $lig from cif..."
@@ -315,6 +328,7 @@ foreach lig ( $ligands )
     set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
       in_a && /^[A-Z][A-Z0-9]* / && NF>=5{sum+=$5} \
       END{print int(sum<0?sum-0.5:sum+0.5)}' ${lig}.cif`
+    if ("$nc" == "") set nc = 0   # no parseable .cif -> assume neutral (avoids antechamber odd-args fatal)
     echo "Generating ${lig}.mol2 via antechamber AM1-BCC (net charge $nc)"
     ${antechamber_cmd} -i ${lig}.pdb -fi pdb -o ${lig}.mol2 -fo mol2 \
       -c bcc -nc $nc -at gaff2 > ${lig}_antechamber.log
@@ -346,6 +360,7 @@ foreach lig ( $salt )
     set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
       in_a && /^[A-Z][A-Z0-9]* / && NF>=5{sum+=$5} \
       END{print int(sum<0?sum-0.5:sum+0.5)}' ${lig}.cif`
+    if ("$nc" == "") set nc = 0   # no parseable .cif -> assume neutral (avoids antechamber odd-args fatal)
     echo "Generating ${lig}.mol2 via antechamber AM1-BCC (net charge $nc)"
     ${antechamber_cmd} -i ${lig}.pdb -fi pdb -o ${lig}.mol2 -fo mol2 \
       -c bcc -nc $nc -at gaff2 > ${lig}_antechamber.log
