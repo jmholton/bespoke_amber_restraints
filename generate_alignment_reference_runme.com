@@ -51,6 +51,7 @@ set tempfile = tempfile
 set debug = 0
 
 if(-e xtal_properties.sourceme) source xtal_properties.sourceme
+if(! $?super_mult) set super_mult = 1,1,1   # no supercell expansion unless told otherwise
 
 # read the command line to update variables and other settings
 foreach Arg ( $* )

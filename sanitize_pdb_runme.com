@@ -5,10 +5,11 @@
 set pdbfile = starthere.pdb
 
 
-source xtal_properties.sourceme
+if(-e xtal_properties.sourceme) source xtal_properties.sourceme
 
 if(! $?srun) set srun = "srun"
 if(! $?badlinks) set badlinks = 0
+if(! $?ligands) set ligands = ""
 
 set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i)print $i ".cif"}'`
 

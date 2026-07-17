@@ -55,6 +55,10 @@ if (! -d $skit) then
   goto exit
 endif
 
+# compute-environment defaults (override these in compute_settings.sourceme)
+set sruncpu = "srun"                # command prefix for CPU / serial jobs
+set srungpu = "srun --gres=gpu:1"   # command prefix for GPU jobs
+
 if (-e compute_settings.sourceme) source compute_settings.sourceme
 
 if (! $?AMBERHOME) source /programs/amber22/amber.csh
@@ -171,8 +175,8 @@ if(-e compute_settings.sourceme) then
 else
   cat << EOF >! compute_settings.sourceme
 set pdir       = $pdir
-#set sruncpu   = $sruncpu
-#set srungpu   = $srungpu
+set sruncpu    = "$sruncpu"
+set srungpu    = "$srungpu"
 EOF
 endif
 source compute_settings.sourceme
