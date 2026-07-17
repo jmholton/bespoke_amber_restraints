@@ -1054,12 +1054,12 @@ cp ../xtal_properties.sourceme .
 
 # Stage 1: hydrate and settle pressure (no weight changes yet)
 optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
-    teleport_waters=1 hydrate_itr=1 add_radius=1.8 \
+    teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
     release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scale=1 weight_negscale=1 randel_itr=0 \
-    min_align_weight=5 maxitr=20 >&! runme1.log
+    min_align_weight=0.01 maxitr=20 >&! runme1.log
 if ($status) then
   echo "ERROR: optimize_weights Stage 1 failed — details: runme1.log"
   goto exit
@@ -1077,7 +1077,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1.1
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
-    min_align_weight=1 align_target=centroids align_nstlim=0 \
+    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
     halfrho_neg=3.5 halfrho_pos=auto maxitr=20 >&! runme2.log
 if ($status) then
   echo "ERROR: optimize_weights Stage 2 failed — details: runme2.log"
@@ -1149,7 +1149,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scale=0.95 weight_negscale=0.9 randel_itr=0 \
-    min_align_weight=0.5 align_target=centroids align_nstlim=250000 \
+    min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
     halfrho_neg=auto halfrho_pos=auto maxitr=20 >&! runme1.log
 if ($status) then
   echo "ERROR: optimize_weights opt2 failed — details: runme1.log"
