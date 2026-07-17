@@ -184,6 +184,8 @@ set chiral_weight_ramp = none
 #set omega_weight = 50
 set omega_weight = 0
 set omega_weight_ramp = none
+# exit with an error as soon as any cis peptide appears (rather than fighting it with omega weights)
+set exit_on_cis = 0
 # periodically re-map water names
 set remap_itr = 0
 # periodically wrap non-restrained atoms to inside the supercell
@@ -229,7 +231,7 @@ set avglast = 1
 set avglast_ramp = none
 # equilibrate the system for a bit before doing a produciton run
 set equi_ns = 0.2
-set equi_dt = 0.001
+set equi_dt = 0.0005
 set equi_ns_ramp = none
 # production run lenght in nanoseconds
 set prod_ns = 0.5
@@ -274,6 +276,7 @@ set nwaters = ""
 
 set debug = 0
 
+# need better scratch-finding logic perhaps
 set scratch = /scratch/${USER}/opt_`hostname -s`_$$_
 mkdir -p /scratch/${USER}
 
@@ -3213,6 +3216,12 @@ EOF
   echo "$ninv inverted chiral centers, $ncis cis peptides ( $worstomega[2] deg) and $ngeoproblems geometry problems"
   touch quickgeo_vs_itr.txt
   echo "$itr   $ninv $ncis $ngeoproblems    $worstchir $worstomega  $worstgeo" >> quickgeo_vs_itr.txt
+
+  # optionally bail out (with error) the moment any cis peptide shows up
+  if( $exit_on_cis && $ncis ) then
+    set BAD = "$ncis cis peptides at itr $itr ( worst omega residue $worstomega[1], see quickgeo_vs_itr.txt )"
+    goto exit
+  endif
 
   if( $ninv == 0 && "$chiral_weight" != "0" ) then
     echo "turning off chiral restraints"
