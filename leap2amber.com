@@ -1,5 +1,5 @@
 #! /bin/tcsh -f
-#                                                                   -James Holton 5-8-25
+#                                                                   -James Holton 7-20-26
 #   Script for standard amber rigamrol given:
 #    leap input file (will be copied and edited by command-line options)
 #    original names PDB
@@ -25,6 +25,7 @@ mkdir -p ${CCP4_SCR}
 set logfile = debuglog.log
 set debug = 0
 
+# defaults to be overridden below
 set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
 set pmemin = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_DPFP"
 set sander = "srun --partition=xds sander.OMP"
@@ -1164,6 +1165,11 @@ foreach Stage ( $Stages )
     ln -sf ${t}${laStage}.crd ${t}${laStage}.rst7
   endif
 
+  # tempfiles are useless on the cluster
+  foreach file ( ${Stage}.in ref.crd ${laStage}.rst7 xtal.prmtop )
+    cp ${t}$file $file
+  end
+
   set pmemdx = "$pmemd"
   if("$Stage" == "Heat" ) set pmemdx = "$pmemin"
   if("$Stage" == "Cool" ) set pmemdx = "$pmemin"
@@ -1172,10 +1178,10 @@ foreach Stage ( $Stages )
 try2:
   echo "running $laStage -> $Stage"
   rm -f ${t}${Stage}.rst7
-  $pmemdx -O -i ${t}${Stage}.in -o ${t}${Stage}.out \
-   -p ${t}xtal.prmtop \
-   -c ${t}${laStage}.rst7 \
-   -ref ${t}ref.crd \
+  $pmemdx -O -i ${Stage}.in -o ${t}${Stage}.out \
+   -p xtal.prmtop \
+   -c ${laStage}.rst7 \
+   -ref ref.crd \
    -r ${t}${Stage}.rst7 \
    -x ${t}${Stage}.nc \
    -inf ${t}${Stage}.mdinfo
