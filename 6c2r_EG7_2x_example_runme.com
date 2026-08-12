@@ -21,6 +21,12 @@
 #   6c2r / AMPPNP  0.01             3.5           Dirk's private dataset; badlinks=1
 #   1aho           0                3.5           no ligand
 #
+# Optimization: Sections 11-12 (opt1/opt2) bring the model into density;
+# Sections 13-15 (opt3-opt5) are the production continuation - pressure-driven
+# dehydration, settle to steady near-zero pressure, then minimal-restraint
+# production (allatom_weight=0, weight_scale=0.9).  See the PRODUCTION
+# CONTINUATION header above Section 13 for the recipe and monitoring commands.
+#
 # Re-run safety: each section checks for its key output file and skips if already done.
 # This makes re-running safe after a crash — only incomplete sections re-execute.
 
