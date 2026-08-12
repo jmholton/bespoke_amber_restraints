@@ -37,9 +37,9 @@ BEGIN{
 {
     if(debug) print "DEBUG" substr($0,6);
     atom=substr($0,12,5);
-      atm=atom;gsub(" ","",atm);
+      atm=atom;gsub("[[:space:]]","",atm);
     typ = substr($0,18,3);
-    Ee = substr($0,77,4);gsub(" ","",Ee);
+    Ee = substr($0,77,4);gsub("[[:space:]]","",Ee);
 #    atomEe=substr($0,13,2);gsub(" ","",atomEe);
     protein=water=ligand=salt=EP=0;
 }
