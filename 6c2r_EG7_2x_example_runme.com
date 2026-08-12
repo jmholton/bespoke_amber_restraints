@@ -50,8 +50,15 @@ if( $status && -e ${pdir}/float_func.c ) then
 endif
 
 if (! -d $skit) then
-  echo "ERROR: starter kit not found at $skit"
-  echo "       Edit the 'set skit = ...' line near the top of this script"
+cat << EOF
+ERROR: starter kit not found at $skit
+recommend something like:
+  ln -sf ~/projects/git/bespoke_amber_restraints .
+  ln -sf ~/projects/amber/6c2r_AMPPNP/claude/starter_kit/ starter_kit
+  bespoke_amber_restraints/6c2r_EG7_2x_example_runme.com |& tee example_test1.log
+or
+  Edit the 'set skit = ...' line near the top of this script
+EOF
   goto exit
 endif
 
@@ -992,7 +999,7 @@ leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
   cool_ns=0.001 heat_ns=0.5 equi_ns=0.5 prod_ns=0.5 \
   cool_slowdown=5 heat_slowdown=1 equi_slowdown=1 \
   restrain_omega=0 omega_weight=0 chiral_weight=0 \
-  debug=1 >&! leap2amber_${itr}.log
+  debug=0 >&! leap2amber_${itr}.log
 if (! -e Prod.rst7) then
   echo "ERROR: leap2amber.com did not produce Prod.rst7 — details: leap2amber_${itr}.log"
   goto exit
