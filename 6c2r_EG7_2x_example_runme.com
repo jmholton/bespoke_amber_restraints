@@ -74,7 +74,15 @@ set srungpu = "srun --gres=gpu:1"   # command prefix for GPU jobs
 
 if (-e compute_settings.sourceme) source compute_settings.sourceme
 
-if (! $?AMBERHOME) source /programs/amber22/amber.csh
+if (! $?AMBERHOME) then
+  # amber.csh derives AMBERHOME from $_, which is EMPTY in a non-interactive
+  # tcsh -f script, so it would set AMBERHOME=cwd and leave tleap/sander off
+  # PATH.  cd into the amber dir first so its fallback invocationpath ('.')
+  # resolves to the real amber root.
+  set _here = $cwd
+  cd /programs/amber22 && source amber.csh
+  cd $_here
+endif
 if (! $?PHENIX)    source /programs/phenix/phenix_env.csh
 if (! $?CCP4)      source /programs/ccp4-9/bin/ccp4.setup-csh
 
@@ -534,9 +542,18 @@ awk '/HIS|HIE|HID|HIP/ && $NF=="H"{next} {print}' |\
 egrep -v "LINK" >! tleapme.pdb
 
 tleap -f tleap_stub.in >&! tleap.log
+set tleap_status = $status
 
 set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' tleap.log`
 set charge  = `echo $charge0 $nsymops | awk '{print $1*$2}'`
+# fail loudly if tleap did not run / build a topology / report a charge -
+# e.g. amber tools off PATH shows "tleap: Command not found" in tleap.log and
+# leaves the ASU charge blank (do not silently continue with a bogus 0).
+if ( $tleap_status || ! -e xtal.prmtop || "$charge0" == "" ) then
+  echo "ERROR: tleap failed in amber_asu - no topology / ASU charge (see amber_asu/tleap.log)."
+  echo "       Amber may be off PATH - check 'which tleap' and that AMBERHOME points to amber22."
+  goto exit
+endif
 echo "  ASU charge $charge0, cell charge $charge" | tee cell_charge.txt
 
 cd ..
