@@ -304,19 +304,10 @@ end
 touch elbow.log
 foreach lig ( $ligands )
   if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
-  # If the FF files are already in hand (e.g. from the starter kit) and only the
-  # pdb is missing, derive it cheaply — do NOT fall through to the elbow --opt
-  # tiers, which waste ~16 GB/time and can overwrite the good .cif.
-  if (-e ${lig}.mol2 && -e ${lig}.cif && -e ${lig}.frcmod && ! -e ${lig}.pdb) then
-    echo "deriving ${lig}.pdb from ${lig}.mol2 (no QM)"
-    if ("$antechamber_cmd" != "") then
-      ${antechamber_cmd} -i ${lig}.mol2 -fi mol2 -o ${lig}.pdb -fo pdb >>& elbow.log
-    endif
-    if (! -e ${lig}.pdb) then
-      phenix.elbow ${lig}.mol2 --id=${lig} >> elbow.log
-    endif
-  endif
-  if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
+  # Try elbow first - it may now succeed (a newer Phenix, and --amber_force_field_files
+  # needs amber on PATH, which is now set up correctly).  It runs from the starter
+  # kit's correct-protonation .cif.  If every elbow tier fails, the loop falls
+  # through to the antechamber AM1-BCC path below (which uses the kit .mol2/.cif).
   # 2. Elbow with --opt (full QM; ~16 GB; works on Phenix dev-5353 and earlier)
   if (-e ${lig}.cif) then
     echo "elbow $lig from cif..."
