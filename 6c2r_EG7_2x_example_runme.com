@@ -237,6 +237,24 @@ sec2done:
 #==============================================================================
 # SECTION 3 — Ligand force-field files
 #==============================================================================
+# Resolve the ligand list BEFORE the skip guard so re-runs that already have the
+# FF files still set $ligands (and heal a stale "auto" in xtal_properties.sourceme)
+# for the downstream sections that copy ${lig}.cif/pdb/mol2/frcmod (e.g. amber_asu).
+if( "$ligands" == "auto" ) then
+  # Auto-detect ligands from PDB, excluding salt ions and water
+  set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
+    awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
+    awk -v salt="$salt HOH WAT" \
+      'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
+  echo "Ligands found: $ligands"
+endif
+if( "$ligands" != "" ) then
+  if( `grep -c "^set ligands.*auto" xtal_properties.sourceme` ) then
+    sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
+    echo "Updated xtal_properties.sourceme: ligands = $ligands"
+  endif
+endif
+
 if (-e ligands/EG7.mol2) then
   echo ""
   echo "=== Section 3: already done, skipping ==="
@@ -264,21 +282,6 @@ if( $?skit ) then
     echo "taking $lig from $skit"
     cp ${skit}/37C_EG7/ligands/${lig}.mol2 ligands/
     cp ${skit}/37C_EG7/ligands/${lig}.frcmod ligands/
-  endif
-endif
-
-if( "$ligands" == "auto" ) then
-  # Auto-detect ligands from PDB, excluding salt ions and water
-  set ligands = `filter_pdb.awk -v only=ligand,atoms starthere_asu.pdb |\
-    awk '/^HETAT/{print substr($0,18,3)}' | sort -u |\
-    awk -v salt="$salt HOH WAT" \
-      'BEGIN{n=split(salt,s);for(i=1;i<=n;i++)bad[s[i]]=1} {if($1 in bad)next; print}'`
-  echo "Ligands found: $ligands"
-endif
-if( "$ligands" != "" ) then
-  if( `grep -c "^set ligands.*auto" xtal_properties.sourceme` ) then
-    sed -i "s|^set ligands.*|set ligands    = $ligands|" xtal_properties.sourceme
-    echo "Updated xtal_properties.sourceme: ligands = $ligands"
   endif
 endif
 
