@@ -543,7 +543,7 @@ set charge  = `echo $charge0 $nsymops | awk '{print $1*$2}'`
 # fail loudly if tleap did not run / build a topology / report a charge -
 # e.g. amber tools off PATH shows "tleap: Command not found" in tleap.log and
 # leaves the ASU charge blank (do not silently continue with a bogus 0).
-if ( $tleap_status || ! -e xtal.prmtop || "$charge0" == "" ) then
+if ( $tleap_status || ! -s xtal.prmtop || "$charge0" == "" ) then
   echo "ERROR: tleap failed in amber_asu - no topology / ASU charge (see amber_asu/tleap.log)."
   echo "       Amber may be off PATH - check 'which tleap' and that AMBERHOME points to amber22."
   goto exit
