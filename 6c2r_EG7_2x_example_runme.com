@@ -307,6 +307,7 @@ end
 touch elbow.log
 foreach lig ( $ligands )
   if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
+  echo "building force field for $lig (elbow first, then antechamber; verbose output and non-fatal failures go to elbow.log)"
   # Try elbow first - it may now succeed (a newer Phenix, and --amber_force_field_files
   # needs amber on PATH, which is now set up correctly).  It runs from the starter
   # kit's correct-protonation .cif.  If every elbow tier fails, the loop falls
@@ -314,28 +315,28 @@ foreach lig ( $ligands )
   # 2. Elbow with --opt (full QM; ~16 GB; works on Phenix dev-5353 and earlier)
   if (-e ${lig}.cif) then
     echo "elbow $lig from cif..."
-    phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files >> elbow.log
+    phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files >>& elbow.log
   endif
   if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
   if (-e ${lig}.cif ) then
     echo "elbow $lig from cif with more memory..."
-    phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files --memory=128G >> elbow.log
+    phenix.elbow ${lig}.cif --id=${lig} --opt --opt_nproc=10 --amber_force_field_files --memory=128G >>& elbow.log
   endif
   echo "elbow $lig from scratch"
   phenix.elbow --chemical_component $lig --id=${lig} --opt --opt_nproc=10 \
-    --amber_force_field_files >> elbow.log
+    --amber_force_field_files >>& elbow.log
   if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
   echo "elbow $lig with more memory"
   phenix.elbow --chemical_component $lig --id=${lig} --opt --opt_nproc=10 \
-    --amber_force_field_files --memory=128G >> elbow.log
+    --amber_force_field_files --memory=128G >>& elbow.log
   if (-e ${lig}.mol2 && -e ${lig}.pdb && -e ${lig}.cif && -e ${lig}.frcmod) continue
   if (! -e ${lig}.pdb && -e ${lig}.mol2) then
     echo "elbow to get pdb from ${lig}.mol2"
-    phenix.elbow ${lig}.mol2 --id=${lig} >> elbow.log
+    phenix.elbow ${lig}.mol2 --id=${lig} >>& elbow.log
   endif
   if (! -e ${lig}.pdb) then
     echo "elbow to get pdb from scratch"
-    phenix.elbow --chemical_component $lig --id=${lig} >> elbow.log
+    phenix.elbow --chemical_component $lig --id=${lig} >>& elbow.log
   endif
   # 3. Antechamber AM1-BCC fallback (bypasses Phenix RM1 limit)
   # Elbow geometry-only (no --opt) produces .pdb and .cif without QM charges.
@@ -354,6 +355,20 @@ foreach lig ( $ligands )
     echo "  Tried: starter kit, elbow --opt, antechamber AM1-BCC"
     echo "  Check: ${lig}_elbow_geom.log, ${lig}_antechamber.log"
     goto exit
+  endif
+end
+# Per-ligand force-field outcome - runs for every ligand no matter which path it
+# took above, so a noisy (but non-fatal) elbow traceback in elbow.log is never
+# mistaken for failure of the ligand.  READY means amber has a usable mol2+frcmod.
+foreach lig ( $ligands )
+  set havefiles = ""
+  foreach ext ( mol2 frcmod cif pdb )
+    if (-e ${lig}.$ext) set havefiles = "$havefiles $ext"
+  end
+  if (-e ${lig}.mol2 && -e ${lig}.frcmod) then
+    echo "  ==> $lig force field READY:$havefiles"
+  else
+    echo "  ==> $lig force field INCOMPLETE:$havefiles  (see elbow.log / ${lig}_antechamber.log)"
   endif
 end
 
@@ -406,29 +421,36 @@ if (-e HIS_settings_asu.txt) then
 endif
 echo ""
 echo "=== Section 4: HIS protonation ==="
-# HIS protonation is determined by QM using the Phenix quantum interface.
-# Pre-computed results for this protein are in the starter kit.
-#
-# To regenerate from scratch (only if the protein sequence changes):
-#   Working directory: ~/projects/his_flips/ (or any clean directory)
-#   cp starthere_asu.pdb Dirk.pdb
-#   cp ligands/EG7.cif .
-#   phenix.ready_set Dirk.pdb           # adds H; produces Dirk.updated.pdb
-#   echo 1 | mmtbx.quantum_interface iterate_NQH=HIS Dirk.updated.pdb \
-#     | tee options_Dirk.log            # identifies HIS residues; generates .phil files
-#   # For each generated Dirk.updated_A_NNN_HIS.phil:
-#   mmtbx.quantum_interface Dirk.updated.pdb iterate_NQH=HIS \
-#     Dirk.updated_A_NNN_HIS.phil run_qmr=True qi.nproc=6 EG7.cif |& tee philN.log
-#   # Collect votes and tabulate (see ~/projects/his_flips/HIS_protonation_QM_notes.com)
-#   # Output: HIS_settings.txt — copy to this directory as HIS_settings_asu.txt
+# HIS protonation (HID/HIE/HIP) is determined by QM with the Phenix quantum
+# interface.  Pre-computed results live in the starter kit as HIS_settings_asu.txt;
+# if that file is absent, this section regenerates it by running
+# HIS_protonation_QM_runme.com in a his_qm/ subdir (SLOW - QM refinement of every
+# histidine).  To (re)generate by hand for a new system:
+#   HIS_protonation_QM_runme.com pdbfile=starthere_asu.pdb ligcifs=EG7.cif nproc=6
+#   # writes HIS_settings.txt -> copy here as HIS_settings_asu.txt
 #
 # Format: one line per HIS — HIE (Nε), HID (Nδ), HIP (both / positively charged)
 # 6c2r result: HIP176 HIP187 HIE190 HID201 HIP248 HIP254 HID280 HIE306 HID366 HIE380
-cp ${skit}/HIS_settings_asu.txt HIS_settings_asu.txt
-if ($status) then
-  echo "ERROR: HIS_settings_asu.txt not found in starter kit at $skit"
-  echo "       Regenerate using ~/projects/his_flips/HIS_protonation_QM_notes.com"
-  goto exit
+if (-e ${skit}/HIS_settings_asu.txt) then
+  cp ${skit}/HIS_settings_asu.txt HIS_settings_asu.txt
+else
+  # not in the kit - determine the states by QM in a subdir (SLOW)
+  echo "  HIS_settings_asu.txt not in starter kit - computing HIS protonation by QM (slow)..."
+  mkdir -p his_qm
+  cd his_qm
+  cp ../starthere_asu.pdb .
+  cp ../ligands/*.cif . >& /dev/null
+  HIS_protonation_QM_runme.com pdbfile=starthere_asu.pdb nproc=6 >&! his_qm.log
+  cd ..
+  if (-e his_qm/HIS_settings.txt && ! -z his_qm/HIS_settings.txt) then
+    cp his_qm/HIS_settings.txt HIS_settings_asu.txt
+    echo "  QM HIS protonation result:"
+    cat HIS_settings_asu.txt
+  else
+    echo "ERROR: QM HIS protonation failed - see his_qm/his_qm.log"
+    echo "       or drop a pre-computed HIS_settings_asu.txt into the starter kit"
+    goto exit
+  endif
 endif
 sec4done:
 
@@ -631,7 +653,7 @@ set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
 #set ligcifs = `ls -1 *.cif |& awk '/.cif/'`
 
 # Verify centroid orientation vs full-length model
-echo "flip to target:"
+echo "flip-to-target RMSD  [ flipped.pdb (centroids re-oriented to target)  vs  fulllength_asu.pdb (target model) ]:"
 flip_to_target_runme.com centroids_asu.pdb fulllength_asu.pdb > /dev/null
 filter_pdb.awk -v skip=H,water fulllength_asu.pdb flipped.pdb | rmsd | head
 
@@ -664,7 +686,7 @@ foreach prefix ( fulllength centroids )
   awk '{id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
   cat >! ${prefix}_asu_noalt.pdb
 end
-echo "should be zero and no warnings:"
+echo "combine check, expect ALL-ZERO and no warnings  [ new.pdb (centroids+fulllength merged)  vs  centroids_asu_noalt.pdb ]:"
 combine_pdbs_runme.com centroids_asu_noalt.pdb fulllength_asu_noalt.pdb > /dev/null
 filter_pdb.awk -v skip=water new.pdb centroids_asu_noalt.pdb | rmsd | head
 # All RMS should be zero with no warnings
@@ -686,9 +708,9 @@ expand2supercell_runme.com centroids_renamed.pdb refme_small.mtz super_mult=$sup
   phenix_bumpcheck=0 debug=1 \
   mono_map=monomer_rot_trans.txt >&! centroids_expand.log
 
-echo "centroids vs fulllength:"
+echo "supercell RMSD  [ centroids_super.pdb  vs  fulllength_super.pdb ]:"
 filter_pdb.awk -v skip=H,water centroids_super.pdb fulllength_super.pdb | rmsd | head
-echo "CA:"
+echo "  CA-only  [ centroids_super.pdb  vs  fulllength_super.pdb ]:"
 filter_pdb.awk -v skip=H,water centroids_super.pdb fulllength_super.pdb | grep CA | rmsd | head
 
 foreach prefix ( fulllength centroids )
@@ -698,7 +720,7 @@ foreach prefix ( fulllength centroids )
   cat >! ${prefix}_noalt.pdb
 end
 combine_pdbs_runme.com centroids_noalt.pdb fulllength_noalt.pdb | head -n 1
-echo "should be all zero:"
+echo "combine check, expect ALL-ZERO  [ new.pdb (centroids+fulllength merged, supercell)  vs  centroids_noalt.pdb ]:"
 filter_pdb.awk -v skip=water new.pdb centroids_noalt.pdb | rmsd | head
 # All RMS should be zero 
 
@@ -721,9 +743,9 @@ if (! -e centroids_in_density.pdb) then
   goto exit
 endif
 
-echo "centroids_in_density vs fulllength protein:"
+echo "in-density RMSD  [ centroids_in_density.pdb  vs  fulllength_super.pdb (protein) ]:"
 filter_pdb.awk -v skip=water,H centroids_in_density.pdb fulllength_super.pdb | rmsd | head
-echo "CA:"
+echo "  CA-only  [ centroids_in_density.pdb  vs  fulllength_super.pdb ]:"
 filter_pdb.awk -v skip=H,water centroids_in_density.pdb fulllength_super.pdb | grep CA | rmsd | head
 
 cd ..
@@ -1281,6 +1303,9 @@ cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
 
+# Run the optimizer in the BACKGROUND; a monitor loop below stops it (via ./exit)
+# once the pressure has equalized, instead of a fixed number of iterations.
+# maxitr here is only a generous safety cap.
 optimize_weights_runme.com prod_ns=0.5 max_mult=1.2 Bfac_maxmod=1 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 dehydrate=pressure \
     pressure_avglast=auto pressure_scale=2 void_scale=0.1 \
@@ -1289,9 +1314,29 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=1.2 Bfac_maxmod=1 weight_power=1
     omega_weight=0 chiral_weight=0 \
     weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
-    halfrho_neg=auto halfrho_pos=auto maxitr=30 >&! runme1.log
-if ($status) then
-  echo "ERROR: optimize_weights opt3 (dehydrate) failed — details: runme1.log"
+    halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
+set owpid = $!
+# Dehydration is complete when the pressure stops trending: the least-squares
+# slope of pressure_vs_itr.txt col4 over the last $pwin iterations is smaller
+# than half a standard error (pscore < 0.5, the same test optimize_weights uses).
+set pwin = 10
+while ( 1 )
+  sleep 120
+  ps -p $owpid >& /dev/null
+  if ( $status ) break                          # optimizer already stopped (hit cap)
+  if ( ! -e pressure_vs_itr.txt ) continue
+  set nP = `wc -l < pressure_vs_itr.txt`
+  if ( $nP < $pwin ) continue
+  set flat = `tail -n $pwin pressure_vs_itr.txt | awk '{n++;sx+=NR;sy+=$4;sxx+=NR*NR;sxy+=NR*$4;syy+=$4*$4} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
+  if ( "$flat" == "1" ) then
+    echo "opt3 pressure equalized over last $pwin iterations - touching ./exit"
+    touch exit
+    break
+  endif
+end
+wait                                             # let opt3 finish its current iteration cleanly
+if (! -e fofc_Rplot.txt) then
+  echo "ERROR: optimize_weights opt3 (dehydrate) produced no fofc_Rplot.txt — details: runme1.log"
   goto exit
 endif
 
@@ -1344,6 +1389,8 @@ cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
 
+# Run in the BACKGROUND; the monitor stops it (via ./exit) once the pressure is
+# both flat (no trend) AND settled near zero (|mean| < 30).  maxitr = safety cap.
 optimize_weights_runme.com prod_ns=0.5 max_mult=1.1 Bfac_maxmod=1 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=0.1 void_scale=0.1 \
@@ -1352,9 +1399,26 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=1.1 Bfac_maxmod=1 weight_power=1
     omega_weight=0 chiral_weight=0 \
     weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
-    halfrho_neg=auto halfrho_pos=auto maxitr=30 >&! runme1.log
-if ($status) then
-  echo "ERROR: optimize_weights opt4 (settle) failed — details: runme1.log"
+    halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
+set owpid = $!
+set pwin = 10
+while ( 1 )
+  sleep 120
+  ps -p $owpid >& /dev/null
+  if ( $status ) break
+  if ( ! -e pressure_vs_itr.txt ) continue
+  set nP = `wc -l < pressure_vs_itr.txt`
+  if ( $nP < $pwin ) continue
+  set flat = `tail -n $pwin pressure_vs_itr.txt | awk '{n++;sx+=NR;sy+=$4;sxx+=NR*NR;sxy+=NR*$4;syy+=$4*$4} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5 && sqrt(m*m)<30)?1:0}'`
+  if ( "$flat" == "1" ) then
+    echo "opt4 pressure settled (flat and |mean| < 30) - touching ./exit"
+    touch exit
+    break
+  endif
+end
+wait
+if (! -e fofc_Rplot.txt) then
+  echo "ERROR: optimize_weights opt4 (settle) produced no fofc_Rplot.txt — details: runme1.log"
   goto exit
 endif
 

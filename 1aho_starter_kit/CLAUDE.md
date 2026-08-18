@@ -40,7 +40,7 @@ HIS_settings.txt
 
 HIS_votes.txt
     Raw QM votes: residues 54 and 64.
-    See HIS_protonation_QM_notes.com in the repo for methodology.
+    See HIS_protonation_QM_runme.com in the repo for methodology.
 
 xtal_properties.sourceme
     Crystal properties:

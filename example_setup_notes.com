@@ -187,7 +187,7 @@ cd ..
 
 
 # use phenix quantum interface to estimate HIS protonations
-# see HIS_protonation_QM_notes.com
+# see HIS_protonation_QM_runme.com
 cp ~/projects/his_flips/${pdbid}/HIS_votes.txt HIS_votes.txt 
 awk '! seen[$1,$NF]{string[$1]=string[$1]" "$NF;++seen[$1,$NF]}\
   END{for(r in string)print r,string[r]}' HIS_votes.txt |\
@@ -740,7 +740,7 @@ endif
 if( ! -e protonation.txt ) then
 
 # bring in qantum-determined HIS protonation states for the monomer
-# see HIS_protonation_QM_notes.com
+# see HIS_protonation_QM_runme.com
 # must align them with re-numbering done in the supercell
 cp ../HIS_settings_asu.txt HIS_settings_asu.txt 
 # format: HI[PED] A123
