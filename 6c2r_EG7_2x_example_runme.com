@@ -1180,8 +1180,11 @@ if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — opt1 did not complete"
   goto exit
 endif
-set previtr = `sort -k2g ${prevdir}/fofc_Rplot.txt | awk 'NR==1{print $1}'`
-echo "opt2 continuing from ${prevdir} iteration $previtr (best Rfree)"
+# continue from the LAST iteration (most-evolved state), not the lowest-Rfree
+# one - Rfree is noisy and an early frame can win by chance.  Override $previtr
+# by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+echo "opt2 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
 set o = 2
@@ -1262,7 +1265,7 @@ sec12done:
 #==============================================================================
 # SECTION 13 — Production stage A: pressure-driven dehydration (drop R)
 # Squeeze out excess solvent; this is the biggest R mover.  Restraints stay
-# minimal.  Seeds from opt2's best-R iteration.  Exit when R stops dropping (~37).
+# minimal.  Seeds from opt2's last iteration.  Exit when the pressure equalizes.
 #==============================================================================
 if (-e opt3/fofc_Rplot.txt) then
   echo ""
@@ -1276,8 +1279,11 @@ if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — ${prevdir} did not complete"
   goto exit
 endif
-set previtr = `sort -k2g ${prevdir}/fofc_Rplot.txt | awk 'NR==1{print $1}'`
-echo "opt3 continuing from ${prevdir} iteration $previtr (best Rfree)"
+# continue from the LAST iteration (most-evolved state), not the lowest-Rfree
+# one - Rfree is noisy and an early frame can win by chance.  Override $previtr
+# by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+echo "opt3 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
 set o = 3
@@ -1362,8 +1368,11 @@ if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — ${prevdir} did not complete"
   goto exit
 endif
-set previtr = `sort -k2g ${prevdir}/fofc_Rplot.txt | awk 'NR==1{print $1}'`
-echo "opt4 continuing from ${prevdir} iteration $previtr (best Rfree)"
+# continue from the LAST iteration (most-evolved state), not the lowest-Rfree
+# one - Rfree is noisy and an early frame can win by chance.  Override $previtr
+# by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+echo "opt4 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
 set o = 4
@@ -1431,7 +1440,7 @@ sec14done:
 # The target operating point: long steady run with allatom_weight=0 and
 # aggressive decay (weight_scale=0.9) pruning the sparse restraints to minimum.
 # Settles near R ~37-38 with restraint energy ~2000-6000.  Repeat/extend this
-# block (opt6, opt7, ...) to run longer; each seeds from the prior best-R itr.
+# block (opt6, opt7, ...) to run longer; each seeds from the prior last itr.
 #==============================================================================
 if (-e opt5/fofc_Rplot.txt) then
   echo ""
@@ -1445,8 +1454,11 @@ if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — ${prevdir} did not complete"
   goto exit
 endif
-set previtr = `sort -k2g ${prevdir}/fofc_Rplot.txt | awk 'NR==1{print $1}'`
-echo "opt5 continuing from ${prevdir} iteration $previtr (best Rfree)"
+# continue from the LAST iteration (most-evolved state), not the lowest-Rfree
+# one - Rfree is noisy and an early frame can win by chance.  Override $previtr
+# by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+echo "opt5 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
 set o = 5
