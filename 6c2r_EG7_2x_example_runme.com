@@ -1341,8 +1341,15 @@ while ( 1 )
   endif
 end
 wait                                             # let opt3 finish its current iteration cleanly
-if (! -e fofc_Rplot.txt) then
-  echo "ERROR: optimize_weights opt3 (dehydrate) produced no fofc_Rplot.txt — details: runme1.log"
+# optimize_weights ran in the background, so we can't read its exit status - check
+# it advanced PAST the seed (iteration 0) rather than leaving a seed-only
+# fofc_Rplot.txt.  A failed amber MD (GPU/CUDA error, ns/day ~0) exits at the seed,
+# and a seed-only stage must NOT cascade into the next one.
+set lastitr = -1
+if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
+if ( $lastitr < 1 ) then
+  echo "ERROR: optimize_weights opt3 (dehydrate) made no progress past the seed (last itr $lastitr)."
+  echo "       The amber MD likely failed - check opt3/runme1.log (GPU/CUDA errors, ns/day ~0)."
   goto exit
 endif
 
@@ -1426,8 +1433,13 @@ while ( 1 )
   endif
 end
 wait
-if (! -e fofc_Rplot.txt) then
-  echo "ERROR: optimize_weights opt4 (settle) produced no fofc_Rplot.txt — details: runme1.log"
+# check opt4 advanced past the seed (see the opt3 note above); a seed-only stage
+# means the amber MD failed and must not cascade into opt5.
+set lastitr = -1
+if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
+if ( $lastitr < 1 ) then
+  echo "ERROR: optimize_weights opt4 (settle) made no progress past the seed (last itr $lastitr)."
+  echo "       The amber MD likely failed - check opt4/runme1.log (GPU/CUDA errors, ns/day ~0)."
   goto exit
 endif
 
