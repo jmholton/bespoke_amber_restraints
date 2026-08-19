@@ -1183,7 +1183,16 @@ endif
 # continue from the LAST iteration (most-evolved state), not the lowest-Rfree
 # one - Rfree is noisy and an early frame can win by chance.  Override $previtr
 # by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
-set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1+0}'`
+# refuse to seed a new stage from a predecessor that never advanced past its seed
+# (last itr < 1) - that means the predecessor's amber MD failed, and continuing
+# would just cascade the failure (opt5 from opt4 from a dead opt3, etc.).
+if ( "$previtr" == "" ) set previtr = 0
+if ( $previtr < 1 ) then
+  echo "ERROR: ${prevdir} did not advance past its seed (last itr $previtr) - it likely failed."
+  echo "       Not starting a new stage from a failed one; see ${prevdir}/runme1.log."
+  goto exit
+endif
 echo "opt2 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
@@ -1282,7 +1291,16 @@ endif
 # continue from the LAST iteration (most-evolved state), not the lowest-Rfree
 # one - Rfree is noisy and an early frame can win by chance.  Override $previtr
 # by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
-set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1+0}'`
+# refuse to seed a new stage from a predecessor that never advanced past its seed
+# (last itr < 1) - that means the predecessor's amber MD failed, and continuing
+# would just cascade the failure (opt5 from opt4 from a dead opt3, etc.).
+if ( "$previtr" == "" ) set previtr = 0
+if ( $previtr < 1 ) then
+  echo "ERROR: ${prevdir} did not advance past its seed (last itr $previtr) - it likely failed."
+  echo "       Not starting a new stage from a failed one; see ${prevdir}/runme1.log."
+  goto exit
+endif
 echo "opt3 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
@@ -1378,7 +1396,16 @@ endif
 # continue from the LAST iteration (most-evolved state), not the lowest-Rfree
 # one - Rfree is noisy and an early frame can win by chance.  Override $previtr
 # by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
-set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1+0}'`
+# refuse to seed a new stage from a predecessor that never advanced past its seed
+# (last itr < 1) - that means the predecessor's amber MD failed, and continuing
+# would just cascade the failure (opt5 from opt4 from a dead opt3, etc.).
+if ( "$previtr" == "" ) set previtr = 0
+if ( $previtr < 1 ) then
+  echo "ERROR: ${prevdir} did not advance past its seed (last itr $previtr) - it likely failed."
+  echo "       Not starting a new stage from a failed one; see ${prevdir}/runme1.log."
+  goto exit
+endif
 echo "opt4 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
@@ -1469,7 +1496,16 @@ endif
 # continue from the LAST iteration (most-evolved state), not the lowest-Rfree
 # one - Rfree is noisy and an early frame can win by chance.  Override $previtr
 # by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
-set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1}'`
+set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1+0}'`
+# refuse to seed a new stage from a predecessor that never advanced past its seed
+# (last itr < 1) - that means the predecessor's amber MD failed, and continuing
+# would just cascade the failure (opt5 from opt4 from a dead opt3, etc.).
+if ( "$previtr" == "" ) set previtr = 0
+if ( $previtr < 1 ) then
+  echo "ERROR: ${prevdir} did not advance past its seed (last itr $previtr) - it likely failed."
+  echo "       Not starting a new stage from a failed one; see ${prevdir}/runme1.log."
+  goto exit
+endif
 echo "opt5 continuing from ${prevdir} iteration $previtr (last iteration)"
 set prevprod = amber_${previtr}
 
