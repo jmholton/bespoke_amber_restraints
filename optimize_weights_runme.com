@@ -63,6 +63,11 @@ set render_rate = 1.5
 set Bfac_file = Bfac.pdb
 set Bfac_maxmod = 2
 set Bfac_modmode = add
+# B factors by LOCATION rather than by atom: a CCP4 map of B(x,y,z) that the
+# structure-factor step samples at each atom's position.  Set to a file name to
+# use a field you maintain yourself (Bfac_map_runme.com), or to "auto" to have
+# nc2mtz build one from $Bfac_file each time.  Empty = the per-atom path.
+set Bfac_map = ""
 # use rmsd variation of atoms to define B factor
 #set Bfac_file = rmsd2B
 set rmsd2B_range = 1-10
@@ -1119,9 +1124,11 @@ if(-e "$trajectory" && $needtraj ) then
   set nc2mtz_extraopt = ""
   if( -e avg_${prev}.mtz ) set nc2mtz_extraopt = "domaps=0"
   echo "nc2mtz gemmi $trajectory  ${render_reso}A $Bfac_file "
+  set nc2mtz_Bmap = ""
+  if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map"
   nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
-    Bfac_file=$Bfac_file minB=$minB maxB=$maxB \
+    Bfac_file=$Bfac_file minB=$minB maxB=$maxB $nc2mtz_Bmap \
     keeptraj=1 wrap=1 rate=$render_rate \
     addmtzs=1 \
     tempfile=${scratch}/nc2mtz_$$_ $nc2mtz_extraopt >>& $nc2log

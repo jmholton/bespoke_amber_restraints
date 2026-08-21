@@ -15,6 +15,16 @@ set orignames = ""
 set Bfac_file = ""
 set auto_Bfac_file = rmsd2B.pdb
 
+# B factors by LOCATION instead of by atom: a CCP4 map of B(x,y,z), sampled at
+# each atom's position.  gemmi sfcalc only takes per-atom B, so here the field is
+# sampled into the B column of every frame - the payoff (no per-atom sidecar at
+# all) is on the GPU path in nc2mtz_gpu.com; this is the reference for it.
+# Bfac_map=auto builds the field from the same per-atom B the old path used.
+set Bfac_map = ""
+set Bfac_map_sigma = 0.5
+set Bfac_map_grid = 0.5
+set Bfac_map_farB = 999
+
 set outtraj = trajectory
 set outmap = avg.map
 set outfile = avg.mtz
@@ -232,6 +242,10 @@ if( $#CELL != 6 ) then
     goto exit
 endif
 
+# the frame the trajectory coordinates actually live in (CELL below is the
+# primitive cell, but the coordinates span the supercell), for Bfac_map
+set SUPERCELL = `egrep "^CRYST1" ${t}dummy.pdb | head -n 1 | awk '{print $2","$3","$4","$5","$6","$7}'`
+
 pdbset xyzin ${t}dummy.pdb xyzout ${t}cell.pdb << EOF >! ${t}pdbset.log
 CELL $CELL
 SPACE $smallSG
@@ -300,7 +314,67 @@ if(-e "$Bfac_file") then
    cat >! ${t}Bfac.pdb
 endif
 
-if( ! $domaps && ! -e "$Bfac_file" ) goto cleanup
+# ---- B-factor field ---------------------------------------------------------
+set Bmapexe = ""
+if( "$Bfac_map" != "" ) then
+  set Bmapexe = ${pdir}/Bfac_map
+  if( ! -x "$Bmapexe" ) then
+    echo "compiling Bfac_map ..."
+    gcc -O3 -o $Bmapexe ${pdir}/Bfac_map.c -lm
+    if( $status || ! -x "$Bmapexe" ) then
+      set BAD = "cannot compile ${pdir}/Bfac_map.c"
+      goto exit
+    endif
+  endif
+  if( "$Bfac_map" == "auto" || "$Bfac_map" == "1" ) then
+    # ${t}Bfac.pdb already has minB/maxB/Bscale/Boffset applied, so the field
+    # holds final B values
+    set test = `egrep -c "^ATOM|^HETAT" ${t}Bfac.pdb`
+    if( "$test" == "0" ) then
+      set BAD = "Bfac_map=auto needs a source of per-atom B: pass Bfac_file=<pdb> or Bfac_file=rmsd2B"
+      goto exit
+    endif
+    # The field's coordinates have to be real, so build it from a trajectory
+    # frame with the per-atom B merged onto it rather than from $Bfac_file's own
+    # coordinates.  A production Bfac.pdb is a B sidecar: it can carry hundreds
+    # of thousands of placeholder atoms parked at the origin (padding to match
+    # orignames.pdb), and a spatial field cannot represent a stack of different
+    # B values at one point - it can only return their average.
+    # This merge is also the LAST place atom order matters, and it now happens
+    # once per stage instead of once per frame.
+    set refpdb = ${outtraj}/md.${nframes}.pdb
+    if( ! -e "$refpdb" ) set refpdb = ${outtraj}/md.$ns[1].pdb
+    echo "merging per-atom B onto $refpdb to build the field"
+    cat ${t}Bfac.pdb $refpdb |\
+    awk -v defB=$B '! /^ATOM|^HETAT/{next}\
+      $NF=="BFACTOR"{++i;Bfac[i]=substr($0,61,6)+0;next}\
+      {++n;B=defB;\
+       if(Bfac[n]=="") ++miss; else B=Bfac[n];\
+       printf("%s%6.2f%s\n",substr($0,1,60),B,substr($0,67))}\
+      END{if(miss)printf("REMARK %d frame atoms had no B in the sidecar, given B=%g\n",miss,defB)}' |\
+    cat >! ${t}Bref.pdb
+    set test = `egrep -c "^ATOM|^HETAT" ${t}Bref.pdb`
+    if( "$test" == "0" ) then
+      set BAD = "could not merge B factors onto $refpdb"
+      goto exit
+    endif
+    echo "building B-factor field from $Bfac_file ($test atoms) on cell $SUPERCELL"
+    $Bmapexe build pdb=${t}Bref.pdb outmap=${t}Bfac.map cell=$SUPERCELL \
+       sigma=$Bfac_map_sigma grid=$Bfac_map_grid farB=$Bfac_map_farB
+    if( $status || ! -e ${t}Bfac.map ) then
+      set BAD = "Bfac_map build failed"
+      goto exit
+    endif
+    set Bfac_map = ${t}Bfac.map
+  endif
+  if( ! -e "$Bfac_map" ) then
+    set BAD = "cannot read Bfac_map $Bfac_map"
+    goto exit
+  endif
+  echo "sampling B from $Bfac_map, clipped to [ $minB : $maxB ]"
+endif
+
+if( ! $domaps && ! -e "$Bfac_file" && "$Bfac_map" == "" ) goto cleanup
 
 cat << EOF >! ${t}job.csh
 #! /bin/tcsh -f
@@ -333,6 +407,16 @@ cat << EOF >! ${t}job.csh
   if( "\$test" != "" ) then
       echo "ERROR: all zero coordinates at \$n"
       exit 9
+  endif
+
+  if( "$Bfac_map" != "" ) then
+    $Bmapexe probe pdb=${outtraj}/pdb\${n}.pdb map=$Bfac_map cell=$SUPERCELL \\
+      minB=$minB maxB=$maxB outpdb=\${t}probed\${n}.pdb
+    if( \$status ) then
+      echo "ERROR: Bfac_map probe failed at \$n"
+      exit 9
+    endif
+    mv \${t}probed\${n}.pdb ${outtraj}/pdb\${n}.pdb
   endif
 
   if( ! \$domaps ) exit

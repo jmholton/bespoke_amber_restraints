@@ -37,6 +37,58 @@ AMBER_weight = B_column × pdbscale      (default pdbscale = 0.01)
 
 A B value of 100 in the restraint file → weight of 1.0 kcal/mol/Å². The optimization adjusts B values; the conversion to AMBER weights happens at each MD run setup.
 
+### B factors by location instead of by atom
+
+Atomic B factors are normally kept per atom, in `Bfac.pdb`, matched to each
+trajectory frame by atom order. That has two costs: the matching is fragile
+(atoms get stripped, reordered, added), and B can only be relaxed slowly or the
+refinement destabilizes — so a water that has just settled onto an ordered site
+still carries the high B it earned while it was wandering.
+
+`Bfac_map` stores B as a continuous field `B(x,y,z)` in a CCP4 map instead. Each
+atom donates its B to the space around it:
+
+```
+B(x) = ( SUM_i w_i(x) B_i + w0 farB ) / ( SUM_i w_i(x) + w0 )
+w_i  = exp( -r_i(x)^2 / 2 sigma^2 )      w0 = exp( -fardist^2 / 2 sigma^2 )
+```
+
+so `B(x)` is the local average of nearby atomic B, decaying to `farB` (999, i.e.
+"nothing is here") in space with no atom within `fardist`. At structure-factor
+time each atom takes its B by sampling the field at its own position: B belongs
+to the location, so an atom that moves gets the new location's B immediately
+while the field itself can be updated as slowly as stability requires.
+
+`sigma` is the one parameter that matters — how far B blends between neighbouring
+atoms of different mobility. Measured against the per-atom path (1aho expanded to
+P1, `dmin` 1.0), R on F was 0.1% at `sigma` 0.25, 1.2% at 0.5, 3.4% at 1.0 and 15%
+at 1.5. The voxel size barely matters by comparison (1.1% at 0.25 Å to 2.4% at
+1.5 Å), so a large supercell can use a coarse grid to keep the file small — it
+costs 4 bytes per voxel, so `grid=1.0` is 8× smaller than `grid=0.5`. On a bimodal model (sharp
+core at B=8, solvent shell at B=90 — the case this is meant to help) `sigma` 0.5
+reproduced the per-atom structure factors to 0.01%.
+
+The field must be built from coordinates where every atom is real. `Bfac.pdb` is
+a *sidecar* — it is applied to frames by atom order, so its own coordinates may be
+placeholders (in one production run, 400 000 of 801 634 atoms sit stacked at the
+origin). Building from that file costs R = 10% on F; building the same B values on
+a trajectory frame's coordinates costs 0.6%. `Bfac_map=auto` therefore merges the
+per-atom B onto a frame first, which also reduces the fragile atom-order matching
+from once per frame to once per stage.
+
+Sampling is periodic in the map's cell, so an atom several cells away — or one
+with unwrapped MD coordinates — reads the equivalent voxel by lattice
+translation. Space-group symmetry is handled when the field is *built*
+(`sg=<name>` deposits each atom at all of its symmetry-equivalent positions), not
+when it is sampled, so every consumer stays a plain trilinear lookup. Use `sg=`
+only when the source model is a single asymmetric unit: an MD supercell is
+already expanded and is deliberately not symmetric, so expanding it again would
+average symmetry mates together.
+
+Turn it on with `Bfac_map=` (a field you maintain) or `Bfac_map=auto` (built from
+`Bfac_file` each time) in `optimize_weights_runme.com`, `nc2mtz_gemmi.com` or
+`nc2mtz_gpu.com`. Empty (the default) keeps the per-atom path.
+
 ---
 
 ## Prerequisites
@@ -58,11 +110,12 @@ AMBER is sourced from `/programs/amber22/amber.csh` by default. Override with th
 
 ## Installation and Compilation
 
-Clone the repository and add it to your `PATH`. Two C programs must be compiled before use:
+Clone the repository and add it to your `PATH`. Three C programs must be compiled before use:
 
 ```bash
 gcc -o float_add float_add.c -lm
 gcc -o float_func float_func.c -lm
+gcc -O3 -o Bfac_map Bfac_map.c -lm
 ```
 
 These have no dependencies beyond the standard C math library.
@@ -267,6 +320,10 @@ All parameters are set with `key=value` syntax on the command line or in `settin
 | `render_reso` | `0.95` | Map grid spacing in Å for structure factor calculation. |
 | `render_B` | `10` | Overall B factor applied during map calculation. Adjusted automatically. |
 | `render_B_adjust` | `0.05` | Step size for automatic `render_B` adjustment per iteration. |
+| `Bfac_map` | *(empty)* | CCP4 map of B(x,y,z) to sample per-atom B from instead of `Bfac_file`. A file name uses that field; `auto` builds one from `Bfac_file`; empty keeps the per-atom path. |
+| `Bfac_map_sigma` | `0.5` | Å. How far B blends between neighbouring atoms when the field is built. |
+| `Bfac_map_grid` | `0.5` | Å. Voxel size of the field. |
+| `Bfac_map_farB` | `999` | B assigned to space with no atom within `fardist` (4.5 Å). |
 | `avglast` | `1` | Number of previous MD runs to average electron density maps over. Increase to reduce noise. |
 | `fft_B` | `0` | Apply this B factor (in Å²) to smooth the difference map before weight update. |
 | `shan_B` | `auto` | Shannon-entropy smoothing B for the difference map. |
@@ -429,6 +486,8 @@ All scripts use the `.com` extension (tcsh) and accept `key=value` command-line 
 | `scaleB_search_diffmap_runme.com` | Grid search for the overall B factor that best matches the observed map. |
 | `thrubond_avgB_runme.com` | Smooth B factors by averaging through covalent bonds to neighboring atoms. Prevents isolated outlier B values. |
 | `rmsd2B` | Compute per-atom B factors from RMSD variation across trajectory frames (compiled C program). |
+| `Bfac_map` | Store B factors as a spatial field: `build` a CCP4 map of B(x,y,z) from a PDB, `probe` a map to set per-atom B, `stats` to see the distribution (compiled C program). |
+| `Bfac_map_runme.com` | Build `Bfac.map` from `Bfac.pdb` with pipeline defaults, then report how faithfully the field reproduces the B factors that went into it. |
 
 ### Water and hydration
 

@@ -21,6 +21,16 @@ set orignames = ""
 set Bfac_file = ""
 set auto_Bfac_file = rmsd2B.pdb
 
+# B factors by LOCATION instead of by atom.  Give a CCP4 map of B(x,y,z) and the
+# GPU sfcalc samples it at each atom's position, so nothing has to be matched up
+# by atom order and a water is sharp or diffuse according to where it currently
+# is.  Bfac_map=auto builds the field here, once for this trajectory, from the
+# same per-atom B the old path would have used.  See Bfac_map_runme.com.
+set Bfac_map = ""
+set Bfac_map_sigma = 0.5
+set Bfac_map_grid = 0.5
+set Bfac_map_farB = 999
+
 set outtraj = trajectory
 set outmap = avg.map
 set outfile = avg.mtz
@@ -269,6 +279,8 @@ echo "GPU sfcalc: $sfcalc_gpu"
 # from super_mult itself), so keep a supercell-CRYST1 reference and a csv mult.
 egrep "^CRYST1" ${t}dummy.pdb >! ${t}scell.pdb
 set super_mult_csv = `echo $super_mult | awk '{print $1","$2","$3}'`
+# the frame the trajectory coordinates actually live in, for Bfac_map
+set SUPERCELL = `egrep "^CRYST1" ${t}dummy.pdb | head -n 1 | awk '{print $2","$3","$4","$5","$6","$7}'`
 # one frame at a time on the GPU (a single srun --gres=gpu:1)
 if( "$srun" == "" ) then
   set srungpu = ""
@@ -334,7 +346,68 @@ if(-e "$Bfac_file") then
    cat >! ${t}Bfac.pdb
 endif
 
-if( ! $domaps && ! -e "$Bfac_file" ) goto cleanup
+# ---- B-factor field ---------------------------------------------------------
+set bfacmapopt = ""
+if( "$Bfac_map" != "" ) then
+  set Bmapexe = ${pdir}/Bfac_map
+  if( ! -x "$Bmapexe" ) then
+    echo "compiling Bfac_map ..."
+    gcc -O3 -o $Bmapexe ${pdir}/Bfac_map.c -lm
+    if( $status || ! -x "$Bmapexe" ) then
+      set BAD = "cannot compile ${pdir}/Bfac_map.c"
+      goto exit
+    endif
+  endif
+  if( "$Bfac_map" == "auto" || "$Bfac_map" == "1" ) then
+    # ${t}Bfac.pdb already has minB/maxB/Bscale/Boffset applied, so the field
+    # holds final B values and nothing needs to be re-conditioned downstream
+    set test = `egrep -c "^ATOM|^HETAT" ${t}Bfac.pdb`
+    if( "$test" == "0" ) then
+      set BAD = "Bfac_map=auto needs a source of per-atom B: pass Bfac_file=<pdb> or Bfac_file=rmsd2B"
+      goto exit
+    endif
+    # The field's coordinates have to be real, so build it from a trajectory
+    # frame with the per-atom B merged onto it rather than from $Bfac_file's own
+    # coordinates.  A production Bfac.pdb is a B sidecar: it can carry hundreds
+    # of thousands of placeholder atoms parked at the origin (padding to match
+    # orignames.pdb), and a spatial field cannot represent a stack of different
+    # B values at one point - it can only return their average.
+    # This merge is also the LAST place atom order matters, and it now happens
+    # once per stage instead of once per frame.
+    set refpdb = ${outtraj}/md.${nframes}.pdb
+    if( ! -e "$refpdb" ) set refpdb = ${outtraj}/md.$ns[1].pdb
+    echo "merging per-atom B onto $refpdb to build the field"
+    cat ${t}Bfac.pdb $refpdb |\
+    awk -v defB=$B '! /^ATOM|^HETAT/{next}\
+      $NF=="BFACTOR"{++i;Bfac[i]=substr($0,61,6)+0;next}\
+      {++n;B=defB;\
+       if(Bfac[n]=="") ++miss; else B=Bfac[n];\
+       printf("%s%6.2f%s\n",substr($0,1,60),B,substr($0,67))}\
+      END{if(miss)printf("REMARK %d frame atoms had no B in the sidecar, given B=%g\n",miss,defB)}' |\
+    cat >! ${t}Bref.pdb
+    set test = `egrep -c "^ATOM|^HETAT" ${t}Bref.pdb`
+    if( "$test" == "0" ) then
+      set BAD = "could not merge B factors onto $refpdb"
+      goto exit
+    endif
+    echo "building B-factor field from $Bfac_file ($test atoms) on cell $SUPERCELL"
+    $Bmapexe build pdb=${t}Bref.pdb outmap=${t}Bfac.map cell=$SUPERCELL \
+       sigma=$Bfac_map_sigma grid=$Bfac_map_grid farB=$Bfac_map_farB
+    if( $status || ! -e ${t}Bfac.map ) then
+      set BAD = "Bfac_map build failed"
+      goto exit
+    endif
+    set Bfac_map = ${t}Bfac.map
+  endif
+  if( ! -e "$Bfac_map" ) then
+    set BAD = "cannot read Bfac_map $Bfac_map"
+    goto exit
+  endif
+  echo "sampling B from $Bfac_map instead of per-atom B factors"
+  set bfacmapopt = "bfacmap=$Bfac_map"
+endif
+
+if( ! $domaps && ! -e "$Bfac_file" && "$Bfac_map" == "" ) goto cleanup
 
 cat << EOF >! ${t}job.csh
 #! /bin/tcsh -f
@@ -374,7 +447,7 @@ cat << EOF >! ${t}job.csh
   set newmap = \${t}/\${n}.map
   set newmtz = \${t}/\${n}.mtz
   $sfcalc_gpu ${outtraj}/pdb\${n}.pdb sg=$smallSG super_mult=$super_mult_csv \\
-     dmin=\$reso rate=\$rate bmax=$maxB outmtz=\$newmtz
+     dmin=\$reso rate=\$rate bmax=$maxB $bfacmapopt outmtz=\$newmtz
 
 EOF
 chmod a+x ${t}job.csh
