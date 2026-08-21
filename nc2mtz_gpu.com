@@ -374,7 +374,7 @@ cat << EOF >! ${t}job.csh
   set newmap = \${t}/\${n}.map
   set newmtz = \${t}/\${n}.mtz
   $sfcalc_gpu ${outtraj}/pdb\${n}.pdb sg=$smallSG super_mult=$super_mult_csv \\
-     dmin=\$reso rate=\$rate bmax=$maxB outmap=\$newmap outmtz=\$newmtz
+     dmin=\$reso rate=\$rate bmax=$maxB outmtz=\$newmtz
 
 EOF
 chmod a+x ${t}job.csh
@@ -390,6 +390,13 @@ foreach n ( $ns )
   set newmap = ${t}/${n}.map
   set newmtz = ${t}/${n}.mtz
   $srungpu ${t}job.csh $n >&! ${t}/job.${n}.log
+  # sfcalc_gpu_collapse ignores outmap= (not implemented), so build the per-frame
+  # map from its now-valid FC/PHIC mtz here on the CPU host (gemmi is on PATH here,
+  # not necessarily on the GPU node).  -s $rate matches the sfcalc grid so every
+  # frame shares one grid and addup_maps can sum them.
+  if( -e $newmtz ) then
+    gemmi sf2map -f FC -p PHIC -s $rate $newmtz $newmap >&! ${t}/sf2map.${n}.log
+  endif
   set maps = ( $maps $newmap )
   set mtzs = ( $mtzs $newmtz )
 end
