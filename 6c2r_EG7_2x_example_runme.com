@@ -21,11 +21,14 @@
 #   6c2r / AMPPNP  0.01             3.5           Dirk's private dataset; badlinks=1
 #   1aho           0                3.5           no ligand
 #
-# Optimization: Sections 11-12 (opt1/opt2) bring the model into density;
-# Sections 13-15 (opt3-opt5) are the production continuation - pressure-driven
-# dehydration, settle to steady near-zero pressure, then minimal-restraint
-# production (allatom_weight=0, weight_scale=0.9).  See the PRODUCTION
-# CONTINUATION header above Section 13 for the recipe and monitoring commands.
+# Optimization stages (each seeds from the previous stage's last iteration and
+# runs in the background until a monitor detects its convergence signal):
+#   opt1 s1/s2 (Sec 11): rough hydration, then pressure-stable
+#   opt2       (Sec 12): weight optimization  (exit: RESTRAINT energy flat)
+#   opt3       (Sec 13): subtle B-factor mods (exit: fofc_R level) - only after
+#                        weights converge
+#   opt4+      (Sec 14): continuation of opt3 (exit: fofc_R level)
+# See the "Opt-stage workflow" header above Section 13 for the full recipe.
 #
 # Re-run safety: each section checks for its key output file and skips if already done.
 # This makes re-running safe after a crash — only incomplete sections re-execute.
@@ -1117,35 +1120,73 @@ cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
 
-# Stage 1: hydrate and settle pressure (no weight changes yet)
-optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
+# Stage 1: rough hydration — fill the voids as fast as possible without breaking
+# anything.  No weight or B changes.  dehydrate=pressure and pressure_scale=1,auto
+# are the defaults and let water content self-tune.  Runs in the background; the
+# monitor exits it the moment the mean pressure has gone POSITIVE (voids full).
+./optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
     release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scale=1 weight_negscale=1 randel_itr=0 \
-    min_align_weight=0.01 maxitr=20 >&! runme1.log
-if ($status) then
-  echo "ERROR: optimize_weights Stage 1 failed — details: runme1.log"
-  goto exit
-endif
-if (! -e fofc_Rplot.txt) then
-  echo "ERROR: optimize_weights Stage 1 produced no fofc_Rplot.txt"
+    min_align_weight=0.01 maxitr=20 >&! runme1.log &
+set owpid = $!
+while ( 1 )
+  sleep 120
+  ps -p $owpid >& /dev/null
+  if ( $status ) break                          # optimizer already stopped (hit cap)
+  if ( ! -e pressure_vs_itr.txt ) continue
+  # col4 = mean pressure; voids are full once it has gone positive
+  set pos = `awk '$4+0 > 0 {f=1} END{print f+0}' pressure_vs_itr.txt`
+  if ( "$pos" == "1" ) then
+    echo "opt1 stage 1: pressure has gone positive (voids filled) — touching ./exit"
+    touch exit
+    break
+  endif
+end
+wait
+set lastitr = -1
+if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
+if ( $lastitr < 1 ) then
+  echo "ERROR: optimize_weights Stage 1 made no progress past the seed — see runme1.log"
   goto exit
 endif
 
 opt1_stage2:
-# Stage 2: scale up max_mult — let pressure re-equilibrate before enabling Bfac_maxmod
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1.1 \
+# Stage 2: confirm the pressure is STABLE before any weight/B optimization.  Same
+# rough-hydration regime (no weight changes, no repick) — just keep running until
+# the mean pressure stops trending.
+./optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=auto void_scale=1 \
-    release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
+    pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
+    release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
-    min_align_weight=0.01 align_target=centroids align_nstlim=0 \
-    halfrho_neg=3.5 halfrho_pos=auto maxitr=20 >&! runme2.log
-if ($status) then
-  echo "ERROR: optimize_weights Stage 2 failed — details: runme2.log"
+    weight_scale=1 weight_negscale=1 randel_itr=0 \
+    min_align_weight=0.01 maxitr=20 >&! runme2.log &
+set owpid = $!
+set pwin = 10
+while ( 1 )
+  sleep 120
+  ps -p $owpid >& /dev/null
+  if ( $status ) break
+  if ( ! -e pressure_vs_itr.txt ) continue
+  set nP = `wc -l < pressure_vs_itr.txt`
+  if ( $nP < $pwin ) continue
+  # flat when the least-squares slope of col4 over the last $pwin iters is < half a
+  # standard error (pscore < 0.5, the same test optimize_weights uses internally)
+  set flat = `tail -n $pwin pressure_vs_itr.txt | awk '{n++;sx+=NR;sy+=$4;sxx+=NR*NR;sxy+=NR*$4;syy+=$4*$4} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
+  if ( "$flat" == "1" ) then
+    echo "opt1 stage 2: pressure stable over last $pwin iters — touching ./exit"
+    touch exit
+    break
+  endif
+end
+wait
+set lastitr = -1
+if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
+if ( $lastitr < 1 ) then
+  echo "ERROR: optimize_weights Stage 2 made no progress past the seed — see runme2.log"
   goto exit
 endif
 
@@ -1219,62 +1260,88 @@ cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
 
-# Typical opt2 parameters: moderate repicking, gentle down-weighting
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+# opt2: weight optimization.  Pressure is stable now, so turn on max_mult=2,
+# decaying weights, and repick + release.  void_scale=0 — water is self-tuning by
+# pressure, no more void-based addition.  B-factor mods stay OFF until the weights
+# have stabilized (opt3).  Exit when the amber RESTRAINT energy
+# (amber_energy_vs_itr.txt col16) stops trending — the automatable proxy for the
+# sorted_weights.txt log-log shape settling.  Runs in the background; maxitr caps.
+./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=auto void_scale=1 \
+    pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.95 weight_negscale=0.9 randel_itr=0 \
+    weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
-    halfrho_neg=auto halfrho_pos=auto maxitr=20 >&! runme1.log
-if ($status) then
-  echo "ERROR: optimize_weights opt2 failed — details: runme1.log"
+    halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
+set owpid = $!
+set pwin = 10
+while ( 1 )
+  sleep 120
+  ps -p $owpid >& /dev/null
+  if ( $status ) break
+  if ( ! -e amber_energy_vs_itr.txt ) continue
+  set nE = `wc -l < amber_energy_vs_itr.txt`
+  if ( $nE < $pwin ) continue
+  # col16 = RESTRAINT energy; flat (pscore < 0.5) = weights stabilized
+  set flat = `tail -n $pwin amber_energy_vs_itr.txt | awk '{n++;sx+=NR;sy+=$16;sxx+=NR*NR;sxy+=NR*$16;syy+=$16*$16} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
+  if ( "$flat" == "1" ) then
+    echo "opt2: restraint energy stable over last $pwin iters (weights settled) — touching ./exit"
+    touch exit
+    break
+  endif
+end
+wait
+set lastitr = -1
+if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
+if ( $lastitr < 1 ) then
+  echo "ERROR: optimize_weights opt2 made no progress past the seed — see opt2/runme1.log"
   goto exit
 endif
 
 cd ..
 sec12done:
 
-# Three-stage opt workflow:
-#   Stage 1 (opt1 Stage 1): max_mult=1, Bfac_maxmod=0 — settle pressure and waters
-#   Stage 2 (opt1 Stage 2): max_mult=2, Bfac_maxmod=0 — scale up weights, re-equilibrate pressure
-#   Stage 3 (opt2+):        max_mult=2, Bfac_maxmod=1 — enable B-factor modification
+# Opt-stage workflow (each stage seeds from the previous stage's LAST iteration;
+# every stage runs in the background and a monitor stops it via ./exit on its own
+# convergence signal, not a fixed iteration count):
+#   opt1 stage 1: rough hydration     - fill voids fast; exit when pressure > 0
+#   opt1 stage 2: pressure stable     - same regime; exit when pressure is flat
+#   opt2:         weight optimization - max_mult=2, decaying weights, repick +
+#                 release, void_scale=0; exit when the amber RESTRAINT energy is
+#                 flat (amber_energy_vs_itr.txt col16 = weights converged)
+#   opt3:         B-factor mods ON    - ONLY after the weights converge; keep B
+#                 subtle (Bfac_maxmod=2); exit when fofc_R is level
+#   opt4+:        continuation of opt3 - more iterations of the coupled B+weight
+#                 optimization; exit when fofc_R is level.  Add opt5, opt6 ... the
+#                 same way only if fofc_R is still improving.
 #
-# Goal: minimum Rfree across all opt directories and iterations.
-# Pick the best iteration:
-#   cat opt*/fofc_Rplot.txt | sort -k2g | head
-#
-# Continue with opt3, opt4 ... using the opt2 block as a template.
-# Tuning guidance:
-#   - Turn off void_scale (void_scale=0) once pressure is stable
-#   - Add align_nstlim=250000 if restraint weights are oscillating
-
-
-#==============================================================================
-# PRODUCTION CONTINUATION (opt3-opt5)
-#==============================================================================
-# Recipe distilled from retrospective analysis of the 6c2r_37C_2x opt runs.
-# Goal: reach steady, near-zero-pressure production dynamics at a reasonable R
-# with the MINIMUM restraint energy.  Key findings that shape it:
-#   - Water content (dehydrate=pressure) is the dominant R lever, not weights.
-#   - Only STEADY, near-zero-pressure stretches are useful production dynamics.
-#   - Total restraint energy is dominated by allatom_weight (a blanket on every
-#     atom): keep it at 0.  Explicit sparse restraints are kept minimal by
-#     aggressive decay (weight_scale=0.9, NOT 0.99) and omega/chiral OFF.
-#   - At allatom_weight=0, R floors near ~37-38; pushing below ~37 needs
-#     allatom_weight>0 and costs ~30,000 restraint-energy units per ~0.05 step.
-# Monitor between stages:
-#   grep -H . opt*/pressure_vs_itr.txt | tail        # col4 (pressure) steady & ~0 ?
-#   cat opt*/fofc_Rplot.txt | sort -k2g | head       # best R
-#   grep RESTRAINT opt5/amber_*.out | awk '{print $NF}' | sort -g | head   # restraint E
-# Water model (orthogonal, set at leap2amber / Section 10, not here): SPC/E gives
-# the lowest R at allatom_weight=0 (~37.7); OPC3 gives the lowest restraint E.
+# Goal: a low, LEVEL fofc_R with the MINIMUM restraint energy.  Key points:
+#   - B and weight optimization are coupled - neither samples accurate density
+#     until both converge - so fofc_R (not any single knob) is the convergence
+#     signal for opt3+.  Do NOT enable more than subtle B-factor mods before the
+#     weights have converged (watch RESTRAINT energy / the sorted_weights.txt
+#     log-log shape stop changing).  Raise Bfac_maxmod toward 50 only once you
+#     trust the density.
+#   - dehydrate=pressure and pressure_scale=1,auto are the DEFAULTS: let water
+#     content self-tune, don't hardcode a pressure_scale number unless it comes
+#     from a long known-good run.
+#   - allatom_weight is a blanket on every atom and dominates restraint energy:
+#     keep it 0 (R floors ~37-38; below ~37 needs a small allatom_weight and costs
+#     ~30,000 restraint-energy units per ~0.05 step).
+#   - omega/chiral weights are for RECOVERY only (they auto-ramp on when chiral
+#     inversions / cis-peptides appear); leave them at their default 0.
+# Monitor:
+#   cat opt*/fofc_Rplot.txt | sort -k2g | head                       # best R
+#   grep -H . opt*/amber_energy_vs_itr.txt | awk '{print $0}' | tail  # RESTRAINT=col16
+# Water model (set at leap2amber / Section 10, not here): SPC/E gives the lowest R
+# at allatom_weight=0 (~37.7); OPC3 gives the lowest restraint energy.
 
 #==============================================================================
-# SECTION 13 — Production stage A: pressure-driven dehydration (drop R)
-# Squeeze out excess solvent; this is the biggest R mover.  Restraints stay
-# minimal.  Seeds from opt2's last iteration.  Exit when the pressure equalizes.
+# SECTION 13 — B-factor optimization (opt3)
+# Weights are stable now (opt2); turn on B-factor modification.  B and weight
+# optimization are coupled, so convergence is judged by the difference-map R.
+# Seeds from opt2's last iteration.  Exit when fofc_R is level (low and flat).
 #==============================================================================
 if (-e opt3/fofc_Rplot.txt) then
   echo ""
@@ -1282,7 +1349,7 @@ if (-e opt3/fofc_Rplot.txt) then
   goto sec13done
 endif
 echo ""
-echo "=== Section 13: Production stage A - dehydrate (opt3) ==="
+echo "=== Section 13: B-factor optimization (opt3) ==="
 set prevdir = opt2
 if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — ${prevdir} did not complete"
@@ -1327,46 +1394,44 @@ cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
 
-# Run the optimizer in the BACKGROUND; a monitor loop below stops it (via ./exit)
-# once the pressure has equalized, instead of a fixed number of iterations.
-# maxitr here is only a generous safety cap.
-optimize_weights_runme.com prod_ns=0.5 max_mult=1.2 Bfac_maxmod=1 weight_power=1.1 \
-    teleport_waters=1 hydrate_itr=1 add_radius=2.1 dehydrate=pressure \
-    pressure_avglast=auto pressure_scale=2 void_scale=0.1 \
+# opt3: turn on B-factor modification, now that the weights are stable.  Raise
+# Bfac_maxmod toward 50 for serious optimization once you trust the density (start
+# gentle here).  B and weight optimization are coupled — neither samples accurate
+# density until both converge — so the convergence signal is the difference-map R
+# itself: exit when fofc_Rplot.txt col2 is LEVEL.  A low, flat fofc_R is the target
+# for the production run.  Runs in the background; maxitr is a safety cap.
+./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1.1 \
+    teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
+    pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    omega_weight=0 chiral_weight=0 \
     weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
     halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
 set owpid = $!
-# Dehydration is complete when the pressure stops trending: the least-squares
-# slope of pressure_vs_itr.txt col4 over the last $pwin iterations is smaller
-# than half a standard error (pscore < 0.5, the same test optimize_weights uses).
 set pwin = 10
 while ( 1 )
   sleep 120
   ps -p $owpid >& /dev/null
   if ( $status ) break                          # optimizer already stopped (hit cap)
-  if ( ! -e pressure_vs_itr.txt ) continue
-  set nP = `wc -l < pressure_vs_itr.txt`
-  if ( $nP < $pwin ) continue
-  set flat = `tail -n $pwin pressure_vs_itr.txt | awk '{n++;sx+=NR;sy+=$4;sxx+=NR*NR;sxy+=NR*$4;syy+=$4*$4} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
+  if ( ! -e fofc_Rplot.txt ) continue
+  set nR = `wc -l < fofc_Rplot.txt`
+  if ( $nR < $pwin ) continue
+  # col2 = difference-map R; flat (pscore < 0.5) = B + weight optimization converged
+  set flat = `tail -n $pwin fofc_Rplot.txt | awk '{n++;sx+=NR;sy+=$2;sxx+=NR*NR;sxy+=NR*$2;syy+=$2*$2} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
   if ( "$flat" == "1" ) then
-    echo "opt3 pressure equalized over last $pwin iterations - touching ./exit"
+    echo "opt3: fofc_R level over last $pwin iters (B + weight converged) — touching ./exit"
     touch exit
     break
   endif
 end
 wait                                             # let opt3 finish its current iteration cleanly
-# optimize_weights ran in the background, so we can't read its exit status - check
-# it advanced PAST the seed (iteration 0) rather than leaving a seed-only
-# fofc_Rplot.txt.  A failed amber MD (GPU/CUDA error, ns/day ~0) exits at the seed,
-# and a seed-only stage must NOT cascade into the next one.
+# ran in the background, so check it advanced PAST the seed rather than leaving a
+# seed-only fofc_Rplot.txt (a failed amber MD exits at the seed and must not cascade).
 set lastitr = -1
 if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
 if ( $lastitr < 1 ) then
-  echo "ERROR: optimize_weights opt3 (dehydrate) made no progress past the seed (last itr $lastitr)."
+  echo "ERROR: optimize_weights opt3 (B-factors) made no progress past the seed (last itr $lastitr)."
   echo "       The amber MD likely failed - check opt3/runme1.log (GPU/CUDA errors, ns/day ~0)."
   goto exit
 endif
@@ -1376,10 +1441,11 @@ sec13done:
 
 
 #==============================================================================
-# SECTION 14 — Production stage B: settle to steady near-zero pressure
-# Lower pressure_scale and let water content equilibrate.  Everything before a
-# steady, near-zero pressure is transient hydration, not usable production.
-# Exit when opt4/pressure_vs_itr.txt col4 mean |P| < ~30 and not drifting.
+# SECTION 14 — B-factor optimization continued (opt4, continuation of opt3)
+# Same regime as opt3 (subtle B-factor mods; weights already converged) — just
+# more iterations to let the coupled B + weight optimization settle.  Seeds from
+# opt3's last iteration.  Exit when fofc_R is level.  Add more continuation
+# sections (opt5, opt6, ...) the same way only if fofc_R is still improving.
 #==============================================================================
 if (-e opt4/fofc_Rplot.txt) then
   echo ""
@@ -1387,7 +1453,7 @@ if (-e opt4/fofc_Rplot.txt) then
   goto sec14done
 endif
 echo ""
-echo "=== Section 14: Production stage B - settle pressure (opt4) ==="
+echo "=== Section 14: B-factor optimization continued (opt4) ==="
 set prevdir = opt3
 if (! -e ${prevdir}/fofc_Rplot.txt) then
   echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — ${prevdir} did not complete"
@@ -1432,14 +1498,13 @@ cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
 
-# Run in the BACKGROUND; the monitor stops it (via ./exit) once the pressure is
-# both flat (no trend) AND settled near zero (|mean| < 30).  maxitr = safety cap.
-optimize_weights_runme.com prod_ns=0.5 max_mult=1.1 Bfac_maxmod=1 weight_power=1.1 \
+# Continuation of opt3: same subtle B-factor optimization, more iterations.  Runs
+# in the background; exit when fofc_R (fofc_Rplot.txt col2) is level.
+./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1.1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=0.1 void_scale=0.1 \
+    pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    omega_weight=0 chiral_weight=0 \
     weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
     halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
@@ -1449,107 +1514,27 @@ while ( 1 )
   sleep 120
   ps -p $owpid >& /dev/null
   if ( $status ) break
-  if ( ! -e pressure_vs_itr.txt ) continue
-  set nP = `wc -l < pressure_vs_itr.txt`
-  if ( $nP < $pwin ) continue
-  set flat = `tail -n $pwin pressure_vs_itr.txt | awk '{n++;sx+=NR;sy+=$4;sxx+=NR*NR;sxy+=NR*$4;syy+=$4*$4} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5 && sqrt(m*m)<30)?1:0}'`
+  if ( ! -e fofc_Rplot.txt ) continue
+  set nR = `wc -l < fofc_Rplot.txt`
+  if ( $nR < $pwin ) continue
+  # col2 = difference-map R; flat (pscore < 0.5) = B + weight optimization converged
+  set flat = `tail -n $pwin fofc_Rplot.txt | awk '{n++;sx+=NR;sy+=$2;sxx+=NR*NR;sxy+=NR*$2;syy+=$2*$2} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
   if ( "$flat" == "1" ) then
-    echo "opt4 pressure settled (flat and |mean| < 30) - touching ./exit"
+    echo "opt4: fofc_R level over last $pwin iters — touching ./exit"
     touch exit
     break
   endif
 end
 wait
-# check opt4 advanced past the seed (see the opt3 note above); a seed-only stage
-# means the amber MD failed and must not cascade into opt5.
 set lastitr = -1
 if (-e fofc_Rplot.txt) set lastitr = `tail -n 1 fofc_Rplot.txt | awk '{print $1+0}'`
 if ( $lastitr < 1 ) then
-  echo "ERROR: optimize_weights opt4 (settle) made no progress past the seed (last itr $lastitr)."
+  echo "ERROR: optimize_weights opt4 made no progress past the seed (last itr $lastitr)."
   echo "       The amber MD likely failed - check opt4/runme1.log (GPU/CUDA errors, ns/day ~0)."
   goto exit
 endif
 
 cd ..
 sec14done:
-
-
-#==============================================================================
-# SECTION 15 — Production stage C: minimal-restraint steady production
-# The target operating point: long steady run with allatom_weight=0 and
-# aggressive decay (weight_scale=0.9) pruning the sparse restraints to minimum.
-# Settles near R ~37-38 with restraint energy ~2000-6000.  Repeat/extend this
-# block (opt6, opt7, ...) to run longer; each seeds from the prior last itr.
-#==============================================================================
-if (-e opt5/fofc_Rplot.txt) then
-  echo ""
-  echo "=== Section 15: already done, skipping ==="
-  goto sec15done
-endif
-echo ""
-echo "=== Section 15: Production stage C - minimal-restraint production (opt5) ==="
-set prevdir = opt4
-if (! -e ${prevdir}/fofc_Rplot.txt) then
-  echo "ERROR: ${prevdir}/fofc_Rplot.txt not found — ${prevdir} did not complete"
-  goto exit
-endif
-# continue from the LAST iteration (most-evolved state), not the lowest-Rfree
-# one - Rfree is noisy and an early frame can win by chance.  Override $previtr
-# by hand only if there is a real reason to backtrack (e.g. the last iter blew up).
-set previtr = `tail -n 1 ${prevdir}/fofc_Rplot.txt | awk '{print $1+0}'`
-# refuse to seed a new stage from a predecessor that never advanced past its seed
-# (last itr < 1) - that means the predecessor's amber MD failed, and continuing
-# would just cascade the failure (opt5 from opt4 from a dead opt3, etc.).
-if ( "$previtr" == "" ) set previtr = 0
-if ( $previtr < 1 ) then
-  echo "ERROR: ${prevdir} did not advance past its seed (last itr $previtr) - it likely failed."
-  echo "       Not starting a new stage from a failed one; see ${prevdir}/runme1.log."
-  goto exit
-endif
-echo "opt5 continuing from ${prevdir} iteration $previtr (last iteration)"
-set prevprod = amber_${previtr}
-
-set o = 5
-mkdir -p opt${o}
-if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme opt${o}/
-cd opt${o}
-cp ${pdir}/optimize_weights_runme.com .
-
-cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
-cp current_restraints.pdb restraints_for_0.pdb
-cp ../${prevdir}/${prevprod}.rst7 amber_0.rst7
-cp ../${prevdir}/${prevprod}.in  amber_0.in
-cp ../${prevdir}/${prevprod}.out amber_0.out
-cp ../${prevdir}/barometer_${previtr}.out barometer_0.out
-cp ../${prevdir}/leap2amber_0.log .
-ln -sf ../${prevdir}/${prevprod}.nc amber_0.nc
-cp ../centroids/centroids_in_density.pdb all_possible_refpoints.pdb
-cp ../${prevdir}/xtal.prmtop .
-cp ../${prevdir}/padded.parm7 .
-cp ../${prevdir}/orignames.pdb .
-if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
-cp ../${prevdir}/chir_omega0.rst .
-cp chir_omega0.rst chir_omega.rst
-cp ../xtal_properties.sourceme .
-
-# void_scale=0 (pressure is steady now); long run to sustain production.
-# To push R below ~37: add a SMALL allatom_weight (e.g. 0.02) here, accepting
-# a large jump in restraint energy — use the smallest value that reaches target R.
-optimize_weights_runme.com prod_ns=0.5 max_mult=1.1 Bfac_maxmod=1 weight_power=1.1 \
-    teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=0.1 void_scale=0 \
-    release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
-    min_lig_weight=0.1 cutoff_weight=0.1 min_weight=0.1 allatom_weight=0 \
-    omega_weight=0 chiral_weight=0 \
-    weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
-    min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
-    halfrho_neg=auto halfrho_pos=auto maxitr=100 >&! runme1.log
-if ($status) then
-  echo "ERROR: optimize_weights opt5 (production) failed — details: runme1.log"
-  goto exit
-endif
-
-cd ..
-sec15done:
 
 exit:

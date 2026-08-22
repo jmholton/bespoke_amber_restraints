@@ -3044,7 +3044,7 @@ foreach substage ( settle equi )
      -x ${ss}.nc \
      -inf ${Stage}_${substage}.mdinfo
     if($status) then
-      set BAD = "amber run failed at $ss "
+      set BAD = "amber pre-run failed with status $status at $ss "
       goto exit
     endif
 
@@ -3122,7 +3122,7 @@ foreach i ( `seq 1 $subruns` )
      -x ${Stage}_${i}.nc \
      -inf ${Stage}.mdinfo
     if($status) then
-      set BAD = "amber run failed at ${Stage} $i"
+      set BAD = "amber run failed with status $status at ${Stage} $i"
       goto exit
     endif
 
@@ -3179,6 +3179,13 @@ EOF
       p && ( /EAMBER/ || /-----------------/ ){print "";p=0}' ${Stage}.out |\
   tail -n 1 |\
   tee -a amber_energy_vs_itr.txt
+# amber_energy_vs_itr.txt columns (from the amber .out "A V E R A G E S" block):
+#   1 itr        2 TIME(ps)    3 TEMP(K)   4 PRESS     5 Etot      6 EKtot
+#   7 EPtot      8 BOND        9 ANGLE    10 DIHED    11 1-4 NB   12 1-4 EEL
+#  13 VDWAALS   14 EELEC      15 EHBOND   16 RESTRAINT 17 EAMBER (non-restraint)
+# col16 (RESTRAINT) is the total restraint energy; a flat col16 over the last N
+# iterations means the weight optimization has stabilized (used by the opt2
+# monitor in the example runme).  EHBOND (col15) is always 0 in these runs.
 
   set files = `awk '/^trajin/{print $2}' ${t}trajin.txt | awk -F "." '{print $1".rst7";print $1".nc"}'`
   if( $debug ) echo "deleting $files"
