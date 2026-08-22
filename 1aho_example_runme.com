@@ -327,19 +327,52 @@ foreach lig ( $ligands )
   # 3. Antechamber AM1-BCC fallback (bypasses Phenix RM1 limit)
   # Elbow geometry-only (no --opt) produces .pdb and .cif without QM charges.
   if (-e ${lig}.pdb && "$antechamber_cmd" != "") then
-    set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
+    # Net charge is essential: sqm rejects an odd-electron system, so a wrong nc
+    # (the old default 0 for a carboxylate like EG7) is a hard failure.  Read nc
+    # from the local .cif; if elbow wrote none, fall back to the CCP4 monomer
+    # library ($CLIBD_MON/<l>/<LIG>.cif), which carries the formal charge.
+    set nccif = ${lig}.cif
+    if (! -e $nccif && $?CLIBD_MON) then
+      set l1 = `echo $lig | awk '{print tolower(substr($1,1,1))}'`
+      if (-e ${CLIBD_MON}/${l1}/${lig}.cif) set nccif = ${CLIBD_MON}/${l1}/${lig}.cif
+    endif
+    set nc = ""
+    if (-e "$nccif") set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
       in_a && /^[A-Z][A-Z0-9]* / && NF>=5{sum+=$5} \
-      END{print int(sum<0?sum-0.5:sum+0.5)}' ${lig}.cif`
-    if ("$nc" == "") set nc = 0   # no parseable .cif -> assume neutral (avoids antechamber odd-args fatal)
+      END{print int(sum<0?sum-0.5:sum+0.5)}' $nccif`
+    if ("$nc" == "") set nc = 0   # no parseable .cif anywhere -> assume neutral
     echo "Generating ${lig}.mol2 via antechamber AM1-BCC (net charge $nc)"
     ${antechamber_cmd} -i ${lig}.pdb -fi pdb -o ${lig}.mol2 -fo mol2 \
       -c bcc -nc $nc -at gaff2 > ${lig}_antechamber.log
     if (-e ${lig}.mol2) ${parmchk2_cmd} -i ${lig}.mol2 -f mol2 -o ${lig}.frcmod
   endif
-  if (! -e ${lig}.mol2) then
-    echo "ERROR: could not generate ${lig}.mol2"
-    echo "  Tried: starter kit, elbow --opt, antechamber AM1-BCC"
-    echo "  Check: ${lig}_elbow_geom.log, ${lig}_antechamber.log"
+  # 4. Last resort: phenix geostd ships pre-built amber force fields (mol2+frcmod,
+  # GAFF2, correct BCC charges) for many ligands.  Used ONLY if elbow AND
+  # antechamber both failed to leave a usable mol2 + non-empty frcmod (e.g. EG7:
+  # antechamber makes the mol2 but parmchk2 hits a dummy atom and writes an empty
+  # frcmod).  CAUTION: geostd atom/H names can differ from the PDB deposit, and a
+  # name scramble blows up the amber heating step - so this is the fallback, not
+  # the default.  (For EG7 the geostd names match the deposit, verified.)
+  if( (! -e ${lig}.mol2 || ! -e ${lig}.frcmod || -z ${lig}.frcmod) && $?PHENIX ) then
+    set l1 = `echo $lig | awk '{print tolower(substr($1,1,1))}'`
+    set gmol2 = `ls ${PHENIX}/lib/python*/site-packages/chem_data/geostd/${l1}/${lig}.mol2 ${PHENIX}/modules/chem_data/geostd/${l1}/${lig}.mol2 |& grep -v 'o such' | head -1`
+    if( "$gmol2" != "" ) then
+      set gdir = $gmol2:h
+      if( -e ${gdir}/${lig}.frcmod && ! -z ${gdir}/${lig}.frcmod ) then
+        echo "elbow+antechamber failed for $lig; taking amber force field from phenix geostd ($gdir)"
+        echo "  NOTE: verify geostd atom/H names match the deposit - a mismatch can break amber heating"
+        cp ${gdir}/${lig}.mol2 ${lig}.mol2
+        cp ${gdir}/${lig}.frcmod ${lig}.frcmod
+        if( ! -e ${lig}.cif && -e ${gdir}/data_${lig}.cif ) cp ${gdir}/data_${lig}.cif ${lig}.cif
+      endif
+    endif
+  endif
+  if (! -e ${lig}.mol2 || ! -e ${lig}.frcmod || -z ${lig}.frcmod) then
+    echo "ERROR: could not build a usable force field for ${lig}"
+    echo "  Tried: starter kit, elbow, antechamber AM1-BCC, phenix geostd"
+    echo "  This ligand may need curated params - drop ${lig}.mol2/.frcmod into a"
+    echo "  starter kit, or use an earlier phenix whose elbow works (e.g. dev-5353)."
+    echo "  Check: elbow.log, ${lig}_antechamber.log"
     goto exit
   endif
 end
@@ -373,10 +406,20 @@ foreach lig ( $salt )
     phenix.elbow --chemical_component $lig --id=${lig} > ${lig}_elbow_geom.log
   endif
   if (-e ${lig}.pdb && "$antechamber_cmd" != "") then
-    set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
+    # Net charge is essential: sqm rejects an odd-electron system, so a wrong nc
+    # (the old default 0 for a carboxylate like EG7) is a hard failure.  Read nc
+    # from the local .cif; if elbow wrote none, fall back to the CCP4 monomer
+    # library ($CLIBD_MON/<l>/<LIG>.cif), which carries the formal charge.
+    set nccif = ${lig}.cif
+    if (! -e $nccif && $?CLIBD_MON) then
+      set l1 = `echo $lig | awk '{print tolower(substr($1,1,1))}'`
+      if (-e ${CLIBD_MON}/${l1}/${lig}.cif) set nccif = ${CLIBD_MON}/${l1}/${lig}.cif
+    endif
+    set nc = ""
+    if (-e "$nccif") set nc = `awk 'BEGIN{in_a=0;sum=0} /^loop_/{in_a=0} /_chem_comp_atom/{in_a=1} \
       in_a && /^[A-Z][A-Z0-9]* / && NF>=5{sum+=$5} \
-      END{print int(sum<0?sum-0.5:sum+0.5)}' ${lig}.cif`
-    if ("$nc" == "") set nc = 0   # no parseable .cif -> assume neutral (avoids antechamber odd-args fatal)
+      END{print int(sum<0?sum-0.5:sum+0.5)}' $nccif`
+    if ("$nc" == "") set nc = 0   # no parseable .cif anywhere -> assume neutral
     echo "Generating ${lig}.mol2 via antechamber AM1-BCC (net charge $nc)"
     ${antechamber_cmd} -i ${lig}.pdb -fi pdb -o ${lig}.mol2 -fo mol2 \
       -c bcc -nc $nc -at gaff2 > ${lig}_antechamber.log
