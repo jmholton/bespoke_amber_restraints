@@ -895,6 +895,18 @@ else
   echo "  phenix.refine pass 1: already done, skipping"
 endif
 
+# Guard: phenix.refine pass 1 can occupancy-refine a garbled residue to zero and
+# drop it (e.g. an over-occupied altloc), tearing a gap that later desyncs the
+# name-based reorganize_pdb matching and strips the model.  If pass 1 dropped
+# protein atoms (rmsd flags them "only found once"), fall back to the complete
+# pre-refine model - refined-but-incomplete is worse here than unrefined-but-
+# complete.  (With buildout's per-atom complete.pdb fix this should not trigger.)
+rmsd phenix_001.pdb starthere.pdb >&! rmsd_pass1.txt
+if (`grep -c "only found once" rmsd_pass1.txt`) then
+  echo "  WARNING: phenix.refine pass 1 dropped protein atoms - reverting to pre-refine starthere.pdb"
+  awk '{print substr($0,1,80)}' starthere.pdb >! phenix_001.pdb
+endif
+
 if (! -e confsel_min.pdb) then
   # Select single conformer via B-weighted jiggling
   awk '{print substr($0,1,80)}' phenix_001.pdb >! jiggleme.pdb
