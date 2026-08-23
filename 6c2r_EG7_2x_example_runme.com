@@ -152,18 +152,58 @@ set F    = `mtzdmp $rawmtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="F"{
 set SIGF = `mtzdmp $rawmtz | awk 'NF>10 && ! /2FOFCWT|FWT|DELF/ && $(NF-1)=="Q"{print $NF;exit}'`
 set FREE = `mtzdmp $rawmtz | awk 'NF>10 && $(NF-1)=="I" && /[Ff]ree/{print $NF;exit}'`
 echo "Using columns: F=$F  SIGF=$SIGF  FREE=$FREE"
-if ($F == "" || $SIGF == "" || $FREE == "") then
-  echo "ERROR: could not auto-detect MTZ columns — check mtzdmp output above"
+if ($F == "" || $SIGF == "") then
+  echo "ERROR: could not auto-detect F/SIGF MTZ columns — check mtzdmp output above"
   goto exit
 endif
 
-cad hklin1 $rawmtz hklout refme_small.mtz << EOF > /dev/null
+# Select F/SIGF (plus the deposit's R-free flags, if it has any) into refme_small.mtz
+if ( "$FREE" != "" ) then
+  cad hklin1 $rawmtz hklout refme_small.mtz << EOF > /dev/null
 labin file 1 E1=$F E2=$SIGF E3=$FREE
 labou file 1 E1=FP E2=SIGFP E3=FreeR_flag
 EOF
+else
+  cad hklin1 $rawmtz hklout refme_small.mtz << EOF > /dev/null
+labin file 1 E1=$F E2=$SIGF
+labou file 1 E1=FP E2=SIGFP
+EOF
+endif
 if ($status) then
   echo "ERROR: cad failed — check column names above"
   goto exit
+endif
+
+# Ensure a usable R-free set.  Older deposits (e.g. 1aho) carry no R-free flags, or
+# a uniform column (all one value = no test set) that phenix.refine later rejects
+# ("No array of R-free flags found").  If FreeR_flag is absent or uniform, generate
+# a fresh 5% test set — CCP4 freerflag if available, else phenix.  Real test sets
+# are left untouched.
+set frcol = `mtzdmp refme_small.mtz | awk '$NF=="FreeR_flag" && $(NF-1)=="I"{print $3,$4;exit}'`
+set frregen = 1
+if ( $#frcol == 2 ) then
+  if ( "$frcol[1]" != "$frcol[2]" ) set frregen = 0
+endif
+if ( $frregen ) then
+  echo "  R-free flags absent or uniform — generating a fresh 5% test set"
+  cad hklin1 refme_small.mtz hklout ${t}noflag.mtz << EOF > /dev/null
+labin file 1 E1=FP E2=SIGFP
+EOF
+  which freerflag >& /dev/null
+  if ( $status == 0 ) then
+    freerflag hklin ${t}noflag.mtz hklout refme_small.mtz << EOF >&! freerflag.log
+FREERFRAC 0.05
+END
+EOF
+  else
+    phenix.reflection_file_converter ${t}noflag.mtz --generate-r-free-flags \
+      --r-free-flags-fraction=0.05 --mtz=refme_small.mtz >&! freerflag.log
+  endif
+  rm -f ${t}noflag.mtz
+  if ( ! -e refme_small.mtz ) then
+    echo "ERROR: R-free flag generation failed — see freerflag.log"
+    goto exit
+  endif
 endif
 
 echo head | mtzdump hklin refme_small.mtz >! smallmtzdump.txt
