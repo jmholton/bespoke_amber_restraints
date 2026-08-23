@@ -119,16 +119,15 @@ build_side.awk >! side.pdb
 echo "renumber ${firstresnum}\nchain $chain" | pdbset xyzin side.pdb xyzout helix.pdb > /dev/null
 # all-helix version of the full sequence
 
-# Rebuild complete.pdb: the reference atom set that combine_pdbs conforms to.
+# create complete.pdb: the atom names we expect to have in the end.
 # Reconstruct each residue's altloc pattern PER ATOM from the input model: an
 # atom that is split (A/B/...) in the deposit contributes only its alternate
 # copies; an atom that is blank (single conformer) or absent stays a single
 # blank atom.  Keying "split" on the residue alone (the old behaviour) gave
 # EVERY atom of a split residue a blank+A+B triple, so a curated A/B atom plus
 # build_side's freshly-built blank copy both survived combine -> occupancy 2.0
-# (e.g. 1aho ASP 9 CG/OD1).  phenix.refine later occupancy-refines such atoms
-# to zero and drops the whole residue, tearing a gap in the single-conformer
-# model that then breaks name-based reorganize/restraint matching downstream.
+# (e.g. 1aho ASP 9 CG/OD1).  phenix.refine later drops the whole residue, 
+# tearing a gap in the model that need not be there.
 egrep "^CRYST1|^LINK|^SSB" $pdbfile >! complete.pdb
 cat $pdbfile |\
 awk '! /^ATOM|^HETAT/{next}\
@@ -220,6 +219,7 @@ end
 
 
 # cp existing_atoms0.txt existing_atoms.txt
+buildplan:
 echo -n "" >! buildorder.txt
 set n = 0
 set missing_atoms = 1
@@ -357,7 +357,9 @@ end
 
 egrep "^CRYST1|^LINK|^SSBO|^ATOM|^HETAT" $pdbfile >! initial.pdb
 # perhaps filter out ligands?
-cp initial.pdb incomplete.pdb
+# on a re-build round (see the minimize/rebuild block below) keep whatever we
+# have already built instead of resetting to the original input
+if( ! $?did_rebuild ) cp initial.pdb incomplete.pdb
 
 # make selection mask so that only new stuff is minimized
 awk '$2~/N2C|C2N|JOIN|SIDE/{print $4,$5}' buildorder.txt |\
@@ -592,6 +594,17 @@ foreach n ( `awk '{print $1}' buildorder.txt | sort -u | sort -g` )
 
 end
 
+# Always geometry-minimize at least once, even for an all-SIDE build (which
+# otherwise skips the per-residue minimization above): this cleans up the
+# rebuilt geometry AND lets phenix flag/repair a garbled residue (e.g. a
+# mangled or over-occupied altloc) that the atom-count check alone would miss.
+if( ! -e built_minimized.pdb ) then
+  echo "geometry minimization (final):"
+  phenix.geometry_minimization built.pdb gaps.eff selection.eff $ciffiles \
+    write_geo_file=False cdl=false | tee geomin.log | egrep "target:"
+  if( -e built_minimized.pdb ) cp built_minimized.pdb built.pdb
+endif
+
 # check if anything is missing
 awk '/^ATOM|^HETAT/{print substr($0,1,16),substr($0,18)}' built.pdb |\
 awk '{id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
@@ -609,6 +622,18 @@ awk '{id=$1" "$2" "$3" "$4}\
 cat >! missing_atoms.txt 
 set nmissatom = `cat missing_atoms.txt | wc -l`
 echo "$nmissatom missing atoms in built.pdb"
+
+# If minimization left atoms missing (e.g. it discarded a garbled residue),
+# take one more build round to replace them.  existing_atoms.txt already
+# reflects the current built.pdb, and did_rebuild keeps incomplete.pdb from
+# being reset, so re-planning rebuilds only what is now gone (once).
+if( $nmissatom && ! $?did_rebuild ) then
+  echo "  $nmissatom atoms missing after minimization - one more build round"
+  set did_rebuild
+  egrep -v "^LINK" built.pdb >! incomplete.pdb
+  rm -f built_minimized.pdb >& /dev/null
+  goto buildplan
+endif
 
 
 exit:
