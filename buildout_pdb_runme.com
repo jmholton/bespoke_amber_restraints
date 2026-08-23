@@ -119,24 +119,30 @@ build_side.awk >! side.pdb
 echo "renumber ${firstresnum}\nchain $chain" | pdbset xyzin side.pdb xyzout helix.pdb > /dev/null
 # all-helix version of the full sequence
 
-# now add split versions of every residue that is split
+# Rebuild complete.pdb: the reference atom set that combine_pdbs conforms to.
+# Reconstruct each residue's altloc pattern PER ATOM from the input model: an
+# atom that is split (A/B/...) in the deposit contributes only its alternate
+# copies; an atom that is blank (single conformer) or absent stays a single
+# blank atom.  Keying "split" on the residue alone (the old behaviour) gave
+# EVERY atom of a split residue a blank+A+B triple, so a curated A/B atom plus
+# build_side's freshly-built blank copy both survived combine -> occupancy 2.0
+# (e.g. 1aho ASP 9 CG/OD1).  phenix.refine later occupancy-refines such atoms
+# to zero and drops the whole residue, tearing a gap in the single-conformer
+# model that then breaks name-based reorganize/restraint matching downstream.
 egrep "^CRYST1|^LINK|^SSB" $pdbfile >! complete.pdb
 cat $pdbfile |\
 awk '! /^ATOM|^HETAT/{next}\
-  {residue=substr($0,22,8);f=substr($0,17,1)}\
-  f!=" " && ! seen[f" "residue]{\
-     print f,residue,"SPLIT"\
-     ++seen[f" "residue]}' |\
+  {name=substr($0,13,4);res=substr($0,22,8);f=substr($0,17,1);\
+   gsub(/ /,"_",name);gsub(/ /,"_",res);key=res"|"name}\
+  f!=" " && ! seen[key"|"f]{print "SPLITATOM "key"|"f;++seen[key"|"f]}' |\
 cat - helix.pdb |\
-awk '$NF=="SPLIT"{res=substr($0,3,8);confs[res]=confs[res]" "$1;next}\
+awk '$1=="SPLITATOM"{split($2,a,"|");k=a[1]"|"a[2];alts[k]=alts[k]" "a[3];next}\
   /^CRYST|^SSB|^LINK/{print}\
   ! /^ATOM|^HETAT/{next}\
-  {res=substr($0,22,8);pre=substr($0,1,16);post=substr($0,18)}\
-  {print}\
-  ! confs[res]{next}\
-  {n=split(confs[res],f);for(i=1;i<=n;++i){\
-   print pre f[i] post;\
-}}' >> complete.pdb
+  {name=substr($0,13,4);res=substr($0,22,8);pre=substr($0,1,16);post=substr($0,18);\
+   gsub(/ /,"_",name);gsub(/ /,"_",res);k=res"|"name}\
+  k in alts{n=split(alts[k],f," ");for(i=1;i<=n;++i)print pre f[i] post;next}\
+  {print}' >> complete.pdb
 filter_pdb.awk -v only=atoms -v skip=protein $pdbfile >> complete.pdb
 
 
