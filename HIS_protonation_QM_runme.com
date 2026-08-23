@@ -101,7 +101,10 @@ foreach phil ( `ls -1 ${m}.updated_*_HIS.phil` )
 set resid = `echo $phil | awk -F '_' '{print $(NF-1)}'`
 echo "  run_qmr HIS $resid  (model $m) ..."
 mmtbx.quantum_interface ${m}.updated.pdb iterate_NQH=HIS $phil run_qmr=True qi.nproc=$nproc $ligcifs |& tee phil_${m}_${resid}.log
-grep 'kcal/mol ~>' phil_${m}_${resid}.log | grep -vE '!!!|><' |\
+# Keep only the numbered ranking lines and drop the '!!!'/'><' summary markers by
+# POSITIVELY matching "  N. ..." - a literal !!! in the grep pattern would trip
+# tcsh history expansion ("0: Event not found") and kill the parse after the 1st HIS.
+grep 'kcal/mol ~>' phil_${m}_${resid}.log | grep -E '^ *[0-9]+\. ' |\
 awk -v r=$resid -v src=$m \
   '{rel=1e30;abs=1e30;\
     for(i=1;i<=NF;i++){if($i=="kcal/mol"&&abs==1e30)abs=$(i-1)+0; if($i=="~>")rel=$(i+1)+0}\
