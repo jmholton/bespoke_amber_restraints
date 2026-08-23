@@ -570,7 +570,7 @@ foreach n ( `awk '{print $1}' buildorder.txt | sort -u | sort -g` )
 
     rm built_minimized.pdb >& /dev/null
     echo "minimizing geometry:"
-    phenix.geometry_minimization built.pdb gaps.eff selecton.eff $ciffiles \
+    phenix.geometry_minimization built.pdb gaps.eff selection.eff $ciffiles \
       write_geo_file=False cdl=false | tee geomin.log | egrep "target:" 
     if( ! -e built_minimized.pdb ) then
       set BAD = "error minimizing geometry"

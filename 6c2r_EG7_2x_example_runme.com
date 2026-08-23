@@ -524,14 +524,14 @@ set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
 
 echo "  building missing atoms (details: buildout.log)..."
 buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
-if (! -e built_minimized.pdb) then
-  echo "ERROR: buildout_pdb_runme.com did not produce built_minimized.pdb — details: buildout.log"
+if (! -e built.pdb) then
+  echo "ERROR: buildout_pdb_runme.com did not produce built.pdb — details: buildout.log"
   goto exit
 endif
 
 # Iterative refinement to convergence — produces refmacout_minRfree.pdb
 echo "  refmac convergence refinement (details: converge.log)..."
-converge_refmac.com built_minimized.pdb refme.mtz $ligcifs >&! converge.log
+converge_refmac.com built.pdb refme.mtz $ligcifs >&! converge.log
 if (! -e refmacout_minRfree.pdb) then
   echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — details: converge.log"
   goto exit
