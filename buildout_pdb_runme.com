@@ -314,7 +314,9 @@ while ( $missing_atoms )
    set got_all_side = `cat old_side.txt new_side.txt | awk '{++seen[$1]} END{got=1;for(a in seen)if(seen[a]!=2)got=0;print got}'`
    if( $debug ) echo "got_all_main= $got_all_main got_all_side= $got_all_side"
 
-   if( $#gaps ) echo "$n GAP $gaps" >> buildorder.txt
+   if( $#gaps ) then
+      echo "$n GAP $gaps" >> buildorder.txt
+   endif
 
    if( $got_all_main && $got_all_side ) then
      echo "already taken care of"
