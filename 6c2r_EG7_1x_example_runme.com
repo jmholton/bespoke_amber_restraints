@@ -239,12 +239,16 @@ if(-e compute_settings.sourceme) then
   echo "keeping existing compute_settings.sourceme"
 else
   cat << EOF >! compute_settings.sourceme
-set pdir       = $pdir
 set sruncpu    = "$sruncpu"
 set srungpu    = "$srungpu"
 EOF
 endif
 source compute_settings.sourceme
+# pdir is the location of THIS checkout, not a portable compute setting.  Older
+# runs baked an absolute 'set pdir' into compute_settings.sourceme; if such a file
+# is copied/rsynced into a new run dir, sourcing it points us at the wrong repo
+# (e.g. Section 11's 'cp ${pdir}/optimize_weights_runme.com').  Re-derive it fresh.
+set pdir = ${pwd}/bespoke_amber_restraints
 
 # Expand MTZ to the crystallographic cell (super_mult=1,1,1 = identity reindex, no expansion)
 echo "  expanding MTZ to $super_mult supercell..."
