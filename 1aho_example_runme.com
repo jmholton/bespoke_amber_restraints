@@ -330,6 +330,14 @@ mkdir -p ligands
 
 cd ligands
 
+# Known-good elbow for force-field generation.  Phenix 2.0+ elbow crashes or falls
+# through to antechamber, and antechamber's valence model cannot bond-perceive
+# hypervalent ions (sulfate S, phosphate P) - it silently drops S-O / P-O bonds, so
+# the ion flies apart in MD.  Pin an elbow that parameterises them correctly
+# (1.21-5207), run in a subshell so it does not change the phenix the rest of the
+# script uses.  Override elbow_phenix if that build moves.
+set elbow_phenix = /programs/phenix-1.21-5207
+if (! -e ${elbow_phenix}/phenix_env.csh) set elbow_phenix = "$PHENIX"
 
 # Antechamber binary for AM1-BCC charge fallback.
 # Elbow --opt fails on Phenix 2.0+ (RM1 semiempirical > 1 GB virtual memory limit).
@@ -458,7 +466,13 @@ foreach lig ( $salt )
     if (-e ${skit}/ligands/${lig}.pdb) cp ${skit}/ligands/${lig}.pdb .
   endif
   if (-e ${lig}.mol2) continue
-  # Elbow geometry-only to get .pdb + .cif, then antechamber for charges
+  # Preferred: known-good elbow (${elbow_phenix:t}) --amber builds the full amber FF
+  # with correct connectivity, including hypervalent ions antechamber cannot handle.
+  echo "elbow (${elbow_phenix:t}) $lig --amber_force_field_files"
+  ( source ${elbow_phenix}/phenix_env.csh >& /dev/null ; \
+    phenix.elbow --chemical_component $lig --id=${lig} --amber_force_field_files ) >>& elbow.log
+  if (-e ${lig}.mol2 && -e ${lig}.frcmod && ! -z ${lig}.frcmod) continue
+  # Fallback: elbow geometry-only to get .pdb + .cif, then antechamber for charges
   if (! -e ${lig}.pdb) then
     phenix.elbow --chemical_component $lig --id=${lig} > ${lig}_elbow_geom.log
   endif
@@ -490,6 +504,30 @@ foreach lig ( $salt )
     echo "ERROR: could not generate ${lig}.mol2 for salt ion $lig"
     echo "  Copy ${lig}.mol2, ${lig}.frcmod, ${lig}.pdb from starter kit or another source"
     goto exit
+  endif
+end
+
+# Cross-check every force field against phenix geostd's curated amber FF (when geostd
+# has the residue).  A bond-count mismatch flags a bad parameterisation - most often
+# antechamber dropping hypervalent S-O / P-O bonds.  If ours has FEWER bonds than the
+# curated geostd version, take geostd's: it is the trustworthy reference for common
+# ions/ligands (and its four sulfate oxygens are symmetric, as they should be).
+foreach lig ( $ligands $salt )
+  if (! -e ${lig}.mol2) continue
+  set l1 = `echo $lig | awk '{print tolower(substr($1,1,1))}'`
+  set gmol2 = `ls ${elbow_phenix}/modules/chem_data/geostd/${l1}/${lig}.mol2 ${elbow_phenix}/lib/python*/site-packages/chem_data/geostd/${l1}/${lig}.mol2 |& grep -v 'o such' | head -1`
+  if ( "$gmol2" == "" ) continue
+  set nb_ours = `awk '/@<TRIPOS>BOND/{b=1;next} /@<TRIPOS>/{b=0} b&&NF>=3{c++} END{print c+0}' ${lig}.mol2`
+  set nb_geo  = `awk '/@<TRIPOS>BOND/{b=1;next} /@<TRIPOS>/{b=0} b&&NF>=3{c++} END{print c+0}' $gmol2`
+  if ( $nb_ours == $nb_geo ) then
+    echo "  $lig force field matches geostd ($nb_ours bonds)"
+  else
+    echo "  NOTE: $lig has $nb_ours bonds, geostd has $nb_geo"
+    if ( $nb_ours < $nb_geo ) then
+      echo "  -> fewer than geostd; taking the curated geostd force field for $lig"
+      cp $gmol2 ${lig}.mol2
+      if (-e ${gmol2:h}/${lig}.frcmod) cp ${gmol2:h}/${lig}.frcmod ${lig}.frcmod
+    endif
   endif
 end
 
