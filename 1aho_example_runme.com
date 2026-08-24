@@ -44,6 +44,18 @@ set salt      = ( NH4 ACY )
 set salt_conc = 0.68
 set badlinks  = 0      # 1aho has no ligand, so no spurious Lys-LIG bonds
 
+# hurry = fast smoke-test mode (CLI:  ./1aho_example_runme.com hurry).  Skips ALL
+# crystallographic-prep refinement AND model building — buildout, converge_refmac,
+# garr, and the supercell refine — and derives the reference density from a single
+# zero-cycle phenix.refine of the PDB deposit.  The starting model is then just the
+# deposit expanded to the supercell (rough, and possibly missing atoms), so this is
+# only for exercising the downstream MD pipeline quickly, never for production.
+set hurry = 0
+foreach a ( $* )
+  if ("$a" == "hurry") set hurry = 1
+end
+if ( $hurry ) echo "=== HURRY MODE ON: skipping buildout / converge_refmac / garr / supercell refine ==="
+
 set pwd  = `pwd`
 set pdir = ${pwd}/bespoke_amber_restraints
 set skit = ${pwd}/starter_kit   # starter kit location
@@ -546,25 +558,33 @@ foreach lig ( $ligands $salt )
 end
 set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
 
-echo "  building missing atoms (details: buildout.log)..."
-buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
-if (! -e built.pdb) then
-  echo "ERROR: buildout_pdb_runme.com did not produce built.pdb — details: buildout.log"
-  goto exit
+if ( $hurry ) then
+  echo "  HURRY: skipping buildout AND converge_refmac — using the H-stripped PDB deposit"
+  # buildout normally removes hydrogens (tleap re-adds them cleanly); match that,
+  # otherwise the deposit's thiol HG makes tleap build reduced-thiol cysteines and
+  # then choke when it forms the disulfide bonds (no HS-SH torsion parameters).
+  awk '{print substr($0,1,80)}' starthere.pdb | filter_pdb.awk -v skip=H >! thisone.pdb
+else
+  echo "  building missing atoms (details: buildout.log)..."
+  buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
+  if (! -e built.pdb) then
+    echo "ERROR: buildout_pdb_runme.com did not produce built.pdb — details: buildout.log"
+    goto exit
+  endif
+
+  # Iterative refinement to convergence — produces refmacout_minRfree.pdb
+  echo "  refmac convergence refinement (details: converge.log)..."
+  converge_refmac.com built.pdb refme.mtz $ligcifs >&! converge.log
+  if (! -e refmacout_minRfree.pdb) then
+    echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — details: converge.log"
+    goto exit
+  endif
+  ln -sf refmacout_minRfree.pdb minRfree.pdb
+
+  grep "REMARK  FREE R VALUE" refmacout_minRfree.pdb | tail -1
+
+  ln -sf minRfree.pdb thisone.pdb
 endif
-
-# Iterative refinement to convergence — produces refmacout_minRfree.pdb
-echo "  refmac convergence refinement (details: converge.log)..."
-converge_refmac.com built.pdb refme.mtz $ligcifs >&! converge.log
-if (! -e refmacout_minRfree.pdb) then
-  echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — details: converge.log"
-  goto exit
-endif
-ln -sf refmacout_minRfree.pdb minRfree.pdb
-
-grep "REMARK  FREE R VALUE" refmacout_minRfree.pdb | tail -1
-
-ln -sf minRfree.pdb thisone.pdb
 
 cd ..
 sec5done:
@@ -598,6 +618,28 @@ awk '! /^ATOM|^HETAT/{print;next}\
   {id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
 cat >! amberme.pdb
 
+# Find disulfides so their cysteines can be declared CYX.  A plain CYS carries a
+# thiol H and sulfur atom type SH, so tleap builds a reduced thiol and then chokes
+# when the S-S bond is formed (no HS-SH torsion parameters).  Look in SSBOND
+# records first, fall back to geometric distang on the SG atoms.  (This is the
+# same detection leap2amber uses; passed to convert_pdb the way HIS states are.)
+egrep "^SSBOND" starthere.pdb | awk '{print $4,$5,$7,$8}' | sort -u >! disulfides.txt
+if (! -s disulfides.txt) then
+  convert_pdb.awk -v fixEe=1 starthere.pdb |\
+  awk '/^CRYST/{print} ! /^ATOM|^HETAT/{next} {Ee=substr($0,77,2);gsub(" ","",Ee)} Ee=="S"{print}' >! ${t}_S.pdb
+  distang xyzin ${t}_S.pdb << EOF >&! ${t}_distang.log
+SYMM 1
+DIST ALL
+RADII S 1.2
+DMIN 0.8
+END
+EOF
+  awk '$3==$7 && $3=="SG"{print $4,$2,$8,$6}' ${t}_distang.log | sort -u |\
+  awk '! seen[$1,$2,$3,$4]{print;++seen[$1,$2,$3,$4];++seen[$3,$4,$1,$2]}' >! disulfides.txt
+endif
+awk 'NF>=4{print "CYX",$1 $2; print "CYX",$3 $4}' disulfides.txt | sort -u >! disulfides_settings.txt
+echo "  disulfides (chain res  chain res):" ; cat disulfides.txt
+
 # Dynamic tleap stub — one entry per mol2 found
 cat << EOF >! tleap_stub.in
 source leaprc.protein.ff19SB
@@ -616,16 +658,23 @@ EOF
 end
 cat << EOF >> tleap_stub.in
 x = loadpdb tleapme.pdb
+EOF
+# explicit S-S bonds for each CYX pair (residue index == resnum for the 1..N protein)
+awk 'NF>=4{print "bond x."$2".SG x."$4".SG"}' disulfides.txt >> tleap_stub.in
+cat << EOF >> tleap_stub.in
 set x box { $CELL[1] $CELL[2] $CELL[3] }
 set default nocenter on
 saveAmberParm x xtal.prmtop start.crd
 quit
 EOF
 
-cat HIS_settings.txt amberme.pdb |\
+# feed the CYX disulfide assignments to convert_pdb alongside the HIS states, and
+# strip SSBOND/CONECT so the S-S bonds come only from our explicit tleap 'bond'
+# commands (CONECT + explicit bond = tleap fatal "cannot add bond ... duplicate")
+cat HIS_settings.txt disulfides_settings.txt amberme.pdb |\
 convert_pdb.awk -v output=amber -v fixEe=1 |\
 awk '/HIS|HIE|HID|HIP/ && $NF=="H"{next} {print}' |\
-egrep -v "LINK" >! tleapme.pdb
+egrep -v "^LINK|^SSBOND|^CONECT" >! tleapme.pdb
 
 tleap -f tleap_stub.in >&! tleap.log
 set tleap_status = $status
@@ -656,6 +705,12 @@ if (-e garr1/centroids_final_001.pdb) then
 endif
 echo ""
 echo "=== Section 7: Generate centroid reference points (garr1) ==="
+if ( $hurry ) then
+  echo "  HURRY: skipping garr — using the PDB deposit as the centroid reference"
+  mkdir -p garr1
+  awk '{print substr($0,1,80)}' starthere_asu.pdb >! garr1/centroids_final_001.pdb
+  goto sec7done
+endif
 echo "  running generate_alignment_reference (details: garr1/garr.log)..."
 mkdir -p garr1
 cd garr1
@@ -705,11 +760,24 @@ echo "=== Section 8: Build supercell centroid set (centroids/) ==="
 mkdir -p centroids
 cd centroids
 
-# Pick best map: lowest Rfree across build1 and garr1
-grep "Final R" ../build1/*.log ../garr1/*.log | justify.awk | sort -k7g | tee sorted.txt | head
-set minRfree = `awk '/_/{gsub(".log:"," ");print $1;exit}' sorted.txt`
-ln -sf ${minRfree}.mtz minRfree.mtz
-echo "min Rfree is $minRfree"
+if ( $hurry ) then
+  echo "  HURRY: reference density from a zero-cycle phenix.refine of the deposit"
+  set hcifs = `echo $ligands $salt | awk '{for(i=1;i<=NF;++i) print "../ligands/" $i ".cif"}'`
+  phenix.refine ../starthere_asu.pdb ../refme_small.mtz $hcifs \
+    main.number_of_macro_cycles=0 prefix=hurryref >&! hurryref.log
+  if (! -e hurryref_001.mtz) then
+    echo "ERROR: hurry zero-cycle refine produced no map — details: centroids/hurryref.log"
+    goto exit
+  endif
+  ln -sf hurryref_001.mtz minRfree.mtz
+  echo "min Rfree map = zero-cycle deposit refine (hurryref)"
+else
+  # Pick best map: lowest Rfree across build1 and garr1
+  grep "Final R" ../build1/*.log ../garr1/*.log | justify.awk | sort -k7g | tee sorted.txt | head
+  set minRfree = `awk '/_/{gsub(".log:"," ");print $1;exit}' sorted.txt`
+  ln -sf ${minRfree}.mtz minRfree.mtz
+  echo "min Rfree is $minRfree"
+endif
 
 ln -sf ../garr1/centroids_final_001.pdb centroids_asu.pdb
 ln -sf ../build1/thisone.pdb fulllength_asu.pdb
@@ -834,6 +902,13 @@ echo ""
 echo "=== Section 9: Supercell phenix refinement (super_refine1) ==="
 mkdir -p super_refine1
 cd super_refine1
+
+if ( $hurry ) then
+  echo "  HURRY: skipping supercell refine — using the expanded single-conformer supercell as-is"
+  awk '{print substr($0,1,80)}' ../centroids/fulllength_noalt.pdb >! thisone.pdb
+  cd ..
+  goto sec9done
+endif
 
 ln -sf ../refme.mtz .
 ln -sf ../centroids/fulllength_super.pdb starthere.pdb
