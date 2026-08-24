@@ -615,6 +615,28 @@ awk '! /^ATOM|^HETAT/{print;next}\
   {id=substr($0,12,15)} ! seen[id]{print;++seen[id]}' |\
 cat >! amberme.pdb
 
+# Find disulfides so their cysteines can be declared CYX.  A plain CYS carries a
+# thiol H and sulfur atom type SH, so tleap builds a reduced thiol and then chokes
+# when the S-S bond is formed (no HS-SH torsion parameters).  Look in SSBOND
+# records first, fall back to geometric distang on the SG atoms.  (This is the
+# same detection leap2amber uses; passed to convert_pdb the way HIS states are.)
+egrep "^SSBOND" starthere.pdb | awk '{print $4,$5,$7,$8}' | sort -u >! disulfides.txt
+if (! -s disulfides.txt) then
+  convert_pdb.awk -v fixEe=1 starthere.pdb |\
+  awk '/^CRYST/{print} ! /^ATOM|^HETAT/{next} {Ee=substr($0,77,2);gsub(" ","",Ee)} Ee=="S"{print}' >! ${t}_S.pdb
+  distang xyzin ${t}_S.pdb << EOF >&! ${t}_distang.log
+SYMM 1
+DIST ALL
+RADII S 1.2
+DMIN 0.8
+END
+EOF
+  awk '$3==$7 && $3=="SG"{print $4,$2,$8,$6}' ${t}_distang.log | sort -u |\
+  awk '! seen[$1,$2,$3,$4]{print;++seen[$1,$2,$3,$4];++seen[$3,$4,$1,$2]}' >! disulfides.txt
+endif
+awk 'NF>=4{print "CYX",$1 $2; print "CYX",$3 $4}' disulfides.txt | sort -u >! disulfides_settings.txt
+echo "  disulfides (chain res  chain res):" ; cat disulfides.txt
+
 # Dynamic tleap stub — one entry per mol2 found
 cat << EOF >! tleap_stub.in
 source leaprc.protein.ff19SB
@@ -633,16 +655,23 @@ EOF
 end
 cat << EOF >> tleap_stub.in
 x = loadpdb tleapme.pdb
+EOF
+# explicit S-S bonds for each CYX pair (residue index == resnum for the 1..N protein)
+awk 'NF>=4{print "bond x."$2".SG x."$4".SG"}' disulfides.txt >> tleap_stub.in
+cat << EOF >> tleap_stub.in
 set x box { $CELL[1] $CELL[2] $CELL[3] }
 set default nocenter on
 saveAmberParm x xtal.prmtop start.crd
 quit
 EOF
 
-cat HIS_settings.txt amberme.pdb |\
+# feed the CYX disulfide assignments to convert_pdb alongside the HIS states, and
+# strip SSBOND/CONECT so the S-S bonds come only from our explicit tleap 'bond'
+# commands (CONECT + explicit bond = tleap fatal "cannot add bond ... duplicate")
+cat HIS_settings.txt disulfides_settings.txt amberme.pdb |\
 convert_pdb.awk -v output=amber -v fixEe=1 |\
 awk '/HIS|HIE|HID|HIP/ && $NF=="H"{next} {print}' |\
-egrep -v "LINK" >! tleapme.pdb
+egrep -v "^LINK|^SSBOND|^CONECT" >! tleapme.pdb
 
 tleap -f tleap_stub.in >&! tleap.log
 set tleap_status = $status
