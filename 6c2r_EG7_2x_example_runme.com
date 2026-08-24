@@ -27,7 +27,8 @@
 #   opt2       (Sec 12): weight optimization  (exit: RESTRAINT energy flat)
 #   opt3       (Sec 13): subtle B-factor mods (exit: fofc_R level) - only after
 #                        weights converge
-#   opt4+      (Sec 14): continuation of opt3 (exit: fofc_R level)
+#   opt4+      (Sec 14): continuation of opt3 (maxitr=9999; exit: B-factor
+#                        histogram converged, NOT fofc_R)
 # See the "Opt-stage workflow" header above Section 13 for the full recipe.
 #
 # Re-run safety: each section checks for its key output file and skips if already done.
@@ -1441,8 +1442,10 @@ sec12done:
 #   opt3:         B-factor mods ON    - ONLY after the weights converge; keep B
 #                 subtle (Bfac_maxmod=2); exit when fofc_R is level
 #   opt4+:        continuation of opt3 - more iterations of the coupled B+weight
-#                 optimization; exit when fofc_R is level.  Add opt5, opt6 ... the
-#                 same way only if fofc_R is still improving.
+#                 optimization; run it out (maxitr=9999) and exit when the B-factor
+#                 HISTOGRAM (Bhist_vs_itr.txt) has converged (its shape stops
+#                 changing), NOT on fofc_R.  Add opt5, opt6 ... the same way if the
+#                 histogram is still drifting.
 #
 # Goal: a low, LEVEL fofc_R with the MINIMUM restraint energy.  Key points:
 #   - B and weight optimization are coupled - neither samples accurate density
@@ -1572,8 +1575,9 @@ sec13done:
 # SECTION 14 — B-factor optimization continued (opt4, continuation of opt3)
 # Same regime as opt3 (subtle B-factor mods; weights already converged) — just
 # more iterations to let the coupled B + weight optimization settle.  Seeds from
-# opt3's last iteration.  Exit when fofc_R is level.  Add more continuation
-# sections (opt5, opt6, ...) the same way only if fofc_R is still improving.
+# opt3's last iteration.  Runs out (maxitr=9999) and exits when the B-factor
+# HISTOGRAM has converged (its shape stops changing), NOT on fofc_R.  Add more
+# continuation sections (opt5, opt6, ...) the same way if it is still drifting.
 #==============================================================================
 if (-e opt4/fofc_Rplot.txt) then
   echo ""
@@ -1635,20 +1639,25 @@ cp ../xtal_properties.sourceme .
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
-    halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
+    halfrho_neg=auto halfrho_pos=auto maxitr=9999 >&! runme1.log &
 set owpid = $!
 set pwin = 10
+set bhist_tol = 0.02   # mean per-iter histogram total-variation distance below which the B distribution is converged
 while ( 1 )
   sleep 120
   ps -p $owpid >& /dev/null
   if ( $status ) break
-  if ( ! -e fofc_Rplot.txt ) continue
-  set nR = `wc -l < fofc_Rplot.txt`
-  if ( $nR < $pwin ) continue
-  # col2 = difference-map R; flat (pscore < 0.5) = B + weight optimization converged
-  set flat = `tail -n $pwin fofc_Rplot.txt | awk '{n++;sx+=NR;sy+=$2;sxx+=NR*NR;sxy+=NR*$2;syy+=$2*$2} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
-  if ( "$flat" == "1" ) then
-    echo "opt4: fofc_R level over last $pwin iters — touching ./exit"
+  if ( ! -e Bhist_vs_itr.txt ) continue
+  # number of iterations recorded (one blank-line-separated histogram block each)
+  set nB = `awk 'NF>=4{seen[$1]=1} END{c=0;for(x in seen)c++;print c+0}' Bhist_vs_itr.txt`
+  if ( $nB < $pwin ) continue
+  # mean total-variation distance between consecutive-iteration B-factor histograms
+  # over the last $pwin iterations; -> 0 as the (bimodal) B distribution settles.
+  # Bhist_vs_itr.txt cols: itr  B-bin  density  count  (density already sums to 1).
+  set tvd = `awk -v win=$pwin 'NF>=4{it=$1;b=$2;dn=$3; if(seen[it]==0){seen[it]=1;o[++n]=it} d[it SUBSEP b]=dn; bl[b]=1} END{if(n<win){print 9;exit} tot=0;np=0; for(k=n-win+2;k<=n;k++){a=o[k-1];c=o[k];t=0; for(x in bl){e=d[a SUBSEP x]-d[c SUBSEP x]; if(e<0)e=-e; t+=e} tot+=0.5*t;np++} print (np>0)?tot/np:9}' Bhist_vs_itr.txt`
+  set conv = `echo $tvd $bhist_tol | awk '{print ($1<$2)?1:0}'`
+  if ( "$conv" == "1" ) then
+    echo "opt4: B-factor histogram converged (mean TVD $tvd < $bhist_tol over last $pwin iters) — touching ./exit"
     touch exit
     break
   endif
