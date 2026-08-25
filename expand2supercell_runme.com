@@ -276,8 +276,16 @@ if( ! $reorganize ) then
 endif
 
 # do not use refpdb here!
-echo "reorganizing  "
+# Tell reorganize the per-copy (ASU) protein residue count so it starts a new chain
+# at every symmetry copy.  Otherwise, when symgen emits all copies under one chain
+# id (e.g. P41212), reorganize auto-picks a maxchain4resnum that spans the whole
+# cell and fuses all the copies into one continuous chain.  Count from monomer.pdb,
+# which exists on both the map-building pass and the map-applying pass (wrapped_asu
+# is only made on the map-building pass).
+set asures = `filter_pdb.awk -v only=protein ${t}monomer.pdb | awk '{r=substr($0,22,5)} r!=p{n++;p=r} END{print n+0}'`
+echo "reorganizing (per-copy protein residues = $asures) "
 reorganize_pdb_runme.com ${t}pile.pdb renumber=$renumber \
+  maxchain4resnum=$asures \
   declash=$declash outfile=${t}reorg.pdb \
   wrap=$wrap phenix_bumpcheck=$phenix_bumpcheck debug=$debug |\
 tee ${t}reorg.log | grep -v ${t}
@@ -305,34 +313,31 @@ endif
 if( "$new_mono_map" == "" ) goto skipmap
 
 # make the supercell trans/rot map
+#
+# Derive the per-copy rotation/translation from the PRE-reorganize pile, not from
+# reorg.pdb.  symgen lays down every symmetry copy carrying the reference monomer's
+# ORIGINAL residue numbering, so each copy aligns to the monomer exactly, matched by
+# residue number.  The reorganized supercell cannot be trusted for this: it renumbers
+# every copy independently (so copy B's "residue 50" is a different monomer residue
+# than copy A's), and declash removes different atoms from each copy - together these
+# frameshift any residue-number match and the alignment collapses.
 
-echo renumber 1 | pdbset xyzin ${t}monomer.pdb xyzout ${t}ref.pdb > /dev/null
+filter_pdb.awk -v only=protein ${t}monomer.pdb | egrep "^ATOM|^HETAT" >! ${t}monoP.pdb
 
-convert_pdb.awk -v only=protein -v renumber=terify ${t}reorg.pdb |\
-awk '/^ATOM|^HETAT/{chain=substr($0,22,1);res=substr($0,23,4)+0;ores=$NF}\
-   s==""{s=res;o=ores} {e=res}\
-   /^TER/{if(s!=e)print o,chain,s,e;s=""}' |\
-tee ${t}resmap.txt
-set monomers = `awk '{print NR}' ${t}resmap.txt`
+# every symgen copy in the pile is an exact, complete replica of the monomer, so the
+# copies are natoms_monomer atoms long each - split on that count (robust to however
+# the residues/chains are numbered, unlike splitting on a residue-number restart).
+set natoms = `grep -cE "^ATOM|^HETAT" ${t}monoP.pdb`
+set nmono  = `filter_pdb.awk -v only=protein ${t}pile.pdb | grep -cE "^ATOM|^HETAT" | awk -v na=$natoms '{print int($1/na)}'`
+set monomers = `awk -v n=$nmono 'BEGIN{for(i=1;i<=n;++i)print i}'`
 
-echo "making $new_mono_map and checking alignment..."
+echo "making $new_mono_map (aligning $#monomers symmetry copies)..."
 rm -f $new_mono_map
 foreach m ( $monomers )
-    set monomer = `head -n $m ${t}resmap.txt | tail -n 1`
-    set o = "$monomer[1]"
-    set chain = "$monomer[2]"
-    set s = "$monomer[3]"
-    echo "$monomer" |\
-    cat - ${t}reorg.pdb |\
-    awk 'NR==1{o=$1;c=$2;s=$3;e=$4;next}\
-       /^ATOM|^HETAT/{chain=substr($0,22,1);res=substr($0,23,4)+0;ores=$NF}\
-       c==chain && res>=s && res<=e{print substr($0,1,80)}' |\
-    filter_pdb.awk -v only=protein -v CHAIN=A >! ${t}temp.pdb
-    pdbset xyzin ${t}temp.pdb xyzout ${t}renum.pdb << EOF >! ${t}pdbset.log
-    renumber 1
-    chain A
-EOF
-    lsqkab xyzin1 ${t}renum.pdb xyzin2 ${t}ref.pdb << EOF >! ${t}lsq.log
+    filter_pdb.awk -v only=protein ${t}pile.pdb | egrep "^ATOM|^HETAT" |\
+    awk -v K=$m -v na=$natoms 'int((NR-1)/na)+1==K{print substr($0,1,80)}' >! ${t}temp.pdb
+    set s = `awk '/^ATOM|^HETAT/{print substr($0,23,4)+0; exit}' ${t}temp.pdb`
+    lsqkab xyzin1 ${t}temp.pdb xyzin2 ${t}monoP.pdb << EOF >! ${t}lsq.log
 FIT RESIDUE main 1 to 9999 A
 MATCH            1 to 9999 A
 EOF
@@ -341,13 +346,15 @@ EOF
       {print}' >! ${t}rotmat.txt
     set rotat = `cat ${t}rotmat.txt`
     set trans = `awk '/VECTOR IN AS/{print $5,$6,$7}' ${t}lsq.log`
-    echo  "$m  $rotat $trans  $o   $chain $s" | tee -a $new_mono_map
+    # chain A + delrn 0: reproduce the pile symgen fed to reorganize on pass 1 (all
+    # copies in one chain, monomer numbering); reorganize below re-splits into chains.
+    echo  "$m  $rotat $trans  $s   A 0" | tee -a $new_mono_map
 
-    pdbset xyzin ${t}ref.pdb xyzout ${t}test.pdb << EOF > /dev/null
+    pdbset xyzin ${t}monoP.pdb xyzout ${t}test.pdb << EOF > /dev/null
 ROTA MATR $rotat
 SHIFT $trans
 EOF
-rmsd ${t}test.pdb ${t}renum.pdb | egrep MAXD.all | tee ${t}test.txt
+rmsd ${t}test.pdb ${t}temp.pdb | egrep MAXD.all | tee ${t}test.txt
 set test = `awk '{print ( $2 > 0.1 )}' ${t}test.txt`
 if( "$test" != "0" ) then
     set BAD = "post-alignment test failed"
