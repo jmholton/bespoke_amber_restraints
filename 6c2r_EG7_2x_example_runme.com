@@ -45,6 +45,18 @@ set salt_conc = 0.15
 set badlinks  = 0      # EG7 does not create spurious Lys-LIG bonds
                        # Set badlinks=1 for the AMPPNP / Dirk dataset
 
+# hurry = fast smoke-test mode (CLI append 'hurry').  Skips ALL crystallographic-
+# prep refinement AND model building — buildout, converge_refmac, garr, and the
+# supercell refine — and derives the reference density from a single zero-cycle
+# phenix.refine of the PDB deposit.  The starting model is then just the deposit
+# expanded to the supercell (rough, possibly missing atoms), so this is only for
+# exercising the downstream MD pipeline quickly, never for production.
+set hurry = 0
+foreach a ( $* )
+  if ("$a" == "hurry") set hurry = 1
+end
+if ( $hurry ) echo "=== HURRY MODE ON: skipping buildout / converge_refmac / garr / supercell refine ==="
+
 set pwd  = `pwd`
 set pdir = ${pwd}/bespoke_amber_restraints
 set skit = ${pwd}/starter_kit   # starter kit location
@@ -605,25 +617,33 @@ foreach lig ( $ligands $salt )
 end
 set ligcifs = `echo $ligands | awk '{for(i=1;i<=NF;++i) print $i ".cif"}'`
 
-echo "  building missing atoms (details: buildout.log)..."
-buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
-if (! -e built.pdb) then
-  echo "ERROR: buildout_pdb_runme.com did not produce built.pdb — details: buildout.log"
-  goto exit
+if ( $hurry ) then
+  echo "  HURRY: skipping buildout AND converge_refmac — using the H-stripped PDB deposit"
+  # buildout normally removes hydrogens (tleap re-adds them cleanly); match that,
+  # otherwise the deposit's thiol HG makes tleap build reduced-thiol cysteines and
+  # then choke when it forms the disulfide bonds (no HS-SH torsion parameters).
+  awk '{print substr($0,1,80)}' starthere.pdb | filter_pdb.awk -v skip=H >! thisone.pdb
+else
+  echo "  building missing atoms (details: buildout.log)..."
+  buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
+  if (! -e built.pdb) then
+    echo "ERROR: buildout_pdb_runme.com did not produce built.pdb — details: buildout.log"
+    goto exit
+  endif
+
+  # Iterative refinement to convergence — produces refmacout_minRfree.pdb
+  echo "  refmac convergence refinement (details: converge.log)..."
+  converge_refmac.com built.pdb refme.mtz $ligcifs >&! converge.log
+  if (! -e refmacout_minRfree.pdb) then
+    echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — details: converge.log"
+    goto exit
+  endif
+  ln -sf refmacout_minRfree.pdb minRfree.pdb
+
+  grep "REMARK  FREE R VALUE" refmacout_minRfree.pdb | tail -1
+
+  ln -sf minRfree.pdb thisone.pdb
 endif
-
-# Iterative refinement to convergence — produces refmacout_minRfree.pdb
-echo "  refmac convergence refinement (details: converge.log)..."
-converge_refmac.com built.pdb refme.mtz $ligcifs >&! converge.log
-if (! -e refmacout_minRfree.pdb) then
-  echo "ERROR: converge_refmac.com did not produce refmacout_minRfree.pdb — details: converge.log"
-  goto exit
-endif
-ln -sf refmacout_minRfree.pdb minRfree.pdb
-
-grep "REMARK  FREE R VALUE" refmacout_minRfree.pdb | tail -1
-
-ln -sf minRfree.pdb thisone.pdb
 
 cd ..
 sec5done:
@@ -744,6 +764,12 @@ if (-e garr1/centroids_final_001.pdb) then
 endif
 echo ""
 echo "=== Section 7: Generate centroid reference points (garr1) ==="
+if ( $hurry ) then
+  echo "  HURRY: skipping garr — using the PDB deposit as the centroid reference"
+  mkdir -p garr1
+  awk '{print substr($0,1,80)}' starthere_asu.pdb >! garr1/centroids_final_001.pdb
+  goto sec7done
+endif
 echo "  running generate_alignment_reference (details: garr1/garr.log)..."
 mkdir -p garr1
 cd garr1
@@ -793,11 +819,24 @@ echo "=== Section 8: Build supercell centroid set (centroids/) ==="
 mkdir -p centroids
 cd centroids
 
-# Pick best map: lowest Rfree across build1 and garr1
-grep "Final R" ../build1/*.log ../garr1/*.log | justify.awk | sort -k7g | tee sorted.txt | head
-set minRfree = `awk '/_/{gsub(".log:"," ");print $1;exit}' sorted.txt`
-ln -sf ${minRfree}.mtz minRfree.mtz
-echo "min Rfree is $minRfree"
+if ( $hurry ) then
+  echo "  HURRY: reference density from a zero-cycle phenix.refine of the deposit"
+  set hcifs = `echo $ligands $salt | awk '{for(i=1;i<=NF;++i) print "../ligands/" $i ".cif"}'`
+  phenix.refine ../starthere_asu.pdb ../refme_small.mtz $hcifs \
+    main.number_of_macro_cycles=0 prefix=hurryref >&! hurryref.log
+  if (! -e hurryref_001.mtz) then
+    echo "ERROR: hurry zero-cycle refine produced no map — details: centroids/hurryref.log"
+    goto exit
+  endif
+  ln -sf hurryref_001.mtz minRfree.mtz
+  echo "min Rfree map = zero-cycle deposit refine (hurryref)"
+else
+  # Pick best map: lowest Rfree across build1 and garr1
+  grep "Final R" ../build1/*.log ../garr1/*.log | justify.awk | sort -k7g | tee sorted.txt | head
+  set minRfree = `awk '/_/{gsub(".log:"," ");print $1;exit}' sorted.txt`
+  ln -sf ${minRfree}.mtz minRfree.mtz
+  echo "min Rfree is $minRfree"
+endif
 
 ln -sf ../garr1/centroids_final_001.pdb centroids_asu.pdb
 ln -sf ../build1/thisone.pdb fulllength_asu.pdb
@@ -922,6 +961,13 @@ echo ""
 echo "=== Section 9: Supercell phenix refinement (super_refine1) ==="
 mkdir -p super_refine1
 cd super_refine1
+
+if ( $hurry ) then
+  echo "  HURRY: skipping supercell refine — using the expanded single-conformer supercell as-is"
+  awk '{print substr($0,1,80)}' ../centroids/fulllength_noalt.pdb >! thisone.pdb
+  cd ..
+  goto sec9done
+endif
 
 ln -sf ../refme.mtz .
 ln -sf ../centroids/fulllength_super.pdb starthere.pdb
