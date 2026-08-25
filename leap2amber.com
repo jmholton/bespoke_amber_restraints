@@ -456,11 +456,19 @@ if( $test ) then
     echo  "WARNING: tleap changed heavy atoms - name inheritance may not work"
 endif
 
-set test = `awk '/Added missing heavy atom/' ${t}tleap.out | grep OXT | wc -l`
-if( $test ) then
-    set BAD = "ERROR: tleap added chain breaks"
+# tleap caps every residue it treats as a protein C-terminus with an OXT.  A model
+# that legitimately lacks terminal oxygens - e.g. a raw PDB deposit run without
+# buildout (hurry mode) - gets one OXT per TRUE C-terminus, which is fine, not a
+# chain break.  Only flag a real break: tleap capping MORE residues than the model
+# has protein chains (extra C-termini at internal gaps).  The buildout path adds the
+# terminal OXT itself, so tleap adds none there and this stays a no-op.
+set noxt   = `awk '/Added missing heavy atom/' ${t}tleap.out | grep -c OXT`
+set nchain = `egrep "^ATOM|^HETAT" ${t}tleapme.pdb | awk 'substr($0,13,4)==" CA "{c[substr($0,22,1)]=1} END{n=0;for(x in c)++n;print n+0}'`
+if( $noxt > $nchain ) then
+    set BAD = "ERROR: tleap added chain breaks ($noxt OXT capped vs $nchain protein chains)"
     goto exit
 endif
+if( $noxt ) echo "tleap added $noxt terminal OXT at genuine C-termini (model lacked them; not a break)"
 
 chbox:
 
