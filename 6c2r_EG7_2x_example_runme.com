@@ -626,8 +626,12 @@ if ( $hurry ) then
 else
   echo "  building missing atoms (details: buildout.log)..."
   buildout_pdb_runme.com starthere.pdb $ligcifs badlinks=$badlinks >&! buildout.log
-  if (! -e built.pdb) then
-    echo "ERROR: buildout_pdb_runme.com did not produce built.pdb — details: buildout.log"
+  set buildstat = $status
+  # buildout exits non-zero (9) on a real failure - e.g. "error closing gap" - but
+  # still leaves a partial built.pdb behind, so checking existence alone let a broken
+  # model sail on into leap2amber.  Treat a non-zero exit as failure too.
+  if ( $buildstat || ! -e built.pdb ) then
+    echo "ERROR: buildout_pdb_runme.com failed (exit $buildstat) or made no built.pdb — details: buildout.log"
     goto exit
   endif
 
