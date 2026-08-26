@@ -394,7 +394,12 @@ quit
 EOF
 
 
-egrep -v "^END" ${t}renumbered_orig.pdb >! ${t}tleapme.pdb
+# Turn every real backbone break - a missing loop, or supercell copies that were
+# renumbered into one continuous chain - into a genuine TER, so tleap caps the
+# fragments instead of building a peptide bond straight across the gap (a 20-130 A
+# "bond" that then wrecks the geometry).  No-op on a complete, OXT-capped model.
+egrep -v "^END" ${t}renumbered_orig.pdb |\
+ter_at_breaks.awk >! ${t}tleapme.pdb
 if( $padwater > 0 ) then
 
   echo "padding with $padwater extra waters"
@@ -456,19 +461,19 @@ if( $test ) then
     echo  "WARNING: tleap changed heavy atoms - name inheritance may not work"
 endif
 
-# tleap caps every residue it treats as a protein C-terminus with an OXT.  A model
-# that legitimately lacks terminal oxygens - e.g. a raw PDB deposit run without
-# buildout (hurry mode) - gets one OXT per TRUE C-terminus, which is fine, not a
-# chain break.  Only flag a real break: tleap capping MORE residues than the model
-# has protein chains (extra C-termini at internal gaps).  The buildout path adds the
-# terminal OXT itself, so tleap adds none there and this stays a no-op.
-set noxt   = `awk '/Added missing heavy atom/' ${t}tleap.out | grep -c OXT`
-set nchain = `egrep "^ATOM|^HETAT" ${t}tleapme.pdb | awk 'substr($0,13,4)==" CA "{c[substr($0,22,1)]=1} END{n=0;for(x in c)++n;print n+0}'`
-if( $noxt > $nchain ) then
-    set BAD = "ERROR: tleap added chain breaks ($noxt OXT capped vs $nchain protein chains)"
+# tleap caps every protein C-terminus with an OXT.  ter_at_breaks.awk (above) has
+# already inserted a TER at every genuine backbone break, so tleap should cap
+# exactly those TER-delimited protein segments: a model that merely lacked terminal
+# oxygens (e.g. a raw deposit in hurry mode, or a break we deliberately terminated)
+# just gets one OXT per segment, which is expected.  Flag only the pathological
+# case - tleap capping MORE C-termini than there are protein segments in the model.
+set noxt = `awk '/Added missing heavy atom/' ${t}tleap.out | grep -c OXT`
+set nseg = `egrep "^ATOM|^HETAT|^TER" ${t}tleapme.pdb | awk 'substr($0,13,4)==" CA "{inprot=1} /^TER/{if(inprot){n++;inprot=0}} END{if(inprot)n++;print n+0}'`
+if( $noxt > $nseg ) then
+    set BAD = "ERROR: tleap capped $noxt C-termini but the model has only $nseg protein segments - unmarked chain break"
     goto exit
 endif
-if( $noxt ) echo "tleap added $noxt terminal OXT at genuine C-termini (model lacked them; not a break)"
+if( $noxt ) echo "tleap capped $noxt protein C-termini (of $nseg marked segments; breaks became terminations)"
 
 chbox:
 
