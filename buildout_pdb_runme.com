@@ -580,8 +580,14 @@ foreach n ( `awk '{print $1}' buildorder.txt | sort -u | sort -g` )
 
     rm built_minimized.pdb >& /dev/null
     echo "minimizing geometry:"
-    phenix.geometry_minimization built.pdb gaps.eff selection.eff $ciffiles \
-      write_geo_file=False cdl=false | tee geomin.log | egrep "target:" 
+    # free minimization here - do NOT pass selection.eff.  selection.eff freezes
+    # everything except the gap residues, which pins the anchors so the gaps.eff
+    # random-coil (Flory) restraints can never pull a gap closed (targets stall
+    # ~4900 instead of converging ~76, and the later JOIN then faces an 80+ A bond
+    # that trips phenix max_reasonable_bond_distance).  selection.eff is only for
+    # the JOIN step, which deliberately moves just the chain-z tripeptide.
+    phenix.geometry_minimization built.pdb gaps.eff $ciffiles \
+      write_geo_file=False cdl=false | tee geomin.log | egrep "target:"
     if( ! -e built_minimized.pdb ) then
       set BAD = "error minimizing geometry"
       goto exit
@@ -602,7 +608,8 @@ end
 # mangled or over-occupied altloc) that the atom-count check alone would miss.
 if( ! -e built_minimized.pdb ) then
   echo "geometry minimization (final):"
-  phenix.geometry_minimization built.pdb gaps.eff selection.eff $ciffiles \
+  # free minimization (no selection.eff) - see the note on the per-round call above.
+  phenix.geometry_minimization built.pdb gaps.eff $ciffiles \
     write_geo_file=False cdl=false | tee geomin.log | egrep "target:"
   if( -e built_minimized.pdb ) cp built_minimized.pdb built.pdb
 endif
