@@ -1759,4 +1759,14 @@ endif
 cd ..
 sec14done:
 
+# Reaching here means every requested section fell through without aborting.
+# Every error path above does "goto exit", which jumps PAST this marker, so a
+# failed run now ends with a non-zero status instead of a clean-looking exit 0.
+set allok
 exit:
+if( ! $?allok ) then
+  echo ""
+  echo "=== RUN FAILED: an ERROR above aborted the run (see the ERROR line) ==="
+  exit 1
+endif
+exit 0
