@@ -129,6 +129,12 @@ set thrubond_avg_B_ramp = none
 # smooth the difference map
 set fft_B = 0
 set fft_B_ramp = none
+# fft_B for the B-factor update path: an fft blur (in A^2) applied to the difference
+# map that Bfac_update_diffmap.com probes, smoothing the noisy per-atom fofc signal so
+# B factors stop random-walking at high Bfac_maxmod.  This is SEPARATE from fft_B above,
+# which only blurs the fofc.map used for the weight/restraint update - so the B and
+# weight regularizations can be tuned independently.  0 = no blur (unchanged behaviour).
+set Bfac_fft_B = 0
 set shan_B = auto
 # criteria for statistical significance in difference peaks
 set halfrho_pos = auto
@@ -1345,7 +1351,7 @@ if(-e premod_Bfac_${itr}.pdb) then
 endif
 rm -f new_Bfac.pdb
 Bfac_update_diffmap.com Bfac.pdb modulo=$modulo mtzfile=cootme.mtz \
-  max_mod=$Bfac_maxmod mod_mode=$Bfac_modmode \
+  max_mod=$Bfac_maxmod mod_mode=$Bfac_modmode fft_B=$Bfac_fft_B \
   tempfile=${scratch}/Bud_ >&! Bfac_update_${itr}.log
 if( $status || ! -e new_Bfac.pdb) then
   set BAD = "Bfac update diffmap failed"
