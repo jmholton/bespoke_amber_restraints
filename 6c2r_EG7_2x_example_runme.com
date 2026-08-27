@@ -1346,7 +1346,7 @@ cp ../xtal_properties.sourceme .
     pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
     release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 randel_itr=0 \
+    weight_scaledown=1 weight_negscaledown=1 randel_itr=0 \
     min_align_weight=0.01 maxitr=20 >&! runme1.log &
 set owpid = $!
 while ( 1 )
@@ -1379,7 +1379,7 @@ opt1_stage2:
     pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
     release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=1 weight_negscale=1 randel_itr=0 \
+    weight_scaledown=1 weight_negscaledown=1 randel_itr=0 \
     min_align_weight=0.01 maxitr=20 >&! runme2.log &
 set owpid = $!
 set pwin = 10
@@ -1488,7 +1488,7 @@ cp ../xtal_properties.sourceme .
     pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
+    weight_scaledown=0.9 weight_negscaledown=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
     halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
 set owpid = $!
@@ -1624,7 +1624,7 @@ cp ../xtal_properties.sourceme .
     pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
+    weight_scaledown=0.9 weight_negscaledown=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
     halfrho_neg=auto halfrho_pos=auto maxitr=90 >&! runme1.log &
 set owpid = $!
@@ -1725,7 +1725,7 @@ cp ../xtal_properties.sourceme .
     pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
-    weight_scale=0.9 weight_negscale=0.5 randel_itr=0 \
+    weight_scaledown=0.9 weight_negscaledown=0.5 randel_itr=0 \
     min_align_weight=0.01 align_target=centroids align_nstlim=250000 \
     halfrho_neg=auto halfrho_pos=auto maxitr=9999 >&! runme1.log &
 set owpid = $!
