@@ -163,7 +163,7 @@ if(! -e ${t}neutral.pdb) then
   goto exit
 endif
 
-AddToBox -c ${t}neutral.pdb -a ${src}/${watertype}.pdb -na $bulkwaters -RP $RP -RW $RW \
+AddToBox -c ${t}neutral.pdb -a ${src}/${watertype}.pdb -na $bulkwaters -P $P -RP $RP -RW $RW \
  -o ${t}wet.pdb |& tee ${t}addwater.log
 if(! -e ${t}wet.pdb) then
   set BAD = "AddToBox failed adding waters — check output above"
