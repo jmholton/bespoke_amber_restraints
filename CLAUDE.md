@@ -64,9 +64,48 @@ The master script expects these files in the working directory:
 - `../*.mol2` and `../*.frcmod` — ligand parameter files
 - `tleap_stub.in` — tleap input template
 
+### Example driver scripts (`*_example_runme.com`) and `hurry` mode
+
+`1aho_example_runme.com`, `6c2r_EG7_1x_example_runme.com`, and
+`6c2r_EG7_2x_example_runme.com` are end-to-end drivers: fetch data → R-free flags →
+ligand/salt params → HIS protonation → buildout → refmac converge → centroids/garr
+→ expand to supercell → `leap2amber.com` (amber1) → the opt1/opt2… weight stages.
+They are sectioned (Sections 1–14) and **each section skips if its key output
+already exists**, so a killed run resumes by re-invoking the same command.  On a
+stage failure the script prints `ERROR:` and exits **non-zero** (a marker is set on
+normal fall-through; the `exit:` label returns 1 unless that marker is set).
+
+Append `hurry` on the command line for a fast smoke-test: it skips buildout, refmac
+convergence, garr, and the supercell refine, and takes the reference density from a
+single zero-cycle `phenix.refine` of the deposit.  The start model is then just the
+deposit expanded to the supercell — rough, possibly missing atoms — so hurry is only
+for exercising the downstream pipeline, never production.  **Known limit:** skipping
+buildout leaves long sidechains (ARG/LYS) incomplete; tleap completes them and the
+rebuilt atom can stab a nearby water into a ~0-distance overlap, so the GPU MD blows
+up (NaN / "illegal memory access").  buildout (which minimizes as it builds) avoids
+this — a hurry run that must reach MD needs a minimization or water-declash first.
+
+### leap2amber / tleap: connectivity and solvation gotchas
+
+- **tleap ignores residue numbers.**  It peptide-bonds each residue's C to the
+  *next residue in file order* and breaks a chain **only** at a `TER` card; it then
+  merely *warns* about a long resulting bond.  A real chain break must be marked
+  with TER or tleap bonds straight across the gap (a 20–130 Å "bond") and blows up.
+- `ter_at_breaks.awk` inserts a TER wherever the backbone is truly broken — peptide
+  C(i)–N(i+1) distance > cutoff (default 2.5 Å) or a chain-id change — keyed on
+  geometry, not numbering.  `leap2amber.com` runs it on `tleapme.pdb` just before
+  tleap; it is a no-op on a complete, OXT-capped model.  The post-tleap OXT guard
+  compares capped C-termini to the count of TER-delimited protein segments.
+- **`AddToBox` needs `-P <solute atom count>`** (atoms before the first water) so it
+  masks the protein and keeps new waters `-RP` away; without it the protein is
+  unmasked.  All three `add_salt_runme.com` calls (cations, anions, waters) pass it.
+- `leap2amber.com` pre-sizes `padded.parm7` with `padwater` placeholder waters at
+  the origin, then strips them (the last `padwater` residues) to make `xtal.prmtop`;
+  the MD runs on the stripped topology.
+
 ### Script Categories
 
-**PDB manipulation** (AWK): `convert_pdb.awk`, `filter_pdb.awk`, `reformatpdb.awk`, `sequence.awk`, `jigglepdb.awk`, `build_c2n.awk`, `build_n2c.awk`
+**PDB manipulation** (AWK): `convert_pdb.awk`, `filter_pdb.awk`, `reformatpdb.awk`, `sequence.awk`, `jigglepdb.awk`, `build_c2n.awk`, `build_n2c.awk`, `ter_at_breaks.awk`
 
 **Map/MTZ handling**: `nc2mtz_runme.com`, `addup_maps_runme.com`, `addup_mtzs_runme.com`, `map_scaleB_runme.com`
 
