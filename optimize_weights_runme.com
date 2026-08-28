@@ -1307,6 +1307,9 @@ endif
 # use difference map to update restraints
 rm -f new_restraints.pdb
 set max_wB = `echo $max_weight $pdbscale | awk '{print $1/$2}'`
+set rud_try = 0
+rud_retry:
+@ rud_try ++
 restraintlist_update_diffmap.com fofc.map \
   refmap=reference.map \
   trajectory=trajectory/ \
@@ -1321,7 +1324,16 @@ restraintlist_update_diffmap.com fofc.map \
   outmults=sorted_mults_${itr}.txt \
   outfile=new_restraints.pdb >&! restraint_update_${itr}.log
 if( $status || ! -e new_restraints.pdb) then
-  set BAD = "restraintlist update diffmap failed"
+  # Usually a transient cluster hiccup: some of the parallel srun map-peek jobs
+  # exit 9, so the peek count comes up an atom short ("ref and xyz do not match")
+  # and it bails.  Re-running clears it - retry a few times before giving up.
+  if( $rud_try < 3 ) then
+    echo "restraintlist_update_diffmap failed (likely transient srun/map-peek) - retry #$rud_try"
+    rm -f new_restraints.pdb
+    sleep 10
+    goto rud_retry
+  endif
+  set BAD = "restraintlist update diffmap failed after $rud_try tries"
   goto exit
 endif
 awk 'NF<=2 || NF==3 && $2=="=" || /^[\[-]/ || /\/dev\/shm|^clearing|\/scratch\//{next} /^srun/ || $4=="srun"{next} {print}' restraint_update_${itr}.log
