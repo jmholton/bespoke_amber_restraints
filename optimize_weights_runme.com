@@ -1308,6 +1308,7 @@ endif
 rm -f new_restraints.pdb
 set max_wB = `echo $max_weight $pdbscale | awk '{print $1/$2}'`
 set rud_try = 0
+set rud_dbg = ""
 rud_retry:
 @ rud_try ++
 restraintlist_update_diffmap.com fofc.map \
@@ -1320,7 +1321,7 @@ restraintlist_update_diffmap.com fofc.map \
   max_weight=$max_wB max_mult=$max_mult \
   ambig_same_weight=$ambig_same_weight \
   halfrho_pos=$halfrho_pos halfrho_neg=$halfrho_neg \
-  refpointspdb=current_restraints.pdb \
+  refpointspdb=current_restraints.pdb $rud_dbg \
   outmults=sorted_mults_${itr}.txt \
   outfile=new_restraints.pdb >&! restraint_update_${itr}.log
 if( $status || ! -e new_restraints.pdb) then
@@ -1328,8 +1329,9 @@ if( $status || ! -e new_restraints.pdb) then
   # exit 9, so the peek count comes up an atom short ("ref and xyz do not match")
   # and it bails.  Re-running clears it - retry a few times before giving up.
   if( $rud_try < 3 ) then
-    echo "restraintlist_update_diffmap failed (likely transient srun/map-peek) - retry #$rud_try"
+    echo "restraintlist_update_diffmap failed (likely transient srun/map-peek) - retry #$rud_try in debug mode (-p debug partition, temp files kept for post-mortem)"
     rm -f new_restraints.pdb
+    set rud_dbg = "debug=1"
     sleep 10
     goto rud_retry
   endif
