@@ -68,6 +68,15 @@ set Bfac_modmode = add
 # use a field you maintain yourself (Bfac_map_runme.com), or to "auto" to have
 # nc2mtz build one from $Bfac_file each time.  Empty = the per-atom path.
 set Bfac_map = ""
+# map-field knobs, only used when Bfac_map is active (forwarded to nc2mtz).
+#  sigma = Gaussian width (A) of the B field; must be wide enough to span how far
+#          atoms move between frames, or displaced atoms drop into farB.
+#  grid  = map sampling (A).
+#  farB  = B assigned where no atom is nearby; keep modest (not 999) so coverage
+#          misses degrade gracefully instead of going invisible.
+set Bfac_map_sigma = 0.5
+set Bfac_map_grid  = 0.5
+set Bfac_map_farB  = 999
 # use rmsd variation of atoms to define B factor
 #set Bfac_file = rmsd2B
 set rmsd2B_range = 1-10
@@ -1131,7 +1140,7 @@ if(-e "$trajectory" && $needtraj ) then
   if( -e avg_${prev}.mtz ) set nc2mtz_extraopt = "domaps=0"
   echo "nc2mtz gemmi $trajectory  ${render_reso}A $Bfac_file "
   set nc2mtz_Bmap = ""
-  if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map"
+  if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB"
   nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
     Bfac_file=$Bfac_file minB=$minB maxB=$maxB $nc2mtz_Bmap \
