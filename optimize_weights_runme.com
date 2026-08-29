@@ -1327,8 +1327,9 @@ restraintlist_update_diffmap.com fofc.map \
 if( $status || ! -e new_restraints.pdb) then
   # Usually a transient cluster hiccup: some of the parallel srun map-peek jobs
   # exit 9, so the peek count comes up an atom short ("ref and xyz do not match")
-  # and it bails.  Re-running clears it - retry a few times before giving up.
-  if( $rud_try < 3 ) then
+  # and it bails.  Re-running clears it - one retry (in debug mode) before giving
+  # up; a second debug repeat rarely teaches us anything the first one didn't.
+  if( $rud_try < 2 ) then
     echo "restraintlist_update_diffmap failed (likely transient srun/map-peek) - retry #$rud_try in debug mode (-p debug partition, temp files kept for post-mortem)"
     rm -f new_restraints.pdb
     set rud_dbg = "debug=1"
