@@ -77,6 +77,10 @@ set Bfac_map = ""
 set Bfac_map_sigma = 0.5
 set Bfac_map_grid  = 0.5
 set Bfac_map_farB  = 999
+# restrict the field to these residues (default: water only).  Everything else
+# keeps its per-atom B, so protein B is never smoothed into the high-B solvent.
+# Set to "" to field all atoms, or to another residue name.
+set Bfac_map_selresn = HOH
 # use rmsd variation of atoms to define B factor
 #set Bfac_file = rmsd2B
 set rmsd2B_range = 1-10
@@ -1140,7 +1144,7 @@ if(-e "$trajectory" && $needtraj ) then
   if( -e avg_${prev}.mtz ) set nc2mtz_extraopt = "domaps=0"
   echo "nc2mtz gemmi $trajectory  ${render_reso}A $Bfac_file "
   set nc2mtz_Bmap = ""
-  if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB"
+  if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB Bfac_map_selresn=$Bfac_map_selresn"
   nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
     Bfac_file=$Bfac_file minB=$minB maxB=$maxB $nc2mtz_Bmap \

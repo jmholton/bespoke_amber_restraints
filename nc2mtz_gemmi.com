@@ -24,6 +24,9 @@ set Bfac_map = ""
 set Bfac_map_sigma = 0.5
 set Bfac_map_grid = 0.5
 set Bfac_map_farB = 999
+# restrict the field to these residues (e.g. HOH); empty = all atoms.  Non-matching
+# residues keep their per-atom B, so protein B is never smoothed into the solvent.
+set Bfac_map_selresn = ""
 
 set outtraj = trajectory
 set outmap = avg.map
@@ -360,7 +363,8 @@ if( "$Bfac_map" != "" ) then
     endif
     echo "building B-factor field from $Bfac_file ($test atoms) on cell $SUPERCELL"
     $Bmapexe build pdb=${t}Bref.pdb outmap=${t}Bfac.map cell=$SUPERCELL \
-       sigma=$Bfac_map_sigma grid=$Bfac_map_grid farB=$Bfac_map_farB
+       sigma=$Bfac_map_sigma grid=$Bfac_map_grid farB=$Bfac_map_farB \
+       selresn=$Bfac_map_selresn
     if( $status || ! -e ${t}Bfac.map ) then
       set BAD = "Bfac_map build failed"
       goto exit
@@ -411,7 +415,7 @@ cat << EOF >! ${t}job.csh
 
   if( "$Bfac_map" != "" ) then
     $Bmapexe probe pdb=${outtraj}/pdb\${n}.pdb map=$Bfac_map cell=$SUPERCELL \\
-      minB=$minB maxB=$maxB outpdb=\${t}probed\${n}.pdb
+      minB=$minB maxB=$maxB selresn=$Bfac_map_selresn outpdb=\${t}probed\${n}.pdb
     if( \$status ) then
       echo "ERROR: Bfac_map probe failed at \$n"
       exit 9

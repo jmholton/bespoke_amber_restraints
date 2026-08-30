@@ -459,6 +459,7 @@ static int read_symop_lib(const char *libpath, const char *sgname,
 /* ------------------------------------------------------------------ */
 typedef struct {
     double x, y, z, occ, B;
+    char   resn[4];   /* residue name (PDB cols 18-20), NUL-terminated */
 } ATOM;
 
 /* order by position, so exact duplicates end up adjacent */
@@ -519,6 +520,9 @@ static int read_pdb(const char *fname, CELL *cell, ATOM **atoms, int *natoms)
         a[n].z   = pdb_field(line, 46, 8);
         a[n].occ = pdb_field(line, 54, 6);
         a[n].B   = pdb_field(line, 60, 6);
+        { int c, L = (int)strlen(line);
+          for (c = 0; c < 3; ++c) a[n].resn[c] = (17 + c < L) ? line[17 + c] : ' ';
+          a[n].resn[3] = '\0'; }
         ++n;
     }
     fclose(f);
@@ -526,6 +530,19 @@ static int read_pdb(const char *fname, CELL *cell, ATOM **atoms, int *natoms)
     if (atoms) *atoms = a;
     *natoms = n;
     return got_cryst1 ? 1 : -1;   /* -1: atoms fine, but no cell in the file */
+}
+
+/* match a 3-char PDB residue name (cols 18-20, maybe space-padded) against a
+   selection like "HOH".  Empty/NULL sel matches everything.  Case-insensitive. */
+static int resn_sel(const char *r3, const char *sel)
+{
+    char t[4], s[4]; int i, j = 0, k = 0;
+    if (!sel || !sel[0]) return 1;
+    for (i = 0; i < 3; ++i) { char c = r3[i];  if (c && c != ' ') t[j++] = (char)toupper((unsigned char)c); }
+    t[j] = '\0';
+    for (i = 0; i < 3 && sel[i]; ++i) { char c = sel[i]; if (c != ' ') s[k++] = (char)toupper((unsigned char)c); }
+    s[k] = '\0';
+    return !strcmp(t, s);
 }
 
 /* ------------------------------------------------------------------ */
@@ -548,7 +565,7 @@ static int do_build(const char *pdbfile, const char *outmap,
                     double sigma, double gridspacing, int nxyz[3],
                     double farB, double fardist,
                     double minB, double maxB, double Bscale, double Boffset,
-                    int useocc, double wtol,
+                    int useocc, double wtol, const char *selresn,
                     const SYMOP *ops, int nops, int ispg)
 {
     CELL   cell;
@@ -568,6 +585,20 @@ static int do_build(const char *pdbfile, const char *outmap,
     cellstat = read_pdb(pdbfile, &cell, &atoms, &natoms);
     if (!cellstat) return 0;
     if (natoms < 1) { fprintf(stderr, "ERROR: no atoms in %s\n", pdbfile); return 0; }
+
+    /* water-only (or any selresn): build the field from selected residues alone,
+       so the sane per-atom B of everything else is left to the per-atom path. */
+    if (selresn && selresn[0]) {
+        int k = 0;
+        for (i = 0; i < natoms; ++i)
+            if (resn_sel(atoms[i].resn, selresn)) atoms[k++] = atoms[i];
+        printf("selresn=%s: %d of %d atoms selected for the field\n", selresn, k, natoms);
+        natoms = k;
+        if (natoms < 1) {
+            fprintf(stderr, "ERROR: no atoms match selresn=%s in %s\n", selresn, pdbfile);
+            free(atoms); return 0;
+        }
+    }
 
     if (have_cell) {
         cell = cell_override;
@@ -857,7 +888,7 @@ static int do_build(const char *pdbfile, const char *outmap,
  * had in the rest of the line (element, serial, trailing tags) survives. */
 static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb,
                     CELL cell_override, int have_cell, double super_mult[3],
-                    double minB, double maxB, int verbose)
+                    double minB, double maxB, int verbose, const char *selresn)
 {
     MAP  m;
     CELL cell;
@@ -915,6 +946,11 @@ static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb
         double X, Y, Z, xf, yf, zf, B;
         int len;
         if (strncmp(line, "ATOM  ", 6) && strncmp(line, "HETATM", 6)) {
+            fputs(line, out);
+            continue;
+        }
+        /* leave non-selected residues' B untouched (keep their per-atom value) */
+        if (selresn && selresn[0] && !resn_sel(line + 17, selresn)) {
             fputs(line, out);
             continue;
         }
@@ -1082,7 +1118,7 @@ int main(int argc, char **argv)
     int    nxyz[3] = { 0, 0, 0 };
     int    useocc = 0, have_cell = 0, verbose = 1, i;
     CELL   cell_override;
-    const char *sgname = NULL, *symops_str = NULL, *symoplib = NULL;
+    const char *sgname = NULL, *symops_str = NULL, *symoplib = NULL, *selresn = NULL;
     SYMOP  ops[MAXOPS];
     int    nops = 0, ispg = 1;
 
@@ -1131,6 +1167,8 @@ int main(int argc, char **argv)
             else if (!strcmp(key, "symops") || !strcmp(key, "symop"))  symops_str = val;
             else if (!strcmp(key, "symoplib") || !strcmp(key, "symop_lib"))
                                                                       symoplib = val;
+            else if (!strcmp(key, "selresn") || !strcmp(key, "sel") ||
+                     !strcmp(key, "resn"))                            selresn = val;
             else if (!strcmp(key, "wtol"))                            wtol   = atof(val);
             else if (!strcmp(key, "verbose") || !strcmp(key, "debug")) verbose= atoi(val);
             else if (!strcmp(key, "nxyz") || !strcmp(key, "grid_size")) {
@@ -1201,14 +1239,14 @@ int main(int argc, char **argv)
         }
         return do_build(pdb, outmap, cell_override, have_cell, super_mult,
                         sigma, gridspacing, nxyz, farB, fardist,
-                        minB, maxB, Bscale, Boffset, useocc, wtol,
+                        minB, maxB, Bscale, Boffset, useocc, wtol, selresn,
                         ops, nops, ispg) ? 0 : 9;
     }
     if (!strcmp(mode, "probe")) {
         if (!pdb)  { fprintf(stderr, "ERROR: probe needs pdb=<file>\n"); return 9; }
         if (!mapf) { fprintf(stderr, "ERROR: probe needs map=<file>\n"); return 9; }
         return do_probe(pdb, mapf, outpdb, cell_override, have_cell, super_mult,
-                        minB, maxB, verbose) ? 0 : 9;
+                        minB, maxB, verbose, selresn) ? 0 : 9;
     }
     if (!strcmp(mode, "stats")) {
         if (!mapf) { fprintf(stderr, "ERROR: stats needs map=<file>\n"); return 9; }
