@@ -79,9 +79,8 @@ awk '/PEEK-A-BOO/{print $NF+0}' ${tempfile}mapman.log | tee ${tempfile}peeks
 # maybe this version of mapman doesnt peek-a-boo 
 set test = `cat ${tempfile}peeks | wc -l`
 if("$test" == "0") then
-    set test = `grep "Command not found" ${tempfile}mapman.log  | wc -l`
-    if( $test ) then
-        # try using phenix?
+    # mapman gave no peeks (missing, wrong version, or crashed) - fail over to phenix
+    if( 1 ) then
         set phenixlabel = miller_array.labels.name
         set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
         if( "$test" == "1" ) set phenixlabel = label
@@ -108,10 +107,12 @@ EOF
         awk '/Map value:/{print $NF}' | tee ${tempfile}phenixpeeks
     endif
     set test = `cat ${tempfile}phenixpeeks | wc -l`
-    if( $test ) then
+    if( ! $test ) then
         set BAD = "neither $MAPMAN nor phenix.map_value_at_point are working."
         goto exit
     endif
+    # phenix produced the peeks - hand them back in the mapman-format output file
+    cp ${tempfile}phenixpeeks ${tempfile}peeks
 endif
 set test = `cat ${tempfile}peeks | wc -l`
 if("$test" == "0") then
