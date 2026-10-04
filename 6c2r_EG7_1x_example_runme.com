@@ -1079,7 +1079,7 @@ if (! -e confsel_min.pdb) then
     smallmtz=../centroids/reference0.mtz >&! rewater.log
 
   awk '{print substr($0,1,80)}' rewatered.pdb >! reorgme.pdb
-  reorganize_pdb_runme.com reorgme.pdb refpdb=fulllength_noalt.pdb outfile=reorged.pdb \
+  reorganize_pdb_runme.com reorgme.pdb refpdb=oneconf.pdb outfile=reorged.pdb \
     phenix_bumpcheck=0 debug=1 autorerun=0 >&! reorg_rewatered.log
 
   awk '{print substr($0,1,80)}' reorged.pdb >! refme_noalt.pdb

@@ -593,7 +593,7 @@ reorganize_pdb_runme.com confsel.pdb refpdb=fulllength_noalt.pdb outfile=oneconf
 reorganize_waters.com oneconf.pdb super_mult=$super_mult smallmtz=../centroids/reference0.mtz | tee rewater.log
 
 awk '{print substr($0,1,80)}' rewatered.pdb >! reorgme.pdb
-reorganize_pdb_runme.com reorgme.pdb refpdb=fulllength_noalt.pdb outfile=reorged.pdb phenix_bumpcheck=0 \
+reorganize_pdb_runme.com reorgme.pdb refpdb=oneconf.pdb outfile=reorged.pdb phenix_bumpcheck=0 \
   debug=1 autorerun=0 | tee reorg_rewatered.log
 
 awk '{print substr($0,1,80)}' reorged.pdb >! refme_noalt.pdb
