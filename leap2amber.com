@@ -370,7 +370,7 @@ endif
 
 if(-e "$leapfile") then
   cat $leapfile |\
-  awk 'tolower($0) ~ /^x = loadpdb |^save|^quit/{$0="#"$0}\
+  awk 'tolower($0) ~ /^x = loadpdb |^save|^quit|^charge /{$0="#"$0}\
        tolower($0) ~ /^set x /{$0="#"$0}\
        tolower($0) ~ /^source/ && /water/{$0="#"$0}\
     {print}' |\

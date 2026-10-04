@@ -268,6 +268,7 @@ cat << EOF >> tleap_stub.in
 x = loadpdb tleapme.pdb
 set x box { $CELL[1] $CELL[2] $CELL[3] }
 set default nocenter on
+charge x
 saveAmberParm x xtal.prmtop start.crd
 quit
 EOF
@@ -728,6 +729,7 @@ x = loadpdb tleapme.pdb
 set x box { $CELL[1] $CELL[2] $CELL[3] }
 set default FlexibleWater off
 set default nocenter on
+charge x
 saveAmberParm x xtal.prmtop start.crd
 quit
 EOF

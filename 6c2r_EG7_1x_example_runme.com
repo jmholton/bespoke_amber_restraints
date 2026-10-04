@@ -728,6 +728,7 @@ awk 'NF>=4{print "bond x."$2".SG x."$4".SG"}' disulfides.txt >> tleap_stub.in
 cat << EOF >> tleap_stub.in
 set x box { $CELL[1] $CELL[2] $CELL[3] }
 set default nocenter on
+charge x
 saveAmberParm x xtal.prmtop start.crd
 quit
 EOF
@@ -1181,6 +1182,7 @@ cat << EOF >> tleap_stub.in
 x = loadpdb tleapme.pdb
 set x box { $CELL[1] $CELL[2] $CELL[3] }
 set default nocenter on
+charge x
 saveAmberParm x xtal.prmtop start.crd
 quit
 EOF
