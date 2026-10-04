@@ -282,7 +282,7 @@ endif
 # cell and fuses all the copies into one continuous chain.  Count from monomer.pdb,
 # which exists on both the map-building pass and the map-applying pass (wrapped_asu
 # is only made on the map-building pass).
-set asures = `filter_pdb.awk -v only=protein ${t}monomer.pdb | awk '{r=substr($0,22,5)} r!=p{n++;p=r} END{print n+0}'`
+set asures = `filter_pdb.awk -v only=protein,atoms ${t}monomer.pdb | awk '{r=substr($0,22,5)} r!=p{n++;p=r} END{print n+0}'`
 echo "reorganizing (per-copy protein residues = $asures) "
 reorganize_pdb_runme.com ${t}pile.pdb renumber=$renumber \
   maxchain4resnum=$asures \

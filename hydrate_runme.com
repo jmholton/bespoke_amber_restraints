@@ -127,8 +127,12 @@ endif
 if( ! $?AMBERHOME ) then
 source /programs/amber22/amber.csh
 endif
-set src = ${AMBERHOME}/XtalUtilities
-set pdir = /home/jamesh/projects/amber/1aho_refine
+# locate XtalUtilities templates: bundled copy, else $AMBERHOME, else cwd
+# (per D. Case: $AMBERHOME/XtalUtilities is not part of official Amber)
+if(! $?src) set src = `dirname $0`/XtalUtilities
+if(! -d "$src") set src = ${AMBERHOME}/XtalUtilities
+if(! -d "$src") set src = .
+set pdir = `dirname $0`
 set path = ( $path $pdir )
 set pwd = `pwd`
 

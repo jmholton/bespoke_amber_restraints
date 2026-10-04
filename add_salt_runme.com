@@ -65,7 +65,13 @@ if( ! -e "$pdbfile" ) then
 endif
 
 if(! $?AMBERHOME) source /programs/amber22/amber.csh 
-if(! $?src) set src = ${AMBERHOME}/XtalUtilities
+# locate XtalUtilities templates: bundled copy, else $AMBERHOME, else cwd
+# (per D. Case: $AMBERHOME/XtalUtilities is not part of official Amber)
+if(! $?src) then
+  set src = `dirname $0`/XtalUtilities
+  if(! -d "$src") set src = ${AMBERHOME}/XtalUtilities
+  if(! -d "$src") set src = .
+endif
 
 if( -e "$leaplog" && "$charge" == "" ) then
   echo "looking in $leaplog"

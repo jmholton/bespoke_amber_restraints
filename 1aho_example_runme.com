@@ -108,6 +108,15 @@ if (-e user_settings.sourceme) source user_settings.sourceme
 set debug = 1
 
 
+# Pull starting files from the starter kit if present, so the cwd checks below
+# find them (per D. Case: the code should look in $skit for the deposit
+# pdb/mtz/fasta, not only the current directory).
+if (-d $skit) then
+  foreach f ( ${pdbid}.pdb ${pdbid}-sf.cif seq.fasta refme.mtz xtal_properties.sourceme )
+    if (! -e $f && -e ${skit}/$f) cp ${skit}/$f .
+  end
+endif
+
 #==============================================================================
 # SECTION 1 — Download and sequence
 #==============================================================================
@@ -143,9 +152,12 @@ cat >! seq.fasta
 set modulo = `awk 'NR>1{printf("%s",$1)}' seq.fasta | wc -c`
 echo "  modulo (residues per chain) = $modulo"
 
-# Use PDB deposit as starting ASU coordinates
-cp ${pdbid}.pdb starthere_asu.pdb
 sec1done:
+
+# Use PDB deposit as starting ASU coordinates.  Must run even when Section 1 is
+# skipped (e.g. with a starter kit), so it lives after the sec1done: label.
+# -- per D. Case (Amber)
+if (! -e starthere_asu.pdb) cp ${pdbid}.pdb starthere_asu.pdb
 
 
 #==============================================================================

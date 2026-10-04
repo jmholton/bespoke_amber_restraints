@@ -8,7 +8,11 @@
 #
 if(! $?AMBERHOME) source /programs/amber22/amber.csh
 
-set src = ${AMBERHOME}/XtalUtilities
+# locate XtalUtilities templates: bundled copy, else $AMBERHOME, else cwd
+# (per D. Case: $AMBERHOME/XtalUtilities is not part of official Amber)
+if(! $?src) set src = `dirname $0`/XtalUtilities
+if(! -d "$src") set src = ${AMBERHOME}/XtalUtilities
+if(! -d "$src") set src = .
 
 set leapinclude = ""
 if($?PHENIX) then
@@ -38,7 +42,8 @@ set ignore_clash = 0
 
 # water model to use
 set watertype = opc
-set flexwater = 1
+# flexible water is only valid for spcfw; all other (rigid) models force this to 0 below
+set flexwater = 0
 
 # disable net-force correction that seems to lead to sloshing
 set netfrc = 0
@@ -352,7 +357,10 @@ source $leaprc
 source leaprc.water.${watertype}
 EOF
 
-if( $watertype == opc3 || $watertype == spce || $watertype == spceb || $watertype == tip3p ) then
+# Only spcfw is parameterized for flexible water; every other model (OPC, OPC3,
+# SPC/E, TIP3P, ...) is rigid and must stay rigid (SHAKE/settle).  Never enable
+# FlexibleWater for a rigid model.  -- per D. Case (Amber)
+if( $watertype != spcfw ) then
    set flexwater = 0
 endif
 
