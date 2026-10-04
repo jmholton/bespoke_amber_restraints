@@ -80,8 +80,20 @@ if( -e "$leaplog" && "$charge" == "" ) then
 endif
 
 if( ! -e ${src}/${watertype}.pdb) then
-  set BAD = "could not find $watertype water pdb file"
-  goto exit
+  # not provided anywhere: generate the water template from the Amber
+  # distribution (leaprc.water.${watertype}) rather than shipping a copy
+  echo "generating ${watertype}.pdb from leaprc.water.${watertype} via tleap"
+  cat << EOF >! ${t}watergen.in
+source leaprc.water.${watertype}
+savepdb WAT ${watertype}.pdb
+quit
+EOF
+  tleap -f ${t}watergen.in >& ${t}watergen.log
+  if( ! -e ${watertype}.pdb) then
+    set BAD = "could not find or generate $watertype water pdb (see ${t}watergen.log)"
+    goto exit
+  endif
+  set src = .
 endif
 
 
