@@ -40,6 +40,13 @@ set Stages = ""
 # exit if bad clashes
 set ignore_clash = 0
 
+# reject crystallographic waters that clash with protein (whole residue dropped).  The
+# clash is only visible on the complete built model, so this runs after tleap.  Meant for
+# rough/incomplete models (e.g. hurry mode, where tleap rebuilds missing side chains that
+# can overlap waters).  No-op on a clean model.  clash_dist = overlap distance (A).
+set declash_waters = 0
+set clash_dist = 1.2
+
 # water model to use
 set watertype = opc
 # flexible water is only valid for spcfw; all other (rigid) models force this to 0 below
@@ -172,6 +179,10 @@ foreach Arg ( $* )
     if("$key" == "heat_ns") set heat_ns = "$Val"
     if("$key" == "equi_ns") set equi_ns = "$Val"
     if("$key" == "prod_ns") set prod_ns = "$Val"
+
+    if("$key" == "declash_waters") set declash_waters = "$Val"
+    if("$key" == "clash_dist") set clash_dist = "$Val"
+    if("$key" == "ignore_clash") set ignore_clash = "$Val"
 
     if("$key" == "redq") set redq = "$Val"
     if("$key" == "restraint_file") set restraint_file = "$Val"
@@ -610,6 +621,71 @@ else
   cp ${t}tleaped.rst7 ${t}start.rst7
 endif
 
+
+# --- reject crystallographic waters that clash with protein -----------------------
+# The clash is against tleap-rebuilt side chains, so it only shows up on the complete
+# built model (here).  Drop the whole offending water residue -- waters are expendable
+# and pad-waters refill the voids -- instead of aborting the run.  Enabled with
+# declash_waters=1 (the examples turn it on in hurry mode, whose rough deposit-expanded
+# model keeps incomplete side chains that tleap rebuilds into nearby waters).  A clean
+# refined model has no such clashes, so this is a no-op there.  Crystallographic waters
+# precede the appended pad waters, so their residue indices are the same in the pad-
+# stripped topology and in the full orignames.pdb -- one index list strips both.
+if( "$declash_waters" != "0" && -e ${t}start_orignames.pdb ) then
+  echo "declash_waters: scanning for crystallographic waters clashing with protein (< $clash_dist A)"
+  # Detect with gemmi contact (applies periodic imaging, like the per-stage clash check)
+  # so we also catch waters that only clash across a cell boundary -- a plain cpptraj
+  # distance mask does not image and would miss those.  gemmi columns: atom1 resname
+  # [18,3] chain+resnum [22,5]; atom2 resname [48,3] chain+resnum [52,5].
+  gemmi contact -d $clash_dist --sort ${t}start_orignames.pdb >&! ${t}declash.log
+  egrep -v "^#|^CRYST|^REMARK|^SSBO|^LINK" ${t}declash.log |\
+  awk '{r1=substr($0,18,3);c1=substr($0,22,5);r2=substr($0,48,3);c2=substr($0,52,5)}\
+    r1=="HOH"||r1=="WAT"{print c1}\
+    r2=="HOH"||r2=="WAT"{print c2}' |\
+  sort -u >! ${t}clashwater_labels.txt
+  # map each clashing-water orig chain+resnum to its amber residue index (order in
+  # start_orignames), which is what cpptraj strip uses.  Read the label file as the FIRST
+  # awk file (FNR==NR) -- NOT by field count -- because a 3-digit resnum label contains a
+  # space ("S 131") and would otherwise be missed.
+  awk 'FNR==NR{want[$0]=1;next}\
+    ! /^ATOM|^HETAT/{next}\
+    {id=substr($0,22,9);lbl=substr($0,22,5); if(id!=last){++ares;last=id}}\
+    want[lbl] && ! seen[ares]{seen[ares]=1;print ares}' \
+    ${t}clashwater_labels.txt ${t}start_orignames.pdb |\
+  sort -un |\
+  awk 'NR>1{printf ","}{printf "%s",$1}END{print ""}' >! ${t}clashres.txt
+  set clashres = `cat ${t}clashres.txt`
+  if( "$clashres" != "" ) then
+    set nclash = `echo "$clashres" | awk -F "," '{print NF}'`
+    echo "  dropping $nclash protein-clashing water residue(s)"
+    cpptraj -p ${t}xtal.prmtop -y ${t}start.rst7 >>& ${t}declash.log << EOF
+strip :${clashres} parmout ${t}declashed.parm7
+trajout ${t}declashed.rst7
+EOF
+    if( $status || ! -e ${t}declashed.rst7 ) then
+      set BAD = "water-declash strip failed"
+      goto exit
+    endif
+    mv ${t}declashed.parm7 ${t}xtal.prmtop
+    mv ${t}declashed.rst7 ${t}start.rst7
+    # drop the same residues from the orig-name reference files, matched by amber-residue
+    # order, so they stay atom-for-atom consistent with the stripped topology
+    foreach onf ( ${t}start_orignames.pdb orignames.pdb )
+      if(! -e $onf) continue
+      echo "$clashres" |\
+      cat - $onf |\
+      awk 'NR==1{n=split($0,a,",");for(i=1;i<=n;++i)d[a[i]]=1;next}\
+        ! /^ATOM|^HETAT/{print;next}\
+        {id=substr($0,22,9); if(id!=last){++ares;last=id}}\
+        ! d[ares]{print}' |\
+      cat >! ${t}declashed_onf.pdb
+      mv ${t}declashed_onf.pdb $onf
+    end
+  else
+    echo "  no protein-clashing waters found"
+  endif
+endif
+# ---------------------------------------------------------------------------------
 
 
 

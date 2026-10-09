@@ -968,8 +968,21 @@ mkdir -p super_refine1
 cd super_refine1
 
 if ( $hurry ) then
-  echo "  HURRY: skipping supercell refine — using the expanded single-conformer supercell as-is"
-  awk '{print substr($0,1,80)}' ../centroids/fulllength_noalt.pdb >! thisone.pdb
+  echo "  HURRY: skipping supercell refine — consolidating the expanded supercell to the model chain scheme"
+  # Do NOT use fulllength_noalt directly: it is one chain per symmetry copy (64 here,
+  # which overflows A-Z/a-z into punctuation chain IDs), whereas the downstream amber
+  # model (amberme) is consolidated to the few chains that keep residue numbers within
+  # PDB's 4 digits.  The reference points are built from thisone, so if thisone keeps
+  # the 64-chain scheme the restraints reference chain IDs that don't exist in the
+  # 2-chain flying model -> restraint bombs.  Consolidate thisone the SAME (cheap, no
+  # phenix) way reorganize_pdb consolidates the model, so the two stay compatible.
+  # (See the COMPATIBILITY NOTE in reorganize_pdb_runme.com.)
+  reorganize_pdb_runme.com ../centroids/fulllength_noalt.pdb outfile=thisone.pdb \
+    phenix_bumpcheck=0 declash=0 debug=0 >&! reorg_hurry.log
+  if (! -e thisone.pdb) then
+    echo "ERROR: hurry consolidation failed — details: super_refine1/reorg_hurry.log"
+    goto exit
+  endif
   cd ..
   goto sec9done
 endif
@@ -1197,6 +1210,26 @@ awk -v B0=$B0 '/^CRYST|^LINK|^SSBO/{print} ! /^ATOM|^HETAT/{next}\
     {printf("%s%6.2f%s\n",pre,B,post)}' |\
 cat >! all_possible_refpoints.pdb
 
+# Consolidate the reference points into the SAME chain/residue scheme as the flying
+# model (refined), using the full-length supercell as the CA-padding template.  The
+# centroids are expanded one-chain-per-copy (64 chains here) and are a SPARSE, in-
+# density subset, so left alone they carry a different per-copy residue stride than the
+# consolidated model.  centroids_nearby matches protein reference points by exact
+# (chain,resnum) [ent1==ent2], so a stride/scheme mismatch makes it match only the home
+# ASU -- every other symmetry copy ends up UNrestrained (drift / restraint bomb).
+# reorganize_pdb's refpdb= CA-padding fills the density-less residues with the full
+# sequence before renumbering, so the sparse centroids inherit the model's stride copy-
+# for-copy and come out in the model's chain scheme.  (density weights live in the
+# B-factor column, which reorganize preserves.)  See reorganize_pdb COMPATIBILITY NOTE
+# and the coverage check in centroids_nearby_runme.com.
+reorganize_pdb_runme.com all_possible_refpoints.pdb refpdb=../centroids/fulllength_noalt.pdb \
+  outfile=refpoints_consolidated.pdb phenix_bumpcheck=0 declash=0 debug=0 >&! reorg_refpoints.log
+if (-e refpoints_consolidated.pdb) then
+  mv refpoints_consolidated.pdb all_possible_refpoints.pdb
+else
+  echo "WARNING: reference-point consolidation failed (reorg_refpoints.log) - using raw refpoints"
+endif
+
 centroids_nearby_runme.com refined.pdb reffile=all_possible_refpoints.pdb \
   softener=2 weight=Bfac maxdist=1 hohscale=1 \
   outfile=restraints_for_${itr}.pdb debug=$debug >&! c2r_${itr}.log
@@ -1250,9 +1283,16 @@ echo "padwater = $padwater"
 
 cp restraints_for_${itr}.pdb initial_restraints.pdb
 
-# Run MD stages: skip Cpu and Min (cause NaN / black holes on this system)
+# Run MD stages: skip Cpu and Min (cause NaN / black holes on this system).  In hurry
+# mode the rough deposit-expanded model keeps incomplete side chains (buildout is skipped)
+# that tleap rebuilds in default rotamers, overlapping nearby crystallographic waters and
+# tripping leap2amber's clash check -- so hurry tells leap2amber to drop those protein-
+# clashing waters (declash_waters=1; they are expendable and pad-waters refill).  The full
+# path builds out complete side chains, so it has no such clashes and leaves this off.
+set declashopt = ""
+if( $hurry ) set declashopt = "declash_waters=1"
 echo "  running leap2amber MD stages: Cool → Heat → Equi → EquiMin → Prod (details: leap2amber_${itr}.log)..."
-leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod \
+leap2amber.com amberme.pdb stages=Cool,Heat,Equi,EquiMin,Prod $declashopt \
   protons=protonation.txt watertype=fb3mod flexwater=0 \
   refpoints=initial_restraints.pdb restraint_mult=1 \
   pdbscale=0.01 gamma_ln=1.0 barostat=1 \

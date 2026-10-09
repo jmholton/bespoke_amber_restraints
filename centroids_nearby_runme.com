@@ -24,6 +24,12 @@ set softener = 2
 set twirl = 1
 # represent all reference points as waters to gemmi
 set gemmibug = 0
+# minimum % of protein reference points that must find a match; below this a
+# chain/residue-scheme mismatch between reffile and pdbfile is suspected (only the
+# home ASU restrained, other symmetry copies left free -> drift / restraint bombs)
+set mincover = 50
+# make a low-coverage shortfall fatal (1) instead of just a loud warning (0)
+set strictcover = 0
 # flag to debug things
 set debug = 0
 
@@ -434,6 +440,42 @@ awk -v debug=$debug '$NF=="DIST"{\
   newid[id]{\
     print $0, "   ",dist[id]}' |\
 cat >! ${t}selected_centroids.pdb
+
+
+# --- reference-point coverage sanity check -------------------------------------
+# How many of the protein reference points actually found a same-identity atom to
+# restrain?  centroids_nearby keeps a protein pair only when the two atoms are BOTH
+# co-located AND carry the same original chain+resnum (the ent1==ent2 rule).  So if
+# the reference points ($reffile) and the flying model ($pdbfile) are in INCOMPATIBLE
+# chain/residue schemes -- e.g. one-chain-per-copy centroids (64 chains) against a
+# model consolidated to a few chains -- only the home ASU matches and every other
+# symmetry copy is left UNRESTRAINED (-> drift / restraint bombs downstream).  A
+# healthy run matches ~100% of protein reference points; the collapse matches ~1/Ncopy.
+# Fix = consolidate the reference points to the model's chain scheme first
+# (reorganize_pdb refpdb=<model>).  See reorganize_pdb_runme.com COMPATIBILITY NOTE.
+set protre = "ALA|ARG|ASN|ASP|ASH|CYS|CYX|GLN|GLU|GLH|GLY|VAL|MET|MSE|HID|HIE|HIP|HIS|ILE|LEU|LYS|KCX|PHE|PRO|SER|THR|TRP|TYR"
+set totprot = `egrep "^ATOM|^HETAT" $reffile | awk -v re="$protre" 'substr($0,18,3)~re{print substr($0,22,5)}' | sort -u | wc -l`
+set matprot = `egrep "^ATOM|^HETAT" ${t}selected_centroids.pdb | awk -v re="$protre" 'substr($0,18,3)~re{print substr($0,22,5)}' | sort -u | wc -l`
+set pctprot = `echo $matprot $totprot | awk '{printf "%.1f", ($2>0)?100*$1/$2:100}'`
+echo "reference-point coverage: $matprot / $totprot protein reference residues matched ($pctprot %)"
+set lowcover = `echo $pctprot $mincover | awk '{print ($1+0 < $2+0)}'`
+if( $totprot > 0 && $lowcover ) then
+  echo "WARNING: =========================================================================="
+  echo "WARNING: only $pctprot% of protein reference points matched (threshold ${mincover}%)."
+  echo "WARNING: the reference points ($reffile)"
+  echo "WARNING: and the flying model ($pdbfile)"
+  echo "WARNING: are probably in INCOMPATIBLE chain/residue schemes, so only the home ASU"
+  echo "WARNING: got restrained and the other symmetry copies are FREE -> expect drift /"
+  echo "WARNING: restraint bombs.  Consolidate the reference points to the model scheme, e.g."
+  echo "WARNING:   reorganize_pdb_runme.com $reffile refpdb=$pdbfile outfile=<consolidated>"
+  echo "WARNING: (see reorganize_pdb_runme.com COMPATIBILITY NOTE)."
+  echo "WARNING: =========================================================================="
+  if( $strictcover ) then
+    set BAD = "only $pctprot% of protein reference points matched (< ${mincover}%): reffile/model chain-scheme mismatch"
+    goto exit
+  endif
+endif
+# -------------------------------------------------------------------------------
 
 
 # awk 'substr($0,77,2)!=" H"' ${t}centroids_near_atoms.pdb $pdbfile | rmsd | less

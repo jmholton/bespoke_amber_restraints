@@ -524,6 +524,31 @@ if(! -e all_possible_refpoints.pdb ) then
   endif
 endif
 
+# Consolidate the reference points into the flying model's chain scheme (CA-padded),
+# whether generated above or provided by the caller.  The centroids are expanded one-
+# chain-per-symmetry-copy and are a sparse in-density subset, so left alone they carry a
+# different per-copy residue stride than the consolidated model (amberme); centroids_nearby
+# then matches only the home ASU [ent1==ent2] and every other copy is left UNrestrained
+# -> restraint bombs on repick.  reorganize_pdb's refpdb= CA-padding fills the density-less
+# residues so the sparse centroids inherit the model stride copy-for-copy.  Idempotent:
+# only runs when the refpoints carry MORE protein chains than the model (i.e. still per-
+# copy), so re-running on an already-consolidated set is a no-op.  (See reorganize_pdb
+# COMPATIBILITY NOTE and the centroids_nearby coverage check.)
+if( -e all_possible_refpoints.pdb && -e amberme.pdb ) then
+  set rp_ch = `awk '/^ATOM/ && substr($0,13,4)==" CA " && substr($0,18,3)!="HOH"{print substr($0,22,1)}' all_possible_refpoints.pdb | sort -u | wc -l`
+  set am_ch = `awk '/^ATOM/ && substr($0,13,4)==" CA " && substr($0,18,3)!="HOH"{print substr($0,22,1)}' amberme.pdb | sort -u | wc -l`
+  if( $rp_ch > $am_ch ) then
+    echo "consolidating reference points ($rp_ch protein chains) to the model scheme ($am_ch chains)"
+    reorganize_pdb_runme.com all_possible_refpoints.pdb refpdb=../centroids/fulllength_noalt.pdb \
+      outfile=refpoints_consolidated.pdb phenix_bumpcheck=0 declash=0 debug=0 >&! reorg_refpoints.log
+    if( -e refpoints_consolidated.pdb ) then
+      mv refpoints_consolidated.pdb all_possible_refpoints.pdb
+    else
+      echo "WARNING: refpoint consolidation failed (reorg_refpoints.log) - using raw refpoints"
+    endif
+  endif
+endif
+
 if( "$randel_itr" != "0" ) then
   echo "generating randomized restraint deletion bins"
   echo $randel_fraction |\

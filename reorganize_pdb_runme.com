@@ -76,6 +76,20 @@ if(-e "$refpdb") then
 endif
 
 
+# COMPATIBILITY NOTE — a reorganized PDB's chain scheme is a function of its residue
+# count.  Protein copies are packed into as few chains as possible, starting a new
+# chain before the residue number would overflow PDB's 4 digits (maxchain4resnum,
+# capped so no resnum exceeds 9999).  So the SAME protein comes out with different
+# chain IDs at different sizes: a 256-residue cell (1aho) -> 1 chain A; a 16000-residue
+# 2x2x2 supercell (6c2r) -> 2 chains A,B; a raw per-copy expansion -> one chain per
+# copy (which past 52 copies overflows A-Z/a-z into punctuation chain IDs).
+# CONSEQUENCE: two files are only atom-matchable if they went through the SAME
+# consolidation.  Feeding a model in one scheme and a restraint/reference-point set in
+# another makes "chain B residue N" denote different physical copies in each, so an
+# Amber harmonic restraint (which never applies the minimum image) pulls the atom a
+# whole lattice vector / symop away -> a "restraint bomb".  Always consolidate the
+# model and its reference points together, or build the refpoints from the already-
+# consolidated model.
 if( "$maxchain4resnum" == "" && "$renumber" != "none" ) then
   echo "determining how many chains are needed for protein"
   cat $pdbfile |\
