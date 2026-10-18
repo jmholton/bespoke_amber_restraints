@@ -1222,7 +1222,9 @@ cat >! all_possible_refpoints.pdb
 # for-copy and come out in the model's chain scheme.  (density weights live in the
 # B-factor column, which reorganize preserves.)  See reorganize_pdb COMPATIBILITY NOTE
 # and the coverage check in centroids_nearby_runme.com.
-reorganize_pdb_runme.com all_possible_refpoints.pdb refpdb=../centroids/fulllength_noalt.pdb \
+# Pad with fulllength_super (WITH altlocs), not fulllength_noalt: reorganize keeps only the
+# atoms present in refpdb, so a no-altloc template silently drops every altloc reference point.
+reorganize_pdb_runme.com all_possible_refpoints.pdb refpdb=../centroids/fulllength_super.pdb \
   outfile=refpoints_consolidated.pdb phenix_bumpcheck=0 declash=0 debug=0 >&! reorg_refpoints.log
 if (-e refpoints_consolidated.pdb) then
   mv refpoints_consolidated.pdb all_possible_refpoints.pdb

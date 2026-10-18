@@ -539,7 +539,9 @@ if( -e all_possible_refpoints.pdb && -e amberme.pdb ) then
   set am_ch = `awk '/^ATOM/ && substr($0,13,4)==" CA " && substr($0,18,3)!="HOH"{print substr($0,22,1)}' amberme.pdb | sort -u | wc -l`
   if( $rp_ch > $am_ch ) then
     echo "consolidating reference points ($rp_ch protein chains) to the model scheme ($am_ch chains)"
-    reorganize_pdb_runme.com all_possible_refpoints.pdb refpdb=../centroids/fulllength_noalt.pdb \
+    # fulllength_super keeps the altlocs: reorganize keeps only atoms present in refpdb, so
+    # fulllength_noalt here would silently drop every altloc reference point
+    reorganize_pdb_runme.com all_possible_refpoints.pdb refpdb=../centroids/fulllength_super.pdb \
       outfile=refpoints_consolidated.pdb phenix_bumpcheck=0 declash=0 debug=0 >&! reorg_refpoints.log
     if( -e refpoints_consolidated.pdb ) then
       mv refpoints_consolidated.pdb all_possible_refpoints.pdb
