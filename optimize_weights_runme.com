@@ -176,6 +176,9 @@ set weight0 = 1
 set min_CA_weight = 0
 # minimum weight to apply to any atoms used for alignment 
 set min_align_weight = 0.01
+# min_CA_weight/min_align_weight only raise weights: keep each restraint's own XYZ (combine_pdbs saveXYZ) instead of
+# overwriting it with its align_ref.pdb position, which for averaged altlocs is their A/B mean
+set minwt_saveXYZ = 0
 # minimum weight to apply to ligands 
 set min_lig_weight = 0.01
 # weight to apply to CA atoms that have wandered from their reference points
@@ -200,6 +203,8 @@ set repick_maxdist_ramp = none
 # scale distances to "HOH" in restraint file to allow protein restraints to "win"
 set repick_hohscale = 2
 set repick_hohscale_ramp = none
+# 1 = protein atoms that have a reference point of their own may not "claim" a water reference point instead
+set repick_blockclaims = 0
 # amber restraints on flippable chiral centers
 #set chiral_weight = 10
 set chiral_weight = 0
@@ -220,6 +225,9 @@ set align_nstlim = 0
 # type of atoms to use for alignment
 
 set align_target = centroids
+# align_target=centroids: altlocs are averaged into align_ref.pdb only if their spread (rmsd2B B = 79/3*msd) is below
+# this, the rest are left out of the alignment (12 = altlocs < 1.35 A apart, 1 = < 0.39 A; single conformers have B=0)
+set align_altloc_maxB = 12
 # seems to avoid need for re-centering
 set netfrc = 0
 
@@ -573,7 +581,7 @@ if(! -e restraints_for_${itr}.pdb) then
   # first try at restraints
   centroids_nearby_runme.com amberme.pdb reffile=all_possible_refpoints.pdb \
     softener=2 weight=Bfac maxdist=$repick_maxdist  \
-    hohscale=$repick_hohscale \
+    hohscale=$repick_hohscale blockclaims=$repick_blockclaims \
     outfile=restraints_for_${itr}.pdb debug=$debug | tee c2r_${itr}.log
 
 #  cat *_protonation.txt >! protonation.txt
@@ -1030,11 +1038,11 @@ if ( $trigger || ! -e align_ref.pdb ) then
     if(-s align_ref.pdb) then
       echo "re-using align_ref.pdb"
     else
-      echo "generating new align_ref.pdb from all_possible_refpoints.pdb"
+      echo "generating new align_ref.pdb from all_possible_refpoints.pdb (altlocs averaged if B < $align_altloc_maxB)"
       filter_pdb.awk -v only=protein all_possible_refpoints.pdb |\
       reformatpdb.awk -v CONF=" " |\
       rmsd2B |\
-      awk '/^CRYST/ || substr($0,61,6)+0<12' >! ${t}_ref.pdb
+      awk -v maxB=$align_altloc_maxB '/^CRYST/ || substr($0,61,6)+0<maxB' >! ${t}_ref.pdb
       rholabel_runme.com reference.mtz ${t}_ref.pdb mtzlabel=Fref >> align_${prev}.log
       if( $status ) then
         set BAD = "map probe with rholabel failed"
@@ -2096,7 +2104,7 @@ if ( $trigger || $repick_now ) then
   rm -f repicked_reference_points.pdb
   centroids_nearby_runme.com refme.pdb reffile=sorted_refpoints.pdb \
     softener=1 weight=$repick_maxweight maxdist=$repick_maxdist  \
-    hohscale=$repick_hohscale \
+    hohscale=$repick_hohscale blockclaims=$repick_blockclaims \
     outfile=repicked_reference_points.pdb debug=$debug >! c2r_${itr}.log
   if( $status || ! -e repicked_reference_points.pdb ) then
     set BAD = "repick failed"
@@ -2477,6 +2485,10 @@ endif
 set trigger = `echo $itr $minwt_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} {print ($1 % $2+0 == $3+0)}'`
 if ( ! $trigger ) goto skip_minwt
 
+# combine_pdbs turns saveXYZ on for any savex* word (even "saveXYZ=0"), so pass it only when wanted
+set svxyz = ""
+if( "$minwt_saveXYZ" != "0" ) set svxyz = saveXYZ
+
 # make sure any ligands stay put
 set liggrep = `echo $ligands | awk '{gsub(" ","|");print}'`
 set test = `egrep "$liggrep" all_possible_refpoints.pdb | wc -l`
@@ -2540,7 +2552,7 @@ if( "$min_CA_weight" != 0 && -e alignment_atnums.txt ) then
     {printf("%s%6.2f%s\n",pre,B,post)}' |\
   cat >! ${t}align_neww.pdb
   # now inject updated weights into the master list
-  combine_pdbs_runme.com ${t}align_neww.pdb ${t}complete.pdb printref=1 outfile=new_restraints.pdb > /dev/null
+  combine_pdbs_runme.com ${t}align_neww.pdb ${t}complete.pdb printref=1 $svxyz outfile=new_restraints.pdb > /dev/null
   rmsd new_restraints.pdb current_restraints.pdb | egrep "MAXD.Bfac"
   cp current_restraints.pdb prealignrest_restraints.pdb
   cp new_restraints.pdb current_restraints.pdb
@@ -2585,7 +2597,7 @@ if( "$min_align_weight" != 0 && -e alignment_atnums.txt ) then
     {printf("%s%6.2f%s\n",pre,B,post)}' |\
   cat >! ${t}align_newweight.pdb
   # now inject updated weights into the master list
-  combine_pdbs_runme.com ${t}align_newweight.pdb ${t}complete.pdb printref=1 outfile=align_restraints.pdb > /dev/null
+  combine_pdbs_runme.com ${t}align_newweight.pdb ${t}complete.pdb printref=1 $svxyz outfile=align_restraints.pdb > /dev/null
   rmsd align_restraints.pdb current_restraints.pdb | egrep "MAXD.Bfac"
   cp current_restraints.pdb prealignrest_restraints.pdb
   cp align_restraints.pdb current_restraints.pdb

@@ -17,6 +17,9 @@ set maxdist = 1.0
 set tooclose = 2.4
 # scaling factor for to-water distances
 set hohscale = 2
+# 1 = a protein atom that has a reference point of its own (same name, residue and chain) may not be restrained
+#     to a solvent reference point instead (a "claim" on a water); atoms with none of their own still can
+set blockclaims = 0
 # softening factor for atoms far from centroid points.
 # it is in order of magnitude: 2 drops by factor of 100 at max dist, 0 means no softening
 set softener = 2
@@ -85,6 +88,7 @@ weight   $weight
 maxdist  $maxdist
 hohscale $hohscale
 softener $softener
+blockclaims $blockclaims
 
 tempfile  $tempfile
 EOF
@@ -241,11 +245,17 @@ awk -v debug=$debug 'debug>3{print $0,"DEBUG IN"}\
 cat >! ${t}intraref_distances.txt
 
 
+# identities (name, residue, chain) of all reference points, for blockclaims
+egrep "^ATOM|^HETAT" ${t}centroids_met.pdb |\
+awk '{print "REFID|" substr($0,12,5) " " substr($0,18,3) " " substr($0,22,9)}' |\
+sort -u >! ${t}refids.txt
+
 # now determine which atoms to restrain to what:
 # protein must have same name, or solvent can also be protein restraints
 echo "selecting protein..."
-egrep -v DEBUG ${t}scaled_distances.txt |\
-awk -v debug=$debug '$NF=="DIST"{\
+egrep -hv DEBUG ${t}refids.txt ${t}scaled_distances.txt |\
+awk -v debug=$debug -v blockclaims=$blockclaims '/^REFID[|]/{++hasref[substr($0,7)];next}\
+   $NF=="DIST"{\
       split($0,w,"|");\
       id1=w[1];id2=w[2];\
       atom1=substr(id1,1,5);atom2=substr(id2,1,5);\
@@ -275,7 +285,7 @@ awk -v debug=$debug '$NF=="DIST"{\
   typ1~/EDO|SO4|ACY/ && typ1==typ2 && atm1==atm2{++polya}\
   typ1~/ZN |EG7/{++metal1}\
   metal1 && typ1==typ2 && atm1==atm2{++metal}\
-    ent1==ent2 || polya || metal || dist<2 && solvent2 && ! metal1 {\
+    ent1==ent2 || polya || metal || dist<2 && solvent2 && ! metal1 && ! (blockclaims && protein1 && hasref[ent1]) {\
     if(debug>1){print "DEBUG",(ent1==ent2),(polya),(metal),(dist<2 && solvent2)}\
     print;\
     ++seen1[ent1];++seen2[ent2]}' |\
@@ -332,9 +342,10 @@ echo "selecting solvent..."
 # 2nd pass to do solvent restraints
 # make list of non-taken refpoints and their neighbors
 awk '{print $0,"TAKEN"}' ${t}expanded_selections.txt |\
-cat - ${t}decoded_distances.txt |\
+cat - ${t}refids.txt ${t}decoded_distances.txt |\
 egrep -v DEBUG |\
-awk -v debug=$debug '{\
+awk -v debug=$debug -v blockclaims=$blockclaims '/^REFID[|]/{++hasref[substr($0,7)];next}\
+   {\
       split($0,w,"|");id1=w[1];id2=w[2];\
       atom1=substr(id1,1,5);atom2=substr(id2,1,5);\
       typ1=substr(id1,7,3);typ2=substr(id2,7,3);\
@@ -353,7 +364,7 @@ awk -v debug=$debug '{\
   typ1~/HOH|CL |AMM|NH4|LI /{++solvent1}\
   typ2~/HOH|CL |AMM|NH4|LI /{++solvent2}\
   typ2~/ZN |EG7|SO4|EDO/ {++metal}\
-  ! metal && ! protein2 {\
+  ! metal && ! protein2 && ! (blockclaims && protein1 && hasref[ent1]) {\
     print;\
     ++seen1[ent1];++seen2[ent2]}' |\
 cat >! ${t}nottaken_refpoints.txt
@@ -397,6 +408,8 @@ if( $n == 0 ) then
     set BAD = "gemmi failed"
     goto exit
 endif
+set nclaim = `egrep -v DEBUG ${t}unique_selections.txt | awk '{split($0,w,"|");t1=substr(w[1],7,3);t2=substr(w[2],7,3)} t1~/ALA|ARG|ASN|ASP|ASH|CYS|CYX|GLN|GLU|GLH|GLY|VAL|MET|MSE|HID|HIE|HIP|HIS|ILE|LEU|LYS|KCX|PHE|PRO|SER|THR|TRP|TYR/ && t2~/HOH|CL |AMM|NH4|LI |EDO|SO4/' | wc -l`
+echo "protein atoms restrained to solvent reference points: $nclaim  (blockclaims = $blockclaims)"
 
 egrep -v DEBUG ${t}unique_selections.txt | head -n 3
 echo "..."
