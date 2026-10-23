@@ -1193,7 +1193,7 @@ cp ${pdir}/optimize_weights_runme.com optimize_weights_runme${n}.com
 
 @ n = ( $n + 1 )
 # start repicking
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1206,7 +1206,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # start down-weighting - will need substages or alignment weight
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1222,7 +1222,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 # start down-weighting - will need substages or alignment weight
 optimize_weights_runme.com prod_ns=0.5 \
     max_mult=2 \
-    Bfac_maxmod=1 weight_power=1.1 \
+    Bfac_maxmod=1 weight_power=1 \
     teleport_waters=100 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1236,7 +1236,7 @@ optimize_weights_runme.com prod_ns=0.5 \
 
 @ n = ( $n + 1 )
 # try reducing align weight
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1250,7 +1250,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # zero align weight - does not work!
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1277,7 +1277,7 @@ cp barometer_${gooditr}.out barometer_${lastitr}.out
 
 @ n = ( $n + 1 )
 # soften down-weighting - use substages
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1292,7 +1292,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # longer sub-stages
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1306,7 +1306,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # even longer substages - starting to get unstable
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1321,7 +1321,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # repick less frequently - turn on randel
-optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=10+5 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1335,7 +1335,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # repick less frequently - turn on randel - ignore restricted worsts
-../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=5 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1350,7 +1350,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # R factor getting high turn off randel and other down-weights
-../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=10 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1364,7 +1364,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 
 @ n = ( $n + 1 )
 # increase repick distance
-../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=3 repick_maSxweight=0.11 \
@@ -1381,7 +1381,7 @@ optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1
 cp optimize_weights_runme.com optimize_weights_runme.com
 @ n = ( $n + 1 )
 # increase repick distance
-../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1.1 \
+../optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=1 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=auto void_scale=1 \
     release_itr=1 repick_itr=1 repick_maxdist=3 repick_maxweight=2 \

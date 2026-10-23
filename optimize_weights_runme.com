@@ -157,8 +157,10 @@ set halfrho_ramp = none
 set weight_scaledown = 1
 # apply a different scale factor to negative peaks
 set weight_negscaledown = 0.95
-# raise small weights to a power to drive them toward zero
-set weight_power = 1.01
+# raise small weights to a power to drive them toward zero (1 = off).  Above 1 this is a trap: with the
+# restraint file's 2-decimal B column, a weight that gets small enough can never grow back, even at max_mult
+# every iteration (1.1 with kT=0.57 pins everything below B~0.07 at the 0.01 floor)
+set weight_power = 1
 # criterion for a weak weight (multiples of kT)
 set weight_power_kTmult = 1
 # scale factor for converting "B factors" in restraint file to amber weights

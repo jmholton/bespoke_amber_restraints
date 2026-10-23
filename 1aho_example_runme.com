@@ -1522,7 +1522,7 @@ cp ../xtal_properties.sourceme .
 # have stabilized (opt3).  Exit when the amber RESTRAINT energy
 # (amber_energy_vs_itr.txt col16) stops trending — the automatable proxy for the
 # sorted_weights.txt log-log shape settling.  Runs in the background; maxitr caps.
-./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1.1 \
+./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1658,7 +1658,7 @@ cp ../xtal_properties.sourceme .
 # density until both converge — so the convergence signal is the difference-map R
 # itself: exit when fofc_Rplot.txt col2 is LEVEL.  A low, flat fofc_R is the target
 # for the production run.  Runs in the background; maxitr is a safety cap.
-./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1.1 \
+./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
@@ -1763,7 +1763,7 @@ cp ../xtal_properties.sourceme .
 # settled.  The B factors go bimodal and their mean is unstable, so we watch the
 # whole histogram (Bhist_vs_itr.txt) and exit when its shape stops changing
 # between iterations, NOT on fofc_R.
-./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1.1 \
+./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
