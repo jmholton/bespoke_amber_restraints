@@ -153,7 +153,7 @@ set shan_B = auto
 set halfrho_pos = auto
 set halfrho_neg = auto
 set halfrho_ramp = none
-# apply an overall scale factor to all weights every round
+# apply an overall scale factor to all weights every round (held at 1 while max_mult_ramp is still ramping)
 set weight_scaledown = 1
 # apply a different scale factor to negative peaks
 set weight_negscaledown = 0.95
@@ -179,14 +179,15 @@ set min_CA_weight = 0
 # minimum weight to apply to any atoms used for alignment 
 set min_align_weight = 0.01
 # min_CA_weight/min_align_weight only raise weights: keep each restraint's own XYZ (combine_pdbs saveXYZ) instead of
-# overwriting it with its align_ref.pdb position, which for averaged altlocs is their A/B mean
-set minwt_saveXYZ = 0
+# overwriting it with its align_ref.pdb position, which for averaged altlocs is their A/B mean (0 = overwrite)
+set minwt_saveXYZ = 1
 # minimum weight to apply to ligands 
 set min_lig_weight = 0.01
 # weight to apply to CA atoms that have wandered from their reference points
 set errant_CA_weight = 2
-# upon release_itr, also release restraints on symmate atoms
-set release_radius = 1
+# upon release_itr, also release restraints on symmate atoms and within these shells (A, comma-separated,
+# each grown outward from the previous shell's new atoms)
+set release_radius = 2.2,1.8,1.8,1.8
 # new weight to give to "released" restarints
 set release_weight = 0.01
 # maximum number of highly challenged restraints to release
@@ -1364,6 +1365,17 @@ endif
 # use difference map to update restraints
 rm -f new_restraints.pdb
 set max_wB = `echo $max_weight $pdbscale | awk '{print $1/$2}'`
+# don't scale every weight down until max_mult has settled: while max_mult_ramp is still ramping max_mult toward
+# its end value, the weights are still being sorted out by the difference map
+set scaledown_now = $weight_scaledown
+if( "$max_mult_ramp" != "none" ) then
+  set max_mult_end = `echo $max_mult_ramp | awk -F "[: _-]" '{print $2+0}'`
+  set test = `echo $max_mult $max_mult_end | awk '{print ( sqrt(($1-$2)^2) > 1e-4 )}'`
+  if( $test ) then
+    set scaledown_now = 1
+    echo "max_mult = $max_mult still ramping to ${max_mult_end}: weight_scaledown held at 1"
+  endif
+endif
 set rud_try = 0
 set rud_dbg = ""
 rud_retry:
@@ -1373,7 +1385,7 @@ restraintlist_update_diffmap.com fofc.map \
   trajectory=trajectory/ \
   tempfile=${scratch}/rud_ \
   refme.pdb modulo=$modulo \
-  overall_scale=$weight_scaledown \
+  overall_scale=$scaledown_now \
   negative_scale=$weight_negscaledown \
   max_weight=$max_wB max_mult=$max_mult \
   ambig_same_weight=$ambig_same_weight \
@@ -2435,11 +2447,13 @@ set trigger = `echo $itr $release_itr | awk -F "[ +]" '$2+0==0{print $2+0;exit} 
 if ( $trigger || "$release_trigger" != "0" && $pegged_weight ) then
   echo "releasing over-challenged restraints "
   set tootight = `echo $max_weight | awk '{print ($1+0.0001)*0.9}'`
+  # release_weight is a weight, but release_worst_restraints applies resetweight on the B (weight/pdbscale) scale
+  set release_B = `echo $release_weight $pdbscale | awk '{print $1/$2}'`
   rm -f new_restraints.pdb
   release_worst_restraints_runme.com restraintpdb=current_restraints.pdb \
     refinedpdb=refme.pdb radius=$release_radius pdbscale=$pdbscale \
     tootight=$tootight maxbad=$release_maxbad \
-    resetweight=$release_weight sigma=5 \
+    resetweight=$release_B sigma=5 \
     ignore="" >! release_worst_${itr}.log
   if( $status || ! -e new_restraints.pdb) then
     set BAD = "release worst restraints failed"

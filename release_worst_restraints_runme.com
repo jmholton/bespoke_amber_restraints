@@ -10,7 +10,9 @@ set mtzfile = reference.mtz
 set tootight  = 9
 set resetweight = 0.1
 set sigma = 5
-set radius = 2.2
+# shells (A) grown outward from the worst restraints, each from the previous shell's new atoms.
+# radius= (one value or comma-separated) overrides radii
+set radius = ""
 set radii = 2.2,1.8,1.8,1.8
 set keepcenter = 0
 set maxbad    = 10
@@ -126,7 +128,7 @@ endif
 echo "selecting $smallSG symmetry mates of worst restraints"
 neighbors_big.com $smallSG $restraintpdb worst.pdb 1A -include -outfile ${t}symmates.pdb
 
-if( "$radii" == "" ) set radii = "$radius"
+if( "$radius" != "" ) set radii = "$radius"
 set radii = `echo $radii | awk '{gsub(","," ");print}'`
 set maxradius = `echo $radii | awk '{for(i=1;i<=NF;++i)if($i>max)max=$i;print max}'`
 
