@@ -207,7 +207,7 @@ set repick_maxdist_ramp = none
 set repick_hohscale = 2
 set repick_hohscale_ramp = none
 # 1 = protein atoms that have a reference point of their own may not "claim" a water reference point instead
-set repick_blockclaims = 0
+set repick_like2like = 0
 # amber restraints on flippable chiral centers
 #set chiral_weight = 10
 set chiral_weight = 0
@@ -353,6 +353,7 @@ foreach Arg ( $* )
           continue
       endif
       # synonyms
+      if("$key" == "repick_blockclaims") set repick_like2like = "$Val"
       if("$key" == "min_weight") set cutoff_weight = "$Val"
       if("$key" == "align_cyc") set align_nstlim = "$Val"
       if("$key" == "weight_scale") set weight_scaledown = "$Val"
@@ -591,7 +592,7 @@ if(! -e restraints_for_${itr}.pdb) then
   # first try at restraints
   centroids_nearby_runme.com amberme.pdb reffile=all_possible_refpoints.pdb \
     softener=2 weight=Bfac maxdist=$repick_maxdist  \
-    hohscale=$repick_hohscale blockclaims=$repick_blockclaims \
+    hohscale=$repick_hohscale like2like=$repick_like2like \
     outfile=restraints_for_${itr}.pdb debug=$debug | tee c2r_${itr}.log
 
 #  cat *_protonation.txt >! protonation.txt
@@ -2135,7 +2136,7 @@ if ( $trigger || $repick_now ) then
   rm -f repicked_reference_points.pdb
   centroids_nearby_runme.com refme.pdb reffile=sorted_refpoints.pdb \
     softener=1 weight=$repick_maxweight maxdist=$repick_maxdist  \
-    hohscale=$repick_hohscale blockclaims=$repick_blockclaims \
+    hohscale=$repick_hohscale like2like=$repick_like2like \
     outfile=repicked_reference_points.pdb debug=$debug >! c2r_${itr}.log
   if( $status || ! -e repicked_reference_points.pdb ) then
     set BAD = "repick failed"

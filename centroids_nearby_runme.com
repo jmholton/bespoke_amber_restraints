@@ -19,10 +19,17 @@ set tooclose = 2.4
 set hohscale = 2
 # 1 = a protein atom that has a reference point of its own (same name, residue and chain) may not be restrained
 #     to a solvent reference point instead (a "claim" on a water); atoms with none of their own still can
-set blockclaims = 0
+set like2like = 0
 # softening factor for atoms far from centroid points.
 # it is in order of magnitude: 2 drops by factor of 100 at max dist, 0 means no softening
 set softener = 2
+# Fo-Fc "reach": 0 = off.  When >0 it is a reference Fo-Fc level, and the per-refpoint
+# Fo-Fc value (carried in the refpoint's B-factor column) scales DOWN the distance
+# fall-off so a refpoint sitting on strong difference density holds its atom harder at
+# range -- reach_factor = max(1, Bfac/reach), and the distance penalty is divided by it.
+# Lets a protein atom be pulled toward a strong +Fo-Fc peak without loosening the
+# (chain,resnum) identity gate.  (Supply refpoints whose B-factor = Fo-Fc height.)
+set reach = 0
 # make sure ambivalent pairs of atoms are both included
 set twirl = 1
 # represent all reference points as waters to gemmi
@@ -61,6 +68,7 @@ foreach Arg ( $* )
           continue
       endif
       # synonyms
+      if("$key" == "blockclaims") set like2like = "$Val"
       if("$key" == "reference") set reffile = "$Val"
       if("$key" == "ref") set reffile = "$Val"
       if("$key" == "output") set outfile = "$Val"
@@ -88,7 +96,7 @@ weight   $weight
 maxdist  $maxdist
 hohscale $hohscale
 softener $softener
-blockclaims $blockclaims
+like2like $like2like
 
 tempfile  $tempfile
 EOF
@@ -245,7 +253,7 @@ awk -v debug=$debug 'debug>3{print $0,"DEBUG IN"}\
 cat >! ${t}intraref_distances.txt
 
 
-# identities (name, residue, chain) of all reference points, for blockclaims
+# identities (name, residue, chain) of all reference points, for like2like
 egrep "^ATOM|^HETAT" ${t}centroids_met.pdb |\
 awk '{print "REFID|" substr($0,12,5) " " substr($0,18,3) " " substr($0,22,9)}' |\
 sort -u >! ${t}refids.txt
@@ -254,7 +262,7 @@ sort -u >! ${t}refids.txt
 # protein must have same name, or solvent can also be protein restraints
 echo "selecting protein..."
 egrep -hv DEBUG ${t}refids.txt ${t}scaled_distances.txt |\
-awk -v debug=$debug -v blockclaims=$blockclaims '/^REFID[|]/{++hasref[substr($0,7)];next}\
+awk -v debug=$debug -v like2like=$like2like '/^REFID[|]/{++hasref[substr($0,7)];next}\
    $NF=="DIST"{\
       split($0,w,"|");\
       id1=w[1];id2=w[2];\
@@ -285,7 +293,7 @@ awk -v debug=$debug -v blockclaims=$blockclaims '/^REFID[|]/{++hasref[substr($0,
   typ1~/EDO|SO4|ACY/ && typ1==typ2 && atm1==atm2{++polya}\
   typ1~/ZN |EG7/{++metal1}\
   metal1 && typ1==typ2 && atm1==atm2{++metal}\
-    ent1==ent2 || polya || metal || dist<2 && solvent2 && ! metal1 && ! (blockclaims && protein1 && hasref[ent1]) {\
+    ent1==ent2 || polya || metal || dist<2 && solvent2 && ! metal1 && ! (like2like && protein1 && hasref[ent1]) {\
     if(debug>1){print "DEBUG",(ent1==ent2),(polya),(metal),(dist<2 && solvent2)}\
     print;\
     ++seen1[ent1];++seen2[ent2]}' |\
@@ -344,7 +352,7 @@ echo "selecting solvent..."
 awk '{print $0,"TAKEN"}' ${t}expanded_selections.txt |\
 cat - ${t}refids.txt ${t}decoded_distances.txt |\
 egrep -v DEBUG |\
-awk -v debug=$debug -v blockclaims=$blockclaims '/^REFID[|]/{++hasref[substr($0,7)];next}\
+awk -v debug=$debug -v like2like=$like2like '/^REFID[|]/{++hasref[substr($0,7)];next}\
    {\
       split($0,w,"|");id1=w[1];id2=w[2];\
       atom1=substr(id1,1,5);atom2=substr(id2,1,5);\
@@ -364,7 +372,7 @@ awk -v debug=$debug -v blockclaims=$blockclaims '/^REFID[|]/{++hasref[substr($0,
   typ1~/HOH|CL |AMM|NH4|LI /{++solvent1}\
   typ2~/HOH|CL |AMM|NH4|LI /{++solvent2}\
   typ2~/ZN |EG7|SO4|EDO/ {++metal}\
-  ! metal && ! protein2 && ! (blockclaims && protein1 && hasref[ent1]) {\
+  ! metal && ! protein2 && ! (like2like && protein1 && hasref[ent1]) {\
     print;\
     ++seen1[ent1];++seen2[ent2]}' |\
 cat >! ${t}nottaken_refpoints.txt
@@ -409,7 +417,7 @@ if( $n == 0 ) then
     goto exit
 endif
 set nclaim = `egrep -v DEBUG ${t}unique_selections.txt | awk '{split($0,w,"|");t1=substr(w[1],7,3);t2=substr(w[2],7,3)} t1~/ALA|ARG|ASN|ASP|ASH|CYS|CYX|GLN|GLU|GLH|GLY|VAL|MET|MSE|HID|HIE|HIP|HIS|ILE|LEU|LYS|KCX|PHE|PRO|SER|THR|TRP|TYR/ && t2~/HOH|CL |AMM|NH4|LI |EDO|SO4/' | wc -l`
-echo "protein atoms restrained to solvent reference points: $nclaim  (blockclaims = $blockclaims)"
+echo "protein atoms restrained to solvent reference points: $nclaim  (like2like = $like2like)"
 
 egrep -v DEBUG ${t}unique_selections.txt | head -n 3
 echo "..."
@@ -501,16 +509,21 @@ echo "adding weights "
 # weight = 1xmaxweight if at center, weight = 0.1 at 1.0 A out
 # option maxweight=B to use previous B factor as maxweight
 # option maxweight=last to use last word on line as weight
+# reach>0: the per-refpoint Fo-Fc value (B-factor column) divides the distance penalty
+#   by max(1, Bfac/reach), so strong difference-density refpoints hold their atom harder
+#   at range.  reach=0 leaves the distance scaling unchanged (default).
 egrep "^CRYST" $pdbfile | head -n 1 >! ${t}weighted.pdb
-echo "$weight $maxdist $softener " |\
+echo "$weight $maxdist $softener $reach " |\
 cat - ${t}centroids_near_atoms.pdb |\
-awk 'NR==1{maxweight=$1;maxdist=$2;softener=$3;next}\
+awk 'NR==1{maxweight=$1;maxdist=$2;softener=$3;reach=$4;next}\
  ! /^ATOM|^HETAT/{next}\
   {pre=substr($0,1,60);post=substr($0,67,80-67);Bfac=substr($0,61,6);dist=$NF;}\
   {w0=maxweight;}\
   maxweight~/^B/ {w0=Bfac;}\
   maxweight~/^last/ {w0=$(NF-1);}\
-  {weight= w0/10*(10**(1-softener*dist/maxdist));\
+  {reachfac=1}\
+  reach+0>0 && Bfac+0>reach+0 {reachfac=Bfac/reach}\
+  {weight= w0/10*(10**(1-softener*dist/maxdist/reachfac));\
   printf("%s%6.2f%s    %s\n",pre,weight,post,dist)}' |\
 cat >>  ${t}weighted.pdb
 
