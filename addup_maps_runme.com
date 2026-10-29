@@ -61,8 +61,9 @@ if( "$srun" == "auto" ) then
   # see if we can migrate hosts because of temp files
   set thishost = `hostname -s`
   set test = `sinfo -h -n $thishost |& egrep -vi "drain|n/a|Command not found" | wc -l`
+  # on this machine unless compute_settings.sourceme asks for SLURM jobs (sruncpu)
+  if( "$sruncpu" == "" ) set test = 0
   if ( $test ) then
-    if( "$sruncpu" == "" ) set sruncpu = "srun"
     if( "$tempfile" =~ /dev/shm/*  ) then
       echo "using slurm on local node"
       set srun = "$sruncpu -w $thishost"

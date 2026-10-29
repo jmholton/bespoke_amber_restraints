@@ -184,9 +184,10 @@ set thishost = `hostname -s`
 # use cluster or not?
 # maybe cannot migrate hosts because of temp files
 set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
+# on this machine unless compute_settings.sourceme asks for SLURM jobs (sruncpu)
+if( "$sruncpu" == "" ) set test = 0
 if ( $test ) then
   echo "using slurm"
-  if( "$sruncpu" == "" ) set sruncpu = "srun"
   set srun = "$sruncpu -w $thishost"
   set trajdir = `echo ${trajectory} | awk '{gsub("/$","");print}'`
   set trajdir = `ls -ld ${trajdir} | awk '{print $NF}'`

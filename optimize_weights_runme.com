@@ -314,9 +314,9 @@ set debug = 0
 set scratch = /scratch/${USER}/opt_`hostname -s`_$$_
 mkdir -p /scratch/${USER}
 
-# commands to submit jobs to GPU or CPU cluster queues
-set sruncpu = "srun --partition=refmac --exclude=crush18"
-set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+# commands to run jobs: on this machine unless compute_settings.sourceme says otherwise (e.g. SLURM queues)
+set sruncpu = ""
+set pmemd = "pmemd.cuda_SPFP"
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
    if(-e $sourceme ) then

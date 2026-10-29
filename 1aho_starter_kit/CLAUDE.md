@@ -34,9 +34,10 @@ ligands/
   NH4.{mol2,frcmod,cif,pdb}  — ammonium (crystallisation salt cation, 0.68 M)
   No protein ligand — set ligands = "" in xtal_properties.sourceme.
 
-HIS_settings.txt
-    Protonation states for the 2 HIS residues: HIE A54, HIE A64.
-    Both are epsilon-protonated (HIE) by QM vote.
+HIS_settings_asu.txt
+    Protonation states for the 2 HIS residues of the ASU: HIE A54, HIE A64.
+    Both are epsilon-protonated (HIE) by QM vote.  The example scripts copy it
+    from the kit (no slow QM step).
 
 HIS_votes.txt
     Raw QM votes: residues 54 and 64.
@@ -50,6 +51,11 @@ xtal_properties.sourceme
 
 seq.fasta
     64-residue protein sequence.
+
+compute_settings.sourceme.template
+    Symlink to the repo's top-level template.  Not kit-specific: every run needs
+    a compute_settings.sourceme (program paths, SLURM partitions) edited for your
+    site - see "Configure your site" in the repo README.
 
 
 ## Key differences from 6c2r workflow
@@ -70,16 +76,18 @@ seq.fasta
 
 ## Setup (tcsh)
 
-    source /programs/amber22/amber.csh
     set pdir = ~/projects/git/bespoke_amber_restraints
     set path = ( $pdir $path )
+
+    # site settings (program paths, SLURM partitions): copy once, then edit
+    cp ${pdir}/compute_settings.sourceme.template compute_settings.sourceme
+    source compute_settings.sourceme
 
     # Link MTZ — labels already correct, no cad renaming needed
     ln -sf 1aho.mtz refme_small.mtz
     # refme.mtz = refme_small.mtz for 1,1,1 supercell (reindex h1,k1,l1)
 
     source xtal_properties.sourceme
-    cp HIS_settings.txt HIS_settings_asu.txt
 
 
 ## MTZ notes

@@ -5,9 +5,16 @@
 set pdbfile = starthere.pdb
 
 
+if(-e compute_settings.sourceme) source compute_settings.sourceme
 if(-e xtal_properties.sourceme) source xtal_properties.sourceme
 
-if(! $?srun) set srun = "srun"
+# parallel jobs run on this machine unless compute_settings.sourceme sets a SLURM prefix (sruncpu)
+if(! $?srun) then
+  set srun = ""
+  if( $?sruncpu ) then
+    set srun = "$sruncpu"
+  endif
+endif
 if(! $?badlinks) set badlinks = 0
 if(! $?ligands) set ligands = ""
 

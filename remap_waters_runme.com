@@ -21,7 +21,7 @@ set mtzlabel = DELFWT
 set quiet = 0
 set debug = 0
 
-set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+set pmemd = "pmemd.cuda_SPFP"
 
 if(! $?AMBERHOME) then
   set BAD = "need amber set up"

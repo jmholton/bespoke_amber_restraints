@@ -1,0 +1,46 @@
+# compute_settings.sourceme -- how this site runs Amber, Phenix, CCP4 and its jobs.
+#
+# Optional: without it every script runs its jobs on this machine, with the Amber, Phenix and CCP4 already in your
+# environment (the active settings below are those built-in defaults).  Copy this template to
+# compute_settings.sourceme in your working directory and edit it to send MD and the per-frame map jobs to SLURM
+# queues, or to point at programs that are not in your environment.  The scripts look for it in the CURRENT
+# directory, so the example scripts symlink the working directory's copy into every run directory (amber1, opt1, ...).
+#
+# Sourced (tcsh) at start-up, before xtal_properties.sourceme and user_settings.sourceme, by: leap2amber.com,
+# optimize_weights_runme.com, nc2mtz_gemmi.com, nc2mtz_gpu.com, restraintlist_update_diffmap.com,
+# Bfac_update_diffmap.com, addup_maps_runme.com, addup_mtzs_runme.com, addup_mtzs_diffuse.com, hydrate_runme.com,
+# remap_waters_runme.com, water_teleport_runme.com, graft_atoms_runme.com, measure_voids_runme.com,
+# pinchedwater_runme.com, sanitize_pdb_runme.com and the *_example_runme.com scripts.
+# Not to be confused with settings.sourceme: optimize_weights_runme.com run parameters, re-read every iteration and
+# read by nothing else.
+
+# --- Software environments, if not already in your environment: edit the paths for your site (amber before phenix) ---
+# amber.csh takes AMBERHOME from $_, which is empty in a non-interactive tcsh script, so source it from its own dir
+if (! $?AMBERHOME && -e /programs/amber22/amber.csh) then
+  set amberhere = $cwd
+  cd /programs/amber22 && source amber.csh
+  cd $amberhere
+endif
+if (! $?PHENIX && -e /programs/phenix/phenix_env.csh)   source /programs/phenix/phenix_env.csh
+if (! $?CCP4 && -e /programs/ccp4-9/bin/ccp4.setup-csh) source /programs/ccp4-9/bin/ccp4.setup-csh
+
+# --- MD engines: the whole command, including any job-dispatch prefix ---
+# pmemd:  MD in leap2amber.com (Equi, Prod, ...), optimize_weights_runme.com (every iteration) and graft_atoms_runme.com
+# pmemin: leap2amber.com Cool, Heat and Min stages (double precision)
+# sander: leap2amber.com CPU stage
+# Defaults: this machine's GPU.  To send MD to SLURM queues instead, e.g.
+#   set pmemd  = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+#   set pmemin = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_DPFP"
+#   set sander = "srun --partition=xds sander.OMP"
+# Without a GPU use pmemd.MPI or sander (slow).
+set pmemd  = "pmemd.cuda_SPFP"
+set pmemin = "pmemd.cuda_DPFP"
+set sander = "sander"
+
+# --- CPU jobs of the map calculations ---
+# nc2mtz_gemmi.com, nc2mtz_gpu.com, restraintlist_update_diffmap.com, Bfac_update_diffmap.com, addup_*.com and
+# sanitize_pdb_runme.com run their per-frame jobs on this machine unless sruncpu is set; then, when this host is in
+# an "up" SLURM partition, each runs as "$sruncpu -w <this host> ..." (across the cluster when the temp files are on a
+# shared disk).  To use SLURM, e.g.
+#   set sruncpu = "srun"
+set sruncpu = ""

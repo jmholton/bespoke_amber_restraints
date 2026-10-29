@@ -54,10 +54,11 @@ end
 if( "$srun" == "auto" ) then
   set thishost = `hostname -s`
   set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
+  # on this machine unless compute_settings.sourceme asks for SLURM jobs (sruncpu)
+  if( "$sruncpu" == "" ) set test = 0
   if ( $test ) then
     # we have slurm
     set CPUs = 1000
-    if( "$sruncpu" == "" ) set sruncpu = "srun"
     if( "$tempdir" =~ /dev/shm/*  ) then
       echo "using slurm on local node"
       set srun = "$sruncpu -w $thishost"

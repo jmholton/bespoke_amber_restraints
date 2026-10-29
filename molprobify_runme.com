@@ -215,7 +215,13 @@ endif
 
 if(-e "$rstfile" && ! -e "$pdbfile") then
     set pdbfile = ${t}rst.pdb
-    if(! $?AMBERHOME) source /programs/amber/amber.csh
+    # no Amber in the environment: try /programs/amber (amber.csh takes AMBERHOME from $_, which is empty in a
+    # non-interactive script, so source it from its own directory)
+    if(! $?AMBERHOME && -e /programs/amber/amber.csh) then
+      set amberhere = $cwd
+      cd /programs/amber && source amber.csh
+      cd $amberhere
+    endif
     foreach dir ( ./ ../ ../../ )
     foreach name ( xtal.prmtop start.top )
       if(! -e "$topfile") set topfile = ${dir}$name

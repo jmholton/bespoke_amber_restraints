@@ -23,7 +23,7 @@ set outpdb  = ""
 set quiet = 0
 set debug = 0
 
-set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+set pmemd = "pmemd.cuda_SPFP"
 
 
 set tempfile = /dev/shm/${USER}/tempfile_graft_$$_

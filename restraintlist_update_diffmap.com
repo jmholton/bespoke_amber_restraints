@@ -43,6 +43,8 @@ set smallSG = ""
 set smallSGnum = ""
 set smallCELL = ""
 set GRID = ""
+# SLURM prefix for the per-frame jobs ("" = srun), usually set in compute_settings.sourceme
+set sruncpu = ""
 
 foreach sourceme ( compute_settings.sourceme xtal_properties.sourceme user_settings.sourceme )
    if(-e $sourceme ) then
@@ -104,11 +106,11 @@ if( "$CPUs" == "" ) set CPUs = 1
 set thishost = `hostname -s`
 # use cluster or not?
 # cannot migrate hosts because of temp files
-set sruncpu = ""
 set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
+# on this machine unless compute_settings.sourceme asks for SLURM jobs (sruncpu)
+if( "$sruncpu" == "" ) set test = 0
 if ( $test ) then
   echo "using slurm"
-  if( "$sruncpu" == "" ) set sruncpu = "srun"
   set srun = "$sruncpu -w $thishost"
   set trajdir = `echo ${trajectory} | awk '{gsub("/$","");print}'`
   set trajdir = `ls -ld ${trajdir} | awk '{print $NF}'`

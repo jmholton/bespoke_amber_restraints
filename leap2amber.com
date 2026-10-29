@@ -6,7 +6,13 @@
 #    any .mol2 and .frcmod files you need
 #
 #
-if(! $?AMBERHOME) source /programs/amber22/amber.csh
+# no Amber in the environment: try /programs/amber22 (amber.csh takes AMBERHOME from $_, which is empty in a
+# non-interactive script, so source it from its own directory)
+if(! $?AMBERHOME && -e /programs/amber22/amber.csh) then
+  set amberhere = $cwd
+  cd /programs/amber22 && source amber.csh
+  cd $amberhere
+endif
 
 # locate XtalUtilities templates: bundled copy, else $AMBERHOME, else cwd
 # (per D. Case: $AMBERHOME/XtalUtilities is not part of official Amber)
@@ -29,10 +35,10 @@ mkdir -p ${CCP4_SCR}
 set logfile = debuglog.log
 set debug = 0
 
-# defaults to be overridden below
-set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
-set pmemin = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_DPFP"
-set sander = "srun --partition=xds sander.OMP"
+# defaults to be overridden below: run on this machine (SLURM queues etc. go in compute_settings.sourceme)
+set pmemd = "pmemd.cuda_SPFP"
+set pmemin = "pmemd.cuda_DPFP"
+set sander = "sander"
 
 # how far to go in MD setup
 set Stages = ""

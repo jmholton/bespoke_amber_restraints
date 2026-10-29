@@ -32,7 +32,7 @@ set energycheck = 0
 
 set debug = 0
 
-set pmemd = "srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP"
+set pmemd = "pmemd.cuda_SPFP"
 
 set tempfile = /dev/shm/${USER}/temp_hydrate_$$_
 
@@ -124,8 +124,12 @@ endif
 
 
 
-if( ! $?AMBERHOME ) then
-source /programs/amber22/amber.csh
+# no Amber in the environment: try /programs/amber22 (amber.csh takes AMBERHOME from $_, which is empty in a
+# non-interactive script, so source it from its own directory)
+if(! $?AMBERHOME && -e /programs/amber22/amber.csh) then
+  set amberhere = $cwd
+  cd /programs/amber22 && source amber.csh
+  cd $amberhere
 endif
 # locate XtalUtilities templates: bundled copy, else $AMBERHOME, else cwd
 # (per D. Case: $AMBERHOME/XtalUtilities is not part of official Amber)

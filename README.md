@@ -102,9 +102,9 @@ Turn it on with `Bfac_map=` (a field you maintain) or `Bfac_map=auto` (built fro
 | **gnuplot** | Diagnostic plots (optional) | `gnuplot` |
 | **SLURM** | Parallel frame processing (optional) | `srun`, `sinfo` |
 
-GPU-accelerated AMBER (`pmemd.cuda_SPFP`) is strongly recommended. The scripts default to SLURM for job dispatch; a local fallback is used automatically when SLURM is not available.
+GPU-accelerated AMBER (`pmemd.cuda_SPFP`) is strongly recommended. SLURM is optional: the scripts use it only when `compute_settings.sourceme` asks them to.
 
-AMBER is sourced from `/programs/amber22/amber.csh` by default. Override with the `pmemd` variable in `settings.sourceme`.
+By default every job runs on the local machine, using the programs already in your environment. To use SLURM queues or programs elsewhere, set them in `compute_settings.sourceme`: see [Configure your site](#configure-your-site-compute_settingssourceme) below.
 
 ---
 
@@ -126,9 +126,30 @@ These have no dependencies beyond the standard C math library.
 
 ---
 
+## Configure your site: `compute_settings.sourceme`
+
+`compute_settings.sourceme` tells every script how this site runs Amber, Phenix, CCP4 and its jobs, starter kit or not. Without it, everything runs on the local machine with the programs already in your environment (MD as `pmemd.cuda_SPFP` on the local GPU). To send MD and the per-frame map jobs to SLURM queues, or to use programs that are not in your environment, copy the template from the top of this repository into your working directory and edit it:
+
+```tcsh
+cp bespoke_amber_restraints/compute_settings.sourceme.template compute_settings.sourceme
+vi compute_settings.sourceme
+```
+
+| Variable | Used by | Default (local) | What it is |
+|---|---|---|---|
+| (environment) | all scripts | your environment | `source` lines for Amber (`amber.csh`), Phenix and CCP4, run only if `AMBERHOME`, `PHENIX` or `CCP4` is not already set |
+| `pmemd` | `leap2amber.com`, `optimize_weights_runme.com`, `graft_atoms_runme.com` | `pmemd.cuda_SPFP` | MD command including any job-dispatch prefix, e.g. `srun --partition=gpu --gres=gpu:1 pmemd.cuda_SPFP` |
+| `pmemin` | `leap2amber.com` (Cool, Heat, Min stages) | `pmemd.cuda_DPFP` | double-precision MD command |
+| `sander` | `leap2amber.com` (CPU stage) | `sander` | CPU MD command, e.g. `srun --partition=xds sander.OMP` |
+| `sruncpu` | `nc2mtz_gemmi.com`, `nc2mtz_gpu.com`, `restraintlist_update_diffmap.com`, `Bfac_update_diffmap.com`, `addup_*.com`, `sanitize_pdb_runme.com` | `""` (local) | SLURM prefix for the per-frame CPU jobs, e.g. `srun`; used only when this host is in an "up" SLURM partition |
+
+The scripts read it from the **current directory** at start-up, before `xtal_properties.sourceme` and `user_settings.sourceme`. Keep one copy in the working directory and symlink it into every run directory (`ln -sf ../compute_settings.sourceme .`), as the example scripts do. A site-wide copy can live one level above the working directories: when a working directory has none, the example scripts link `../compute_settings.sourceme` if it exists, else copy the template into place with a note. It is a different file from `settings.sourceme`, which holds `optimize_weights_runme.com` run parameters only.
+
+---
+
 ## Quick Start
 
-This walkthrough starts from a PDB ID and ends with a running optimization loop. See `example_setup_notes.com` for the full annotated script this is based on.
+This walkthrough starts from a PDB ID and ends with a running optimization loop. See `example_setup_notes.com` for the full annotated script this is based on. To run on a cluster, first set up `compute_settings.sourceme` in the working directory (previous section).
 
 ### Step 1 — Download data and extract crystal parameters
 
@@ -235,6 +256,7 @@ The script `centroids_nearby_runme.com` then matches each AMBER atom to its near
 ```tcsh
 mkdir run01
 cd run01
+ln -sf ../compute_settings.sourceme .
 ln -sf ../xtal_properties.sourceme .
 ln -sf ../refme.mtz .
 
@@ -264,6 +286,7 @@ Key output files to monitor:
 
 ```
 project/
+  compute_settings.sourceme        # site settings: program paths, MD and SLURM commands (from the template)
   refme.mtz                        # FP SIGFP FreeR_flag (supercell)
   xtal_properties.sourceme         # crystal parameters
   centroids/
@@ -278,6 +301,7 @@ project/
   ligands/
     *.cif                          # ligand restraint dictionaries for phenix/refmac
   run01/                           # optimization run directory
+    compute_settings.sourceme      # symlinked from ..
     xtal_properties.sourceme       # symlinked from ..
     settings.sourceme              # optional run-time parameter overrides
     details.log                    # per-iteration log
@@ -289,7 +313,7 @@ project/
 
 ## The `settings.sourceme` File
 
-Any variable recognized by `optimize_weights_runme.com` can be placed in `settings.sourceme` in the run directory. This file is re-read at the **start of every iteration**, so changes take effect immediately without restarting. This is the preferred way to tune the optimization while it is running.
+Any variable recognized by `optimize_weights_runme.com` can be placed in `settings.sourceme` in the run directory. This file is re-read at the **start of every iteration**, so changes take effect immediately without restarting. This is the preferred way to tune the optimization while it is running. Site settings (program paths, `pmemd`, SLURM prefixes) belong in `compute_settings.sourceme` instead, because the other scripts never read `settings.sourceme`.
 
 Example `settings.sourceme` to ramp up run length and tighten the cutoff after the first 20 iterations:
 
@@ -583,8 +607,8 @@ touch exit      # in the run directory
 ```
 Or find and kill the blocking process manually.
 
-**GPU not found / pmemd fails**
-Override the `pmemd` variable in `settings.sourceme`:
+**GPU not found / pmemd fails / "invalid partition"**
+Set the MD commands for your site in `compute_settings.sourceme` (and `pmemin`, `sander` the same way for `leap2amber.com`):
 ```tcsh
 set pmemd = "pmemd.cuda_SPFP"     # no SLURM, direct GPU
 set pmemd = "sander"              # CPU-only fallback (slow)

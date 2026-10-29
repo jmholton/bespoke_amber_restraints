@@ -85,10 +85,22 @@ NOTE: no starter kit at $skit — running fully standalone.
 EOF
 endif
 
-# compute-environment defaults (override these in compute_settings.sourceme)
-set sruncpu = "srun"                # command prefix for CPU / serial jobs
-set srungpu = "srun --gres=gpu:1"   # command prefix for GPU jobs
-
+# compute_settings.sourceme = how this site runs Amber, Phenix, CCP4 and its jobs.  Every script in the package
+# reads it from the run directory (see "Configure your site" in the README); without it, everything runs on
+# this machine.  Use the site's copy one directory up if there is one, else start one from the repo template
+# so there is a file to edit.
+if (! -e compute_settings.sourceme && -e ../compute_settings.sourceme) then
+  ln -s ../compute_settings.sourceme .
+  echo "using the site's compute_settings.sourceme from the parent directory"
+endif
+if (! -e compute_settings.sourceme && -e ${pdir}/compute_settings.sourceme.template) then
+  cp ${pdir}/compute_settings.sourceme.template compute_settings.sourceme
+cat << EOF
+NOTE: no compute_settings.sourceme here, so copied ${pdir}/compute_settings.sourceme.template
+  It runs every job on this machine (pmemd.cuda_SPFP on the local GPU): edit compute_settings.sourceme
+  to use SLURM queues or other program paths (see "Configure your site" in the README).
+EOF
+endif
 if (-e compute_settings.sourceme) source compute_settings.sourceme
 
 if (! $?AMBERHOME) then
@@ -247,16 +259,8 @@ EOF
 endif
 source xtal_properties.sourceme
 
-# computing environment stuff goes here
-if(-e compute_settings.sourceme) then
-  echo "keeping existing compute_settings.sourceme"
-else
-  cat << EOF >! compute_settings.sourceme
-set sruncpu    = "$sruncpu"
-set srungpu    = "$srungpu"
-EOF
-endif
-source compute_settings.sourceme
+# computing environment stuff (compute_settings.sourceme, set up at the top) after the crystal properties
+if(-e compute_settings.sourceme) source compute_settings.sourceme
 # pdir is the location of THIS checkout, not a portable compute setting.  Older
 # runs baked an absolute 'set pdir' into compute_settings.sourceme; if such a file
 # is copied/rsynced into a new run dir, sourcing it points us at the wrong repo

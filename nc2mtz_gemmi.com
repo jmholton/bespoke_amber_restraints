@@ -112,9 +112,10 @@ endif
 # use cluster or not?
 # cannot migrate hosts because of temp files
 set test = `sinfo -h -n $thishost |& egrep -v "drain|n/a" | awk '$2=="up"' | wc -l`
+# on this machine unless compute_settings.sourceme asks for SLURM jobs (sruncpu)
+if( "$sruncpu" == "" ) set test = 0
 if ( $test ) then
   echo "using slurm"
-  if( "$sruncpu" == "" ) set sruncpu = "srun"
   set srun = "$sruncpu -w $thishost"
   set test = `echo $tempfile | awk '{print ( ! /\/dev\/shm/ )}'`
   if( $test ) then
