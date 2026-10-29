@@ -1384,14 +1384,21 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
+# starting pressure_scale, the waters to add or remove per bar of pressure: the
+# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
+# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
+set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
+set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
+echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # Stage 1: rough hydration — fill the voids as fast as possible without breaking
-# anything.  No weight or B changes.  dehydrate=pressure and pressure_scale=1,auto
-# are the defaults and let water content self-tune.  Runs in the background; the
-# monitor exits it the moment the mean pressure has gone POSITIVE (voids full).
+# anything.  No weight or B changes.  dehydrate=pressure with pressure_scale =
+# kappa_T x N_water waters per bar (above) lets water content self-tune (auto
+# waits for the calmer opt2+).  Runs in the background; the monitor exits it the
+# moment the mean pressure has gone POSITIVE (voids full).
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
+    pressure_avglast=auto pressure_scale=$pressure_scale void_scale=1 \
     release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 randel_itr=0 \
@@ -1419,12 +1426,17 @@ if ( $lastitr < 1 ) then
 endif
 
 opt1_stage2:
+# recount: Stage 1 changed the water content (same kappa_T x N_water as above)
+set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
+set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
+echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
+
 # Stage 2: confirm the pressure is STABLE before any weight/B optimization.  Same
 # rough-hydration regime (no weight changes, no repick) — just keep running until
 # the mean pressure stops trending.
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=1,auto void_scale=1 \
+    pressure_avglast=auto pressure_scale=$pressure_scale void_scale=1 \
     release_itr=0 repick_itr=0 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scaledown=1 weight_negscaledown=1 randel_itr=0 \
@@ -1524,6 +1536,12 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
+# starting pressure_scale, the waters to add or remove per bar of pressure: the
+# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
+# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
+set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
+set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
+echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # opt2: weight optimization.  Pressure is stable now, so turn on max_mult=2,
 # decaying weights, and repick + release.  void_scale=0 — water is self-tuning by
@@ -1533,7 +1551,7 @@ cp ../xtal_properties.sourceme .
 # sorted_weights.txt log-log shape settling.  Runs in the background; maxitr caps.
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
+    pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
     release_itr=1 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scaledown=0.9 weight_negscaledown=0.5 randel_itr=0 \
@@ -1590,9 +1608,11 @@ sec12done:
 #     weights have converged (watch RESTRAINT energy / the sorted_weights.txt
 #     log-log shape stop changing).  Raise Bfac_maxmod toward 50 only once you
 #     trust the density.
-#   - dehydrate=pressure and pressure_scale=1,auto are the DEFAULTS: let water
-#     content self-tune, don't hardcode a pressure_scale number unless it comes
-#     from a long known-good run.
+#   - dehydrate=pressure lets water content self-tune: every stage starts
+#     pressure_scale at kappa_T x N_water waters per bar (counted from its
+#     xtal.prmtop); opt2+ add auto, which fits waters-per-bar to the pressure
+#     history once it has calmed down (pressure_settle).  Don't hardcode a
+#     pressure_scale number unless it comes from a long known-good run.
 #   - allatom_weight is a blanket on every atom and dominates restraint energy:
 #     keep it 0 (R floors ~37-38; below ~37 needs a small allatom_weight and costs
 #     ~30,000 restraint-energy units per ~0.05 step).
@@ -1660,6 +1680,12 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
+# starting pressure_scale, the waters to add or remove per bar of pressure: the
+# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
+# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
+set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
+set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
+echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # opt3: turn on B-factor modification, now that the weights are stable.  Raise
 # Bfac_maxmod toward 50 for serious optimization once you trust the density (start
@@ -1669,7 +1695,7 @@ cp ../xtal_properties.sourceme .
 # for the production run.  Runs in the background; maxitr is a safety cap.
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
+    pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scaledown=0.9 weight_negscaledown=0.5 randel_itr=0 \
@@ -1765,12 +1791,18 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
+# starting pressure_scale, the waters to add or remove per bar of pressure: the
+# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
+# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
+set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
+set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
+echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # Continuation of opt3: same subtle B-factor optimization, more iterations.  Runs
 # in the background; exit when fofc_R (fofc_Rplot.txt col2) is level.
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=2 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
-    pressure_avglast=auto pressure_scale=1,auto void_scale=0 \
+    pressure_avglast=auto pressure_scale=${pressure_scale},auto void_scale=0 \
     release_itr=30 repick_itr=1 repick_maxdist=2 repick_maxweight=0.11 \
     min_lig_weight=0.1 cutoff_weight=0.1 allatom_weight=0 \
     weight_scaledown=0.9 weight_negscaledown=0.5 randel_itr=0 \

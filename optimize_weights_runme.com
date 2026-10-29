@@ -245,11 +245,18 @@ set minvoid = 60
 set pressure_deadband = 10
 set hydrate = voids
 set dehydrate = pressure
+# waters added or removed per bar of pressure.  auto: fit dN/dP to the pressure_vs_itr.txt history, but only once
+# the pressure has calmed down (pressure_settle); until then a leading number (e.g. 0.02,auto), else the last value.
+# A good starting number is the waters' own dN/dP at fixed volume, kappa_T x N_water = 4.5e-5/bar x N_water
+# (~0.02 for one 1aho cell); the examples compute it from xtal.prmtop
 set pressure_scale = auto
 set pressure_scale_ramp = none
 # average pressure over previous runs
 set pressure_avglast = 1
 set pressure_avglast_ramp = none
+# calm enough for an auto pressure_scale: at least this many pressure samples (pressure_vs_itr.txt) and
+# (auto averaging) no jump in the water count within the last 5 samples
+set pressure_settle = 10
 set void_scale = 1
 # parametes for AddToBox
 set add_radius = 2.4
@@ -1621,6 +1628,7 @@ if( $?pressure_avglast_thistime ) then
   set pressure_avglast_lasttime = $pressure_avglast_thistime
 endif
 set pressure_avglast_thistime = "$pressure_avglast"
+set water_jump = 0
 if( "$pressure_avglast" =~ *auto* ) then
   set pressure_avglast_thistime = `echo $pressure_avglast | awk '{print $1+0}'` 
   if( "$pressure_avglast_thistime" == "0" ) set pressure_avglast_thistime = 1
@@ -1636,7 +1644,11 @@ if( "$pressure_avglast" =~ *auto* ) then
       awk 'NR==1{med=$1;mad=$3+med*0.05;next}\
          sqrt(($2-med)^2)>2*mad{print $2}' >! ${t}rejects.txt
       set rejects = `cat ${t}rejects.txt | wc -l`
-      if( $rejects ) break
+      if( $rejects ) then
+        # water count off the window median by > 2*(MAD+5%) within the last 5: only the newest pressure is left
+        if( $tail == 5 ) set water_jump = 1
+        break
+      endif
       echo "$tail $pslope $medmad" >> pslope.txt
     end
     echo $press |\
@@ -1671,9 +1683,14 @@ if( $?pressure_scale_thistime ) then
 endif
 set pressure_scale_thistime = "$pressure_scale"
 if( "$pressure_scale" =~ *auto* ) then
-  set pressure_scale_thistime = `echo $pressure_scale | awk '{print $1+0}'` 
+  # until it is calm: a leading number (e.g. 0.02,auto), else the previous value (last fit)
+  set pressure_scale_thistime = `echo $pressure_scale | awk '{print $1+0}'`
   if( "$pressure_scale_thistime" == "0" ) set pressure_scale_thistime = $pressure_scale_lasttime
-  if(-e pressure_vs_itr.txt) then
+  set npress_all = 0
+  if(-e pressure_vs_itr.txt) set npress_all = `cat pressure_vs_itr.txt | wc -l`
+  set calm = `echo $npress_all $pressure_settle $water_jump | awk '{print ( $1 >= $2 && ! $3 )}'`
+  if( ! $calm ) echo "pressure not calm yet ($npress_all of $pressure_settle samples, water jump $water_jump): no auto pressure scale"
+  if( $calm && -e pressure_vs_itr.txt ) then
     tac pressure_vs_itr.txt |\
     awk '{print $4,$12}' |\
     awk '{p=$1;n=$2} n0+0<=0{n0=n} {dn=sqrt((n-n0)^2)}\
@@ -1693,8 +1710,8 @@ if( "$pressure_scale" =~ *auto* ) then
       set pressure_scale_thistime = "$test"
     endif
   endif
-  echo "pressure scale this time: $pressure_scale_thistime"
 endif
+echo "pressure scale this time: $pressure_scale_thistime"
 
 set changed_waters = 0
 set dehydrate_thistime = 0
