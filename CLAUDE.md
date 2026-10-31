@@ -85,6 +85,38 @@ rebuilt atom can stab a nearby water into a ~0-distance overlap, so the GPU MD b
 up (NaN / "illegal memory access").  buildout (which minimizes as it builds) avoids
 this — a hurry run that must reach MD needs a minimization or water-declash first.
 
+### `bulk_solvent_runme.com`: quick bulk-solvent map, no weight optimization
+
+Standalone (does not call `optimize_weights_runme.com`): any PDB (+ mtz) → FPART/PHIPART
+for the phenix_user_solvent patch or refmac.  It is the hurry path of the 1aho driver
+(Sections 1, 5, 6, 8, 9, 10) plus its own hydration loop and a solvent-only map.  Sections
+skip when their output exists.  Design points:
+- **Restraints are fixed for the whole run**, the `align_ref.pdb` recipe: weight =
+  2mFo-DFc ρ(σ) kcal/mol/Å² on protein/ligand heavy atoms with ρ ≥ 1.  Altlocs no more
+  than `altloc_merge` (0.8 Å) apart are merged to their occupancy-weighted mean — the start
+  position too, so start model and reference points stay one file — and every other atom
+  with altlocs is unrestrained.  The weight is put in the B column of the single-conformer
+  ASU model and rides through `expand2supercell_runme.com` + `reorganize_pdb_runme.com`
+  (both preserve B), so `refpoints.pdb` = supercell atoms with B > 0, named exactly as
+  the Amber model (no centroids_nearby matching needed).
+- Water is changed only at the end of the atom list, so leap2amber's `Prod.in`
+  restraint groups (atom numbers) stay valid; hydrate/prod/settle inputs are edited
+  copies of it.  `hydrate_runme.com` rewrites `ref.crd` itself; after
+  `dehydrate_amber_runme.com` the script rebuilds `ref.crd` with
+  `update_centroid_positions_runme.com`, as optimize_weights does.  (Until 2026-10-30
+  `drierref.crd` was written as a cpptraj *trajectory*, which pmemd cannot read as `-ref`.)
+- Hydration: under-filled cells cavitate, and the pressure then says little (1aho went
+  from −2140 to −2570 bar while gaining 90 waters).  So while P < 0, steps go at least
+  to `nwater_target` = (V − 1.212 Å³/Da × non-water mass)/29.9 Å³; once P > 0 only
+  κ_T·N steps (the target must not pull a compressed cell back down).  AddToBox with
+  the default 4 Å protein radius leaves a vacuum shell; hydration uses 3 Å.
+- tleap charge: parse the number from either "Total unperturbed charge:" or "(…) is not
+  zero", and round it — `int($7)` on the first match reads the "Total" line (printed first
+  since the drivers' stubs got `charge x`) as 0, and truncates 7.999 to 7.  Fixed in the
+  example drivers, example_setup_notes.com and add_salt_runme.com on 2026-10-30.
+- Solvent = `WAT HOH` + salt residue names; cpptraj masks treat `+`/`-` as operators,
+  so ion names go in as `Na=`/`Cl=` wildcards.
+
 ### leap2amber / tleap: connectivity and solvation gotchas
 
 - **tleap ignores residue numbers.**  It peptide-bonds each residue's C to the

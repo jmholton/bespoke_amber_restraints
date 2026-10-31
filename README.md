@@ -283,6 +283,26 @@ Key output files to monitor:
 
 ---
 
+## Quick bulk-solvent map: `bulk_solvent_runme.com`
+
+When all you want is an explicit-solvent **bulk solvent map** — FPART/PHIPART for `phenix.refine` with the [phenix_user_solvent](https://github.com/jmholton/phenix_user_solvent) patch (`refinement.input.bulk_solvent_map`), or for refmac (`LABIN FPART1=FPART PHIP1=PHIPART`, `SOLVENT NO`) — `bulk_solvent_runme.com` is the quick-and-dirty route. It skips the weight optimization entirely:
+
+```tcsh
+mkdir bulk ; cd bulk
+bulk_solvent_runme.com model.pdb data.mtz super_mult=1,1,1 salt=NH4,ACY salt_conc=0.68
+```
+
+1. Any PDB file: hydrogens stripped, first conformer kept, selenomethionine read as methionine. Every non-water HETATM residue needs `<RES>.mol2` and `<RES>.frcmod` in `ligdir=` (default `./ligands`); residues without them are **deleted** (with a warning) and MD water fills their sites.
+2. Restraint weights come from density, following the recipe `optimize_weights_runme.com` uses for its alignment reference (`align_ref.pdb`). Each protein/ligand heavy atom in at least `min_rho`=1 σ of 2mFo-DFc is restrained to its starting position with weight = ρ(σ) × `weight_per_sigma` (1) kcal/mol/Å², capped at 10. Altlocs no more than `altloc_merge`=0.8 Å apart are merged into one reference point at their occupancy-weighted mean (which is also the start position); every other atom with altlocs is left unrestrained. The 2mFo-DFc comes from map coefficients already in `data.mtz` (`2FOFCWT`/`FWT`), else from a 0-cycle `phenix.refine`; with no mtz at all, from Fcalc of the model. **These restraints never change for the whole run.**
+3. The weights ride in the B column through `expand2supercell_runme.com`, so every symmetry copy gets the same restraints.
+4. Salt (`salt=cation,anion` with `.mol2 .frcmod .pdb` in `ligdir`; default Na+/Cl- counter-ions only) and water are added as in the example drivers, then `leap2amber.com` runs Cool → Heat → Equi → EquiMin → Prod.
+5. Hydration: 0.1 ns segments, adding waters (`hydrate_runme.com`) or removing the lowest-density ones (`dehydrate_amber_runme.com`) until the mean pressure stays within ±25 bar. Steps are κ_T·N waters per bar, but while the pressure is negative they go at least up to `nwater_target`: the count the cell has room for, taking 0.73 mL/g for everything that is not water. Pressure is a poor guide in an under-filled, cavitating cell.
+6. Production (`nprod` × `prod_ns`, default 4 × 0.5 ns, a frame every 20 ps), then everything but water and salt is stripped and `nc2mtz_gemmi.com` renders the average solvent density, collapsed into the unit cell, as `bulk_solvent.mtz` (FPART PHIPART, electron units, to the data resolution).
+
+Every water is in this map, so refine against it a model **without waters** (or with only the ones you are happy to count twice). Each section skips if its output exists, so a killed run resumes by re-running the same command. Set up `compute_settings.sourceme` (here or one directory up) first: MD runs as `$pmemd`.
+
+---
+
 ## Directory Layout
 
 ```
@@ -474,6 +494,8 @@ All scripts use the `.com` extension (tcsh) and accept `key=value` command-line 
 ### Master script
 
 **`optimize_weights_runme.com`** — Main entry point. Reads `xtal_properties.sourceme` and optionally `settings.sourceme`, then runs the MD → map → difference map → weight update loop. Self-discovers restart files so it can resume a previous run. Stop by creating an `exit` file in the run directory.
+
+**`bulk_solvent_runme.com`** — Quick-and-dirty explicit-solvent bulk-solvent map (FPART/PHIPART) from any PDB file: supercell, salt, water, and MD under fixed density-derived restraints only, no weight optimization. See [Quick bulk-solvent map](#quick-bulk-solvent-map-bulk_solvent_runmecom).
 
 **`example_setup_notes.com`** — Annotated walkthrough for setting up a new system from a PDB ID. Not meant to be run as-is; read it as a recipe.
 
