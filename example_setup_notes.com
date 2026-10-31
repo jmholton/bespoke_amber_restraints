@@ -282,7 +282,7 @@ grep LINK tleapme.pdb
 tleap -f tleap_stub.in  | tee tleap.log
 
 grep "unperturbed charge" tleap.log
-set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' ../amber_asu/tleap.log`
+set charge0 = `awk '/unperturbed charge/{gsub(/[)(:]/," ");for(i=1;i<=NF;++i)if($i~/^[-+]?[0-9]+[.][0-9]*$/){q=$i+0;print int(q+(q<0?-0.5:0.5));exit}}' ../amber_asu/tleap.log`
 set ccharge = `echo $charge0 $nsymops | awk '{print $1*$2}'`
 set pcharge = `echo $charge0 $nsymops $super_mult | awk '{gsub(","," ");print}' | awk '{print $1*$2*$3*$4*$5}'`
 echo "$ccharge" | tee cell_charge.txt
@@ -784,7 +784,7 @@ endif
 if ( $?charge ) goto addsalt
 
 # guess charge from single-asu run
-set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' ../amber_asu/tleap.log`
+set charge0 = `awk '/unperturbed charge/{gsub(/[)(:]/," ");for(i=1;i<=NF;++i)if($i~/^[-+]?[0-9]+[.][0-9]*$/){q=$i+0;print int(q+(q<0?-0.5:0.5));exit}}' ../amber_asu/tleap.log`
 set ncells = `echo $super_mult | awk -F "[ ,x]" '{print $1*$2*$3}'`
 set nmonomers = `echo $nsymops $ncells | awk '{print $1*$2}'`
 set pcharge = `echo $charge0 $nmonomers | awk '{print $1*$2}'`
@@ -804,7 +804,7 @@ if ( 0 ) then
   tleap -f tleap_stub.in  | tee tleap.log
 
   awk '/unperturbed charge/{gsub(/[)(]/,"");print;exit}' tleap.log
-  set charge = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' tleap.log`
+  set charge = `awk '/unperturbed charge/{gsub(/[)(:]/," ");for(i=1;i<=NF;++i)if($i~/^[-+]?[0-9]+[.][0-9]*$/){q=$i+0;print int(q+(q<0?-0.5:0.5));exit}}' tleap.log`
   echo "charge is $charge "
 
   echo "energy check:"

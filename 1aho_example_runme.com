@@ -743,7 +743,9 @@ egrep -v "^LINK|^SSBOND|^CONECT" >! tleapme.pdb
 tleap -f tleap_stub.in >&! tleap.log
 set tleap_status = $status
 
-set charge0 = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' tleap.log`
+# tleap prints "Total unperturbed charge:  X" (after 'charge x') before "...of the unit (X) is not zero":
+# take the number from whichever comes first, rounded (ligand charges are not exact integers)
+set charge0 = `awk '/unperturbed charge/{gsub(/[)(:]/," ");for(i=1;i<=NF;++i)if($i~/^[-+]?[0-9]+[.][0-9]*$/){q=$i+0;print int(q+(q<0?-0.5:0.5));exit}}' tleap.log`
 set charge  = `echo $charge0 $nsymops | awk '{print $1*$2}'`
 # fail loudly if tleap did not run / build a topology / report a charge -
 # e.g. amber tools off PATH shows "tleap: Command not found" in tleap.log and

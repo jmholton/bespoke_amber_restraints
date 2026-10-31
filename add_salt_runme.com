@@ -81,7 +81,7 @@ endif
 
 if( -e "$leaplog" && "$charge" == "" ) then
   echo "looking in $leaplog"
-  set charge = `awk '/unperturbed charge/{gsub(/[)(]/,"");print int($7);exit}' $leaplog`
+  set charge = `awk '/unperturbed charge/{gsub(/[)(:]/," ");for(i=1;i<=NF;++i)if($i~/^[-+]?[0-9]+[.][0-9]*$/){q=$i+0;print int(q+(q<0?-0.5:0.5));exit}}' $leaplog`
   echo "charge = $charge"
 endif
 
