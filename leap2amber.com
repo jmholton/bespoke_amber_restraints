@@ -604,11 +604,17 @@ if( $padwater > 0 ) then
   set nres0 = `echo list | cpptraj -p ${t}padded.parm7 | awk '$11=="res,"{print $10}' | head -n 1`
   set stripmsk = `echo $nres0 $padwater | awk '{print $1-$2+1"-"$1}'`
   cpptraj -p ${t}padded.parm7 -y ${t}padded.crd << EOF >&! ${t}strip.log
-strip :$stripmsk parmout ${t}xtal.prmtop
+strip :$stripmsk
 trajout ${t}start.rst7
 EOF
   if( $status ) then
       set BAD = "padding strip failed"
+      goto exit
+  endif
+  # the topology separately: cpptraj before V7.00.0 drops the CMAP terms (ff19SB backbone phi/psi) on any strip
+  parmstrip_runme.com ${t}padded.parm7 mask=:$stripmsk outfile=${t}xtal.prmtop
+  if( $status ) then
+      set BAD = "padding strip of the topology failed"
       goto exit
   endif
 
@@ -665,11 +671,16 @@ if( "$declash_waters" != "0" && -e ${t}start_orignames.pdb ) then
     set nclash = `echo "$clashres" | awk -F "," '{print NF}'`
     echo "  dropping $nclash protein-clashing water residue(s)"
     cpptraj -p ${t}xtal.prmtop -y ${t}start.rst7 >>& ${t}declash.log << EOF
-strip :${clashres} parmout ${t}declashed.parm7
+strip :${clashres}
 trajout ${t}declashed.rst7
 EOF
     if( $status || ! -e ${t}declashed.rst7 ) then
       set BAD = "water-declash strip failed"
+      goto exit
+    endif
+    parmstrip_runme.com ${t}xtal.prmtop mask=:${clashres} outfile=${t}declashed.parm7
+    if( $status ) then
+      set BAD = "water-declash strip of the topology failed"
       goto exit
     endif
     mv ${t}declashed.parm7 ${t}xtal.prmtop

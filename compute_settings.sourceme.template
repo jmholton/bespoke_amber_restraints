@@ -10,7 +10,7 @@
 # optimize_weights_runme.com, nc2mtz_gemmi.com, nc2mtz_gpu.com, restraintlist_update_diffmap.com,
 # Bfac_update_diffmap.com, addup_maps_runme.com, addup_mtzs_runme.com, addup_mtzs_diffuse.com, hydrate_runme.com,
 # remap_waters_runme.com, water_teleport_runme.com, graft_atoms_runme.com, measure_voids_runme.com,
-# pinchedwater_runme.com, sanitize_pdb_runme.com and the *_example_runme.com scripts.
+# pinchedwater_runme.com, sanitize_pdb_runme.com, parmstrip_runme.com and the *_example_runme.com scripts.
 # Not to be confused with settings.sourceme: optimize_weights_runme.com run parameters, re-read every iteration and
 # read by nothing else.
 
@@ -36,6 +36,14 @@ if (! $?CCP4 && -e /programs/ccp4-9/bin/ccp4.setup-csh) source /programs/ccp4-9/
 set pmemd  = "pmemd.cuda_SPFP"
 set pmemin = "pmemd.cuda_DPFP"
 set sander = "sander"
+
+# --- cpptraj for topology strips ---
+# cpptraj before V7.00.0 silently drops CMAP terms (the ff19SB backbone phi/psi energy) whenever it strips a
+# topology.  parmstrip_runme.com (the topology strips in leap2amber.com, rst2pdb_runme.com, graft_atoms_runme.com)
+# uses cpptraj_strip if it is V7.00.0 or later, else the cpptraj on the path if that is, else ParmEd (slower,
+# with a warning).  Point it at a standalone cpptraj build, e.g.
+#   set cpptraj_strip = /programs/cpptraj/7.12.6/bin/cpptraj
+set cpptraj_strip = ""
 
 # --- CPU jobs of the map calculations ---
 # nc2mtz_gemmi.com, nc2mtz_gpu.com, restraintlist_update_diffmap.com, Bfac_update_diffmap.com, addup_*.com and

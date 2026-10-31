@@ -730,6 +730,23 @@ if( -e "$newparm" ) then
   tee ucp_0.log | awk 'NF==3 && $2=="="{next} {print}'
 endif
 
+# CMAP terms (ff19SB backbone phi/psi) in the MD topology?  cpptraj before V7.00.0 dropped them on every strip, so
+# topologies made before parmstrip_runme.com have none
+if(-e padded.parm7) then
+  set cmap_padded = `awk '/^%FLAG (CHARMM_)?CMAP_COUNT/{getline;getline;print $1+0;exit}' padded.parm7`
+  set cmap_xtal = `awk '/^%FLAG (CHARMM_)?CMAP_COUNT/{getline;getline;print $1+0;exit}' xtal.prmtop`
+  if( "$cmap_padded" != "" && "$cmap_xtal" == "" ) then
+    # waters are interchangeable, so the first NRES residues of padded.parm7 are this topology plus its CMAP
+    set nres_padded = `awk '/^%FLAG POINTERS/{getline;getline;getline;print $2;exit}' padded.parm7`
+    set nres_xtal = `awk '/^%FLAG POINTERS/{getline;getline;getline;print $2;exit}' xtal.prmtop`
+    echo "WARNING: =========================================================================="
+    echo "WARNING: padded.parm7 has $cmap_padded CMAP terms but xtal.prmtop has none: this MD runs WITHOUT the"
+    echo "WARNING: force field's backbone phi/psi energy (old cpptraj strip).  Rebuild, or re-strip with"
+    echo "WARNING:   parmstrip_runme.com padded.parm7 mask=:"`echo $nres_xtal | awk '{print $1+1}'`"-$nres_padded outfile=xtal.prmtop"
+    echo "WARNING: =========================================================================="
+  endif
+endif
+
 if(! -e all_possible_refpoints.pdb) then
   echo "generating all_possible_refpoints.pdb with weight0 = $weight0"
   set B0 = `echo $weight0 $pdbscale | awk '{print $1/$2}'`

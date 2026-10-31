@@ -132,10 +132,11 @@ if( $?BAD && -e "$paddedparm") then
   set stripmask = `echo $rstatoms $maxatoms | awk '{print $1+1"-"$2}'`
   set parmfile = $newparm
   echo "new parmfile: $newparm"
-  cpptraj -p $paddedparm << EOF >&! ${t}strip1.log
-  parmstrip @$stripmask
-  parmwrite out $newparm
-EOF
+  parmstrip_runme.com $paddedparm mask=@$stripmask outfile=$newparm
+  if( $status ) then
+    set BAD = "stripping $paddedparm failed"
+    goto exit
+  endif
   cpptraj -p $parmfile << EOF >&! ${t}cpptraj.log
   trajin $rstfile $frame $frame
   outtraj ${t}.pdb include_ep sg "P 1"

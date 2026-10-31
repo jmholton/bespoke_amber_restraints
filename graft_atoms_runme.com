@@ -143,10 +143,11 @@ if( $status ) then
     goto exit
   endif
   set stripmask = `echo $rstatoms $maxatoms | awk '{print $1+1"-"$2}'`
-  cpptraj -p $paddedparm << EOF >&! ${t}strip1.log
-  parmstrip @$stripmask
-  parmwrite out $topfile
-EOF
+  parmstrip_runme.com $paddedparm mask=@$stripmask outfile=$topfile
+  if( $status ) then
+    set BAD = "stripping $paddedparm failed"
+    goto exit
+  endif
   cpptraj -p $topfile -y $rstfile << EOF >&! ${t}cpptraj.log
 trajout ${t}old.rst7
 EOF
@@ -196,10 +197,11 @@ endif
 if( $natoms < $oldatoms ) then
   echo "stripping residues from the end"
 set stripmask = `echo $nres $oldres | awk '{print $1+1"-"$2}'`
-cpptraj -p $topfile << EOF >&! ${t}strip.log
-parmstrip :$stripmask
-parmwrite out $outtop
-EOF
+parmstrip_runme.com $topfile mask=:$stripmask outfile=$outtop
+if( $status ) then
+  set BAD = "stripping $topfile failed"
+  goto exit
+endif
 
   # trim the velocities
   set nnum = `echo $natoms 3 | awk '{print $1*$2}'`
@@ -225,12 +227,14 @@ if( $nres > $nresmax ) then
 endif
 
 set stripmask = `echo $nres $nresmax | awk '{print $1+1"-"$2}'`
-cpptraj -p $paddedparm << EOF >&! ${t}strip.log
-parmstrip :$stripmask
-parmwrite out $outtop
-EOF
-set newatoms = `awk '$4=="atoms,"{print $3}' ${t}strip.log | tail -n 1`
-set newres = `awk '$6=="res,"{print $5}' ${t}strip.log | tail -n 1`
+parmstrip_runme.com $paddedparm mask=:$stripmask outfile=$outtop
+if( $status ) then
+  set BAD = "stripping $paddedparm failed"
+  goto exit
+endif
+# atoms and residues (POINTERS NATOM and NRES)
+set newatoms = `awk '/^%FLAG POINTERS/{getline;getline;print $1;exit}' $outtop`
+set newres = `awk '/^%FLAG POINTERS/{getline;getline;getline;print $2;exit}' $outtop`
 echo "now there are $newatoms atoms and $newres residues in $outtop"
 
 # append zero velocities
