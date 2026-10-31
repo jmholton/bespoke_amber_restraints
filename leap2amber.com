@@ -53,6 +53,9 @@ set ignore_clash = 0
 set declash_waters = 0
 set clash_dist = 1.2
 
+# protein force field: the leaprc tleap sources first (e.g. oldff/leaprc.ff99SB).  The tleap stub (leapfile=) must
+# not source another protein force field or its add-ons (ff19SB: frcmod.ff19SBmodAA, mod_amino19.lib)
+set leaprc = leaprc.protein.ff19SB
 # water model to use
 set watertype = opc
 # flexible water is only valid for spcfw; all other (rigid) models force this to 0 below
@@ -339,7 +342,6 @@ end
 
 
 
-set leaprc = leaprc.protein.ff19SB
 if( $redq ) then
    set places = `echo $leapinclude | awk '{$1="";print}'`
    set file = `which tleap`
