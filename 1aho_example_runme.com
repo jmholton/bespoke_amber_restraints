@@ -44,6 +44,14 @@ set super_mult = 1,1,1
 set salt      = ( NH4 ACY )
 set salt_conc = 0.68
 set badlinks  = 0      # 1aho has no ligand, so no spurious Lys-LIG bonds
+# conformer selection (Section 9, not in hurry mode): jigglepdb.awk keeps one conformer per residue per copy, picked at
+# random weighted by occupancy (disulfide partners together).  Make jiggle_seeds such selections and keep the best:
+# jiggle_pick = R (lowest R-work of the copies averaged in the crystal's space group, i.e. the conformer populations
+# that best match the data), peak (smallest largest mFo-DFc peak, + or -, of that average) or clash (lowest
+# MolProbity clashscore).  1 = seed 1 only.
+# CLI:  jiggle_seeds=100 jiggle_pick=peak
+set jiggle_seeds = 10
+set jiggle_pick  = R
 
 # hurry = fast smoke-test mode (CLI:  ./1aho_example_runme.com hurry).  Skips ALL
 # crystallographic-prep refinement AND model building — buildout, converge_refmac,
@@ -54,6 +62,8 @@ set badlinks  = 0      # 1aho has no ligand, so no spurious Lys-LIG bonds
 set hurry = 0
 foreach a ( $* )
   if ("$a" == "hurry") set hurry = 1
+  if ("$a" =~ jiggle_seeds=*) set jiggle_seeds = `echo $a | awk -F "=" '{print int($2)}'`
+  if ("$a" =~ jiggle_pick=*)  set jiggle_pick  = `echo $a | awk -F "=" '{print $2}'`
 end
 if ( $hurry ) echo "=== HURRY MODE ON: skipping buildout / converge_refmac / garr / supercell refine ==="
 
@@ -1061,16 +1071,79 @@ if (`grep -c "only found once" rmsd_pass1.txt`) then
 endif
 
 if (! -e confsel_min.pdb) then
-  # Select single conformer via B-weighted jiggling
+  # Select a single conformer per residue at random, weighted by occupancy (disulfide partners together, plus a
+  # tiny B-scaled jiggle), once per seed.  With jiggle_seeds > 1 every selection is scored against the data
+  # (R-work, R-free and largest mFo-DFc peak of its copy average: phenix.maps) and for clashes (MolProbity
+  # clashscore), and the best by jiggle_pick wins.
   awk '{print substr($0,1,80)}' phenix_001.pdb >! jiggleme.pdb
-  jigglepdb.awk -v seed=1 -v shift=byB -v shift_scale=0.01 \
-    -v disulfide_links=1 -v independent_confsel=1 jiggleme.pdb |\
-  awk '/^CRYST/{print} ! /^ATOM|^HETAT/{next}\
-    {occ=substr($0,55,6)+0;}\
-    occ>0{print}' |\
-  awk '{pre=substr($0,1,16);mid=substr($0,18,38);B=substr($0,61);\
-     print pre,mid " 1.00" B}' |\
-  cat >! confsel.pdb
+  if ( $jiggle_seeds < 1 ) set jiggle_seeds = 1
+  foreach seed ( `seq 1 $jiggle_seeds` )
+    jigglepdb.awk -v seed=$seed -v shift=byB -v shift_scale=0.01 \
+      -v disulfide_links=1 -v independent_confsel=1 jiggleme.pdb |\
+    awk '/^CRYST/{print} ! /^ATOM|^HETAT/{next}\
+      {occ=substr($0,55,6)+0;}\
+      occ>0{print}' |\
+    awk '{pre=substr($0,1,16);mid=substr($0,18,38);B=substr($0,61);\
+       print pre,mid " 1.00" B}' |\
+    cat >! confsel_${seed}.pdb
+  end
+  set best = 1
+  if ( $jiggle_seeds > 1 ) then
+    echo "  scoring $jiggle_seeds conformer selections (details: super_refine1/jiggle_*.log)..."
+    # R is scored as the crystal sees a selection: all the copies averaged into one asymmetric unit (every atom at
+    # 1/ncopies occupancy in $smallSG) against refme_small.mtz.  Scored in P1 against the expanded data instead, a
+    # conformer that differs between copies breaks the symmetry and costs more than putting the majority conformer
+    # in every copy, so a P1 R picks all-majority.  1aho Cys12 (57/43 A/B), A in all 4 copies vs A in 2 + B in 2:
+    # P1 R-work 0.191 vs 0.199, but copy-averaged 0.187 vs 0.174, and all-A leaves a +20 sigma SG-B peak in mFo-DFc.
+    set ncopies = `echo $nsymops $super_mult | awk '{gsub(/[,x]/," "); print $1*$2*$3*$4}'`
+    foreach seed ( `seq 1 $jiggle_seeds` )
+      echo $smallCELL $smallSG $ncopies |\
+      cat - confsel_${seed}.pdb |\
+      awk 'NR==1{printf("CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",$1,$2,$3,$4,$5,$6,$7);n=$8;next}\
+        /^ATOM|^HETAT/{printf("%s%6.4f%s\n",substr($0,1,54),substr($0,55,6)/n,substr($0,61))}' |\
+      cat >! confsel_${seed}_folded.pdb
+    end
+    # phenix.maps gives the copy average's R-work, R-free and mFo-DFc map; peak = the largest mFo-DFc value, + or -,
+    # in sigma (as in converge_refmac.com).  R weighs every misfit; jiggle_pick=peak minimizes the worst one.
+    cat << EOF >! jiggle_fofc.eff
+maps {
+  map_coefficients {
+    map_type = mFo-DFc
+    mtz_label_amplitudes = FOFCWT
+    mtz_label_phases = PHFOFCWT
+  }
+}
+EOF
+    # in parallel (bash: tcsh would announce every finished background job).  Keep each command on one line: tcsh
+    # passes a backslash-newline inside the quotes on to bash as a plain newline.
+    env N=$jiggle_seeds LIGCIFS="$ligcifs" bash -c 'for s in $(seq 1 $N); do \
+      ( phenix.maps confsel_${s}_folded.pdb ../refme_small.mtz $LIGCIFS jiggle_fofc.eff output.prefix=jiggle_$s > jiggle_${s}_maps.log 2>&1 ; \
+        echo "labin F1=FOFCWT PHI=PHFOFCWT" | fft hklin jiggle_${s}_map_coeffs.mtz mapout jiggle_${s}_fofc.map > /dev/null 2>&1 ; \
+        echo | mapdump mapin jiggle_${s}_fofc.map > jiggle_${s}_mapdump.log 2>&1 ; rm -f jiggle_${s}_fofc.map ; \
+        phenix.clashscore confsel_$s.pdb > jiggle_${s}_clash.log 2>&1 ) & done ; wait'
+    # seed R-work R-free peak clashscore (999 = could not score)
+    rm -f jiggle_scores.txt
+    foreach seed ( `seq 1 $jiggle_seeds` )
+      set rw = `awk '/r_work=/{for(i=1;i<NF;++i)if($i=="r_work=")r=$(i+1)} END{print (r==""?999:r)}' jiggle_${seed}_maps.log`
+      set rf = `awk '/r_free=/{for(i=1;i<NF;++i)if($i=="r_free=")r=$(i+1)} END{print (r==""?999:r)}' jiggle_${seed}_maps.log`
+      set pk = `awk '/Minimum density/{mn=$NF} /Maximum density/{mx=$NF} /Rms deviation/{rms=$NF}\
+        END{print (rms>0?(mx>-mn?mx:-mn)/rms:999)}' jiggle_${seed}_mapdump.log`
+      set cs = `awk '/^clashscore =/{c=$3} END{print (c==""?999:c)}' jiggle_${seed}_clash.log`
+      echo "$seed $rw $rf $pk $cs" >> jiggle_scores.txt
+    end
+    set col = 2
+    if ( "$jiggle_pick" == "peak" )  set col = 4
+    if ( "$jiggle_pick" == "clash" ) set col = 5
+    set best = `sort -k${col}g jiggle_scores.txt | awk -v c=$col '$c<999{print $1;exit}'`
+    awk 'BEGIN{print "    seed  R-work  R-free  peak(sigma)  clashscore"}\
+      {printf("    %4d  %6.4f  %6.4f  %11.1f  %10.2f\n",$1,$2,$3,$4,$5)}' jiggle_scores.txt
+    if ( "$best" == "" ) then
+      echo "  WARNING: none of the conformer selections could be scored - using seed 1"
+      set best = 1
+    endif
+    echo "  best by ${jiggle_pick}: seed $best"
+  endif
+  cp confsel_${best}.pdb confsel.pdb
 
   awk '! /^ATOM|^HETAT/{print;next}\
     {print substr($0,1,16),substr($0,18)}' phenix_001.pdb |\
