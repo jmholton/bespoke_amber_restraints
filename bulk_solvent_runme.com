@@ -70,7 +70,8 @@ set hydrate_max = 20
 set hydrate_calm = 2
 # bar.  Means over 0.1 ns scatter by ~150 bar in a 1aho unit cell; 100 bar is ~3 waters there
 set pressure_deadband = 100
-# waters to add per bar of negative pressure.  auto: kappa_T x N_water = 4.5e-5/bar x N_water
+# waters added or removed per bar of pressure.  auto: kappa_T x nwater_target = 4.5e-5/bar x the waters the cell
+# holds when full, worked out once from the cell (not recounted as the water changes)
 set pressure_scale = auto
 # waters the cell should hold.  auto: (cell volume - 1.212 A^3/Da x non-water mass) / 29.9 A^3, i.e.
 # partial specific volume 0.73 mL/g for everything but water.  Pressure is no guide while the cell is
@@ -742,6 +743,8 @@ if( "$nwater_target" == "auto" ) then
         printf("%d\n",(V-1.212*M)/29.9)}' xtal.prmtop`
   echo "cell volume $cellvol A^3 should hold about $nwater_target waters"
 endif
+set ps = `echo $pressure_scale $nwater_target | awk '$1+0>0{print $1+0;exit} {print 4.5e-5*$2}'`
+echo "pressure_scale: $ps waters/bar"
 
 while ( 1 )
   set press = `awk -v s=$last '$1==s{print $2}' pressure_vs_seg.txt | tail -n 1`
@@ -756,7 +759,6 @@ while ( 1 )
     break
   endif
 
-  set ps = `echo $pressure_scale $nwater | awk '$1+0>0{print $1+0;exit} {print 4.5e-5*$2}'`
   # kappa_T step, or up to the target count if that is further (only while under-filled: once the
   # pressure is positive the liquid is merely compressed, and kappa_T is right)
   set dw = `echo $press $ps $pressure_deadband $nwater $nwater_target | awk '$1*$1<=$3*$3{print 0;exit}\
@@ -787,7 +789,7 @@ while ( 1 )
     endif
     egrep "eliminating|nothing to do" dehydrate_${h}.log
     mv drier.parm7 xtal.prmtop
-    # its drierref.crd is a trajectory, not a restart: rebuild ref.crd as optimize_weights_runme.com does
+    # rebuild ref.crd from the reference points, as optimize_weights_runme.com does
     update_centroid_positions_runme.com refpoints.pdb outfile=ref.crd >> dehydrate_${h}.log
     if( $status ) then
       set BAD = "could not rebuild ref.crd after dehydration (see dehydrate_${h}.log)"

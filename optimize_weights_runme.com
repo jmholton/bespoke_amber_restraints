@@ -249,7 +249,8 @@ set dehydrate = pressure
 # waters added or removed per bar of pressure.  auto: fit dN/dP to the pressure_vs_itr.txt history, but only once
 # the pressure has calmed down (pressure_settle); until then a leading number (e.g. 0.02,auto), else the last value.
 # A good starting number is the waters' own dN/dP at fixed volume, kappa_T x N_water = 4.5e-5/bar x N_water
-# (~0.02 for one 1aho cell); the examples compute it from xtal.prmtop
+# (~0.03 for one 1aho cell, N_water being what the cell holds when full); the examples work it out once from the
+# cell volume and the mass of everything that is not water
 set pressure_scale = auto
 set pressure_scale_ramp = none
 # average pressure over previous runs

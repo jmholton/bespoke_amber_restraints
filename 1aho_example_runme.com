@@ -1320,6 +1320,34 @@ if (! -e ../template_dir) ln -sf amber1 ../template_dir
 cd ..
 sec10done:
 
+# one starting pressure_scale (waters added or removed per bar of pressure) for every
+# optimize_weights stage below, worked out once from the cell: the waters' own dN/dP at
+# fixed volume, kappa_T x N_water, with water's isothermal compressibility
+# kappa_T = 4.5e-5 /bar and N_water = the waters this cell holds when full =
+# (cell volume - 1.212 A^3/Da x the mass of everything that is not water, i.e.
+# 0.73 mL/g) / 29.9 A^3 per water.  opt2+ hand it to pressure_scale=auto, which refits
+# waters-per-bar to the pressure history once that has calmed down.
+if (! -s pressure_scale.txt) then
+  echo $smallCELL $super_mult |\
+  awk '{gsub(/[,x]/," ");print}' |\
+  cat - amber1/xtal.prmtop |\
+  awk 'NR==1{d=atan2(0,-1)/180;m=$7*$8*$9;ca=cos($4*d);cb=cos($5*d);cg=cos($6*d);\
+         V=m*$1*$2*$3*sqrt(1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg);next}\
+       /^%FLAG/{f=$2;getline;next}\
+       f=="MASS"{for(i=1;i<=NF;++i)mass[++na]=$i}\
+       f=="RESIDUE_LABEL"{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);if(r!="")lab[++nr]=r}}\
+       f=="RESIDUE_POINTER"{for(i=1;i<=NF;++i)ptr[++np]=$i}\
+       END{ptr[nr+1]=na+1;for(r=1;r<=nr;++r)if(lab[r]!="WAT"&&lab[r]!="HOH")for(i=ptr[r];i<ptr[r+1];++i)M+=mass[i];\
+           n=(V-1.212*M)/29.9;printf("%.4g %d %.0f %.0f\n",4.5e-5*n,n,V,M)}' >! pressure_scale.txt
+endif
+set pscale = `cat pressure_scale.txt`
+if ( $#pscale < 4 ) then
+  echo "ERROR: could not work out the starting pressure_scale from amber1/xtal.prmtop (pressure_scale.txt)"
+  goto exit
+endif
+echo "starting pressure_scale: $pscale[1] waters/bar = 4.5e-5/bar x $pscale[2] waters, what the cell holds when full"
+echo "  (cell $pscale[3] A^3, $pscale[4] Da that is not water)"
+
 
 #==============================================================================
 # CONVERGENCE POINT
@@ -1349,6 +1377,8 @@ set o = 1
 mkdir -p opt${o}
 if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme opt${o}/
 cd opt${o}
+# the starting pressure_scale, worked out once from the cell after Section 10
+set pressure_scale = `awk '{print $1;exit}' ../pressure_scale.txt`
 
 # Resume: runme1.log present means Stage 1 already ran, so skip the one-time
 # setup and Stage 1 and jump straight to Stage 2.
@@ -1381,18 +1411,12 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
-# starting pressure_scale, the waters to add or remove per bar of pressure: the
-# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
-# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
-set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
-set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
-echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # Stage 1: rough hydration — fill the voids as fast as possible without breaking
 # anything.  No weight or B changes.  dehydrate=pressure with pressure_scale =
-# kappa_T x N_water waters per bar (above) lets water content self-tune (auto
-# waits for the calmer opt2+).  Runs in the background; the monitor exits it the
-# moment the mean pressure has gone POSITIVE (voids full).
+# kappa_T x N_water waters per bar (after Section 10) lets water content
+# self-tune (auto waits for the calmer opt2+).  Runs in the background; the
+# monitor exits it the moment the mean pressure has gone POSITIVE (voids full).
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=1 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
     pressure_avglast=auto pressure_scale=$pressure_scale void_scale=1 \
@@ -1423,11 +1447,6 @@ if ( $lastitr < 1 ) then
 endif
 
 opt1_stage2:
-# recount: Stage 1 changed the water content (same kappa_T x N_water as above)
-set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
-set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
-echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
-
 # Stage 2: confirm the pressure is STABLE before any weight/B optimization.  Same
 # rough-hydration regime (no weight changes, no repick) — just keep running until
 # the mean pressure stops trending.
@@ -1515,6 +1534,8 @@ set o = 2
 mkdir -p opt${o}
 if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme opt${o}/
 cd opt${o}
+# the starting pressure_scale, worked out once from the cell after Section 10
+set pressure_scale = `awk '{print $1;exit}' ../pressure_scale.txt`
 cp ${pdir}/optimize_weights_runme.com .
 
 cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
@@ -1533,12 +1554,6 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
-# starting pressure_scale, the waters to add or remove per bar of pressure: the
-# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
-# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
-set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
-set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
-echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # opt2: weight optimization.  Pressure is stable now, so turn on max_mult=2,
 # decaying weights, and repick + release.  void_scale=0 — water is self-tuning by
@@ -1606,10 +1621,11 @@ sec12done:
 #     log-log shape stop changing).  Raise Bfac_maxmod toward 50 only once you
 #     trust the density.
 #   - dehydrate=pressure lets water content self-tune: every stage starts
-#     pressure_scale at kappa_T x N_water waters per bar (counted from its
-#     xtal.prmtop); opt2+ add auto, which fits waters-per-bar to the pressure
-#     history once it has calmed down (pressure_settle).  Don't hardcode a
-#     pressure_scale number unless it comes from a long known-good run.
+#     pressure_scale at kappa_T x N_water waters per bar, N_water being what the
+#     cell holds when full (worked out once, pressure_scale.txt); opt2+ add auto,
+#     which fits waters-per-bar to the pressure history once it has calmed down
+#     (pressure_settle).  Don't hardcode a pressure_scale number unless it comes
+#     from a long known-good run.
 #   - allatom_weight is a blanket on every atom and dominates restraint energy:
 #     keep it 0 (R floors ~37-38; below ~37 needs a small allatom_weight and costs
 #     ~30,000 restraint-energy units per ~0.05 step).
@@ -1659,6 +1675,8 @@ set o = 3
 mkdir -p opt${o}
 if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme opt${o}/
 cd opt${o}
+# the starting pressure_scale, worked out once from the cell after Section 10
+set pressure_scale = `awk '{print $1;exit}' ../pressure_scale.txt`
 cp ${pdir}/optimize_weights_runme.com .
 
 cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
@@ -1677,12 +1695,6 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
-# starting pressure_scale, the waters to add or remove per bar of pressure: the
-# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
-# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
-set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
-set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
-echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # opt3: turn on B-factor modification, now that the weights are stable.  Raise
 # Bfac_maxmod toward 50 for serious optimization once you trust the density (start
@@ -1770,6 +1782,8 @@ set o = 4
 mkdir -p opt${o}
 if (-e compute_settings.sourceme) ln -sf ../compute_settings.sourceme opt${o}/
 cd opt${o}
+# the starting pressure_scale, worked out once from the cell after Section 10
+set pressure_scale = `awk '{print $1;exit}' ../pressure_scale.txt`
 cp ${pdir}/optimize_weights_runme.com .
 
 cp ../${prevdir}/restraints_for_${previtr}.pdb current_restraints.pdb
@@ -1788,12 +1802,6 @@ if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb B
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
-# starting pressure_scale, the waters to add or remove per bar of pressure: the
-# waters' own dN/dP at fixed volume, kappa_T x N_water (isothermal compressibility
-# of water, 4.5e-5 /bar, times the WAT residues in xtal.prmtop)
-set nwater = `awk '/^%FLAG RESIDUE_LABEL/{f=1;getline;next} /^%FLAG/{f=0} f{for(i=1;i<=length($0);i+=4){r=substr($0,i,4);gsub(/ /,"",r);n+=(r=="WAT"||r=="HOH")}} END{print n+0}' xtal.prmtop`
-set pressure_scale = `echo $nwater | awk '{print 4.5e-5*$1}'`
-echo "starting pressure_scale: $pressure_scale waters/bar (4.5e-5 /bar x $nwater waters)"
 
 # Continuation of opt3: same subtle B-factor optimization, but run it out
 # (maxitr large) and exit on a DIFFERENT signal than opt3.  opt3 stopped once

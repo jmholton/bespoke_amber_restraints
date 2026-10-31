@@ -108,7 +108,8 @@ skip when their output exists.  Design points:
 - Hydration: under-filled cells cavitate, and the pressure then says little (1aho went
   from −2140 to −2570 bar while gaining 90 waters).  So while P < 0, steps go at least
   to `nwater_target` = (V − 1.212 Å³/Da × non-water mass)/29.9 Å³; once P > 0 only
-  κ_T·N steps (the target must not pull a compressed cell back down).  AddToBox with
+  κ_T × `nwater_target` steps, one estimate from the cell for the whole run (the target
+  must not pull a compressed cell back down).  AddToBox with
   the default 4 Å protein radius leaves a vacuum shell; hydration uses 3 Å.
 - tleap charge: parse the number from either "Total unperturbed charge:" or "(…) is not
   zero", and round it — `int($7)` on the first match reads the "Total" line (printed first
