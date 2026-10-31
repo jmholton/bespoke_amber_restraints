@@ -205,11 +205,17 @@ EOF
 if(-e ref.crd) then
 
   echo "stripping ref.crd too"
-  rm -f ${outprefix}ref.crd >& /dev/null
+  rm -f ${outprefix}ref.crd ${t}ref.rst7 >& /dev/null
+  # a .crd name makes cpptraj write a trajectory, which pmemd cannot read as -ref: write a restart
   cpptraj -p $parmfile -y ref.crd << EOF >! ${t}trajref.log
 strip :$striprange
-trajout ${outprefix}ref.crd
+trajout ${t}ref.rst7
 EOF
+  if( $status || ! -e ${t}ref.rst7 ) then
+    set BAD = "stripping ref.crd failed"
+    goto exit
+  endif
+  mv ${t}ref.rst7 ${outprefix}ref.crd
 
 endif
 
