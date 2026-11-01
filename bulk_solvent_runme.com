@@ -12,7 +12,7 @@
 #   Altlocs no more than altloc_merge (0.8 A) apart are merged into one reference point; every
 #   other atom with altlocs is left free.  No weight optimization, no Fo-Fc
 #   feedback, no B factors: the protein is only ever as good as the model you start with.
-#   The water count is tuned until the mean pressure is zero, then the production trajectory
+#   The water count is tuned until the mean pressure is pressure_target (zero), then the production trajectory
 #   is reduced to the average electron density of the solvent alone (water + ions),
 #   collapsed into the unit cell, and written as FPART/PHIPART (electron units) for
 #     phenix.refine with the phenix_user_solvent patch:
@@ -58,9 +58,12 @@ set max_weight = 9.9999
 # altlocs no more than this far apart (A) are merged into their occupancy-weighted mean, which becomes the reference
 # point (and the start position); atoms with altlocs further apart are not restrained
 set altloc_merge = 0.8
+# 1: the copies in the MD cell start in different conformers of those unrestrained split altlocs, in proportion to
+# their occupancies.  0: every copy starts in the first conformer
+set altloc_copies = 1
 set pdbscale = 0.01
 
-# MD: leap2amber stages, then hydration segments until the mean pressure is within the deadband
+# MD: leap2amber stages, then hydration segments until the mean pressure is within the deadband of pressure_target
 set stages = Cool,Heat,Equi,EquiMin,Prod
 set heat_ns = 0.1
 set equi_ns = 0.1
@@ -70,6 +73,8 @@ set hydrate_max = 20
 set hydrate_calm = 2
 # bar.  Means over 0.1 ns scatter by ~150 bar in a 1aho unit cell; 100 bar is ~3 waters there
 set pressure_deadband = 100
+# bar.  The restraints are in the virial, so this is the pressure of the restrained system, not the liquid's
+set pressure_target = 0
 # waters added or removed per bar of pressure.  auto: kappa_T x nwater_target = 4.5e-5/bar x the waters the cell
 # holds when full, worked out once from the cell (not recounted as the water changes)
 set pressure_scale = auto
@@ -329,8 +334,9 @@ end
 
 # one conformer, occupancy 1.  Altlocs no more than altloc_merge apart are merged into their occupancy-weighted mean
 # (the reference point, and the start position: at most altloc_merge/2 from either); the others keep the first
-# conformer.  B = the widest separation of the atom's altlocs (A, 0 for one conformer), so section 4 can leave
-# split atoms unrestrained.  Where residues have alternate residue types, keep the first type.
+# conformer here, and section 6 hands the other conformers out to other copies.  B = the widest separation of the
+# atom's altlocs (A, 0 for one conformer), so section 4 can leave split atoms unrestrained.  Where residues have
+# alternate residue types, keep the first type.
 awk -v merge=$altloc_merge 'FNR==NR && ! /^ATOM|^HETAT/{next}\
   /^ATOM|^HETAT/{rid=substr($0,22,6);typ=substr($0,18,3);\
     if(rtyp[FNR==NR,rid]=="")rtyp[FNR==NR,rid]=typ;\
@@ -554,6 +560,82 @@ cp new_monomer_rot_trans.txt monomer_rot_trans.txt
 expand2supercell_runme.com renamed.pdb $smallmtz super_mult=$super_mult \
   outprefix=super phenix_bumpcheck=0 mono_map=monomer_rot_trans.txt >&! expand.log
 
+# Split altlocs (more than altloc_merge apart, unrestrained) need not start as the first conformer in every copy.
+# Copy c of N gets, residue by residue, the conformer whose cumulative occupancy spans (c-0.5)/N, letters taken in
+# the same order everywhere, so residues refined with the same occupancies keep the same letter in a copy.
+# super.pdb holds each block of renamed.pdb (protein, ligands, water) copy by copy, with copy c at R_c x + t_c
+# (monomer_rot_trans.txt) give or take a lattice vector, so the swap is x + R_c (x_conf - x_first).
+set ncopy = `awk 'NF>=13' monomer_rot_trans.txt | wc -l`
+set nsplit = `awk -v m=$altloc_merge '/^ATOM|^HETAT/ && substr($0,61,6)+0>m' ../asu_noalt.pdb | wc -l`
+if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
+  set nonomatch
+  rm -f asu_copy_*.pdb renamed_*.pdb super_altcopies.pdb
+  unset nonomatch
+  awk -v merge=$altloc_merge -v ncopy=$ncopy 'FNR==NR{if(! /^ATOM|^HETAT/)next;\
+      rid=substr($0,22,6);typ=substr($0,18,3);if(rtyp[rid]=="")rtyp[rid]=typ;if(typ!=rtyp[rid])next;\
+      id=substr($0,13,4) substr($0,18,10);k=++n[id];res[id]=rid;alt[id,k]=substr($0,17,1);\
+      x[id,k]=substr($0,31,8)+0;y[id,k]=substr($0,39,8)+0;z[id,k]=substr($0,47,8)+0;o[id,k]=substr($0,55,6)+0;next}\
+    FNR==1{for(id in n){if(n[id]<2)continue;d=0;\
+        for(i=1;i<=n[id];++i)for(j=i+1;j<=n[id];++j){\
+          r=sqrt((x[id,i]-x[id,j])^2+(y[id,i]-y[id,j])^2+(z[id,i]-z[id,j])^2);if(r>d)d=r}\
+        if(d<=merge)continue;split_[id]=1;r=res[id];\
+        for(i=1;i<=n[id];++i){L=alt[id,i];if(!((r,L) in w)){let[r,++nl[r]]=L;w[r,L]=0};if(o[id,i]>w[r,L])w[r,L]=o[id,i]}}\
+      for(r in nl){m=nl[r];for(i=2;i<=m;++i){v=let[r,i];for(j=i-1;j>=1 && let[r,j]>v;--j)let[r,j+1]=let[r,j];let[r,j+1]=v}\
+        s=0;for(i=1;i<=m;++i){ww=w[r,let[r,i]];if(ww<=0)ww=1e-6;s+=ww}\
+        for(c=1;c<=ncopy;++c){u=(c-0.5)/ncopy;cum=0;use[r,c]=let[r,m];\
+          for(i=1;i<=m;++i){ww=w[r,let[r,i]];if(ww<=0)ww=1e-6;cum+=ww/s;if(u<=cum){use[r,c]=let[r,i];break}}\
+          if(use[r,c]!=let[r,1])++moved[c]}\
+        ++nres}\
+      for(c=1;c<=ncopy;++c)line=line " " moved[c]+0;\
+      printf("%d residues with split conformers; per copy, residues not in the first conformer:%s\n",nres,line)}\
+    {for(c=1;c<=ncopy;++c){X=substr($0,31,8);Y=substr($0,39,8);Z=substr($0,47,8);id=substr($0,13,4) substr($0,18,10);\
+       if(/^ATOM|^HETAT/ && split_[id])for(k=1;k<=n[id];++k)if(alt[id,k]==use[res[id],c]){X=x[id,k];Y=y[id,k];Z=z[id,k]}\
+       if(/^ATOM|^HETAT/)printf("%s%8.3f%8.3f%8.3f%s\n",substr($0,1,30),X,Y,Z,substr($0,55)) > "asu_copy_" c ".pdb";\
+       else print > "asu_copy_" c ".pdb"}}' ../asu_kept.pdb ../asu_labeled.pdb | tee altloc_copies.log
+  # the renamed.pdb recipe above, so the atom order matches line for line
+  foreach c ( `seq 1 $ncopy` )
+    egrep "^CRYST|^SSBON" asu_copy_${c}.pdb >! renamed_${c}.pdb
+    filter_pdb.awk -v only=protein,atoms asu_copy_${c}.pdb >> renamed_${c}.pdb
+    convert_pdb.awk -v only=ligand,atoms -v renumber=ordinal,watS -v fixEe=1 asu_copy_${c}.pdb >> renamed_${c}.pdb
+    convert_pdb.awk -v only=water,atoms -v renumber=ordinal,watS asu_copy_${c}.pdb >> renamed_${c}.pdb
+  end
+  set np = `filter_pdb.awk -v only=protein,atoms ../asu_labeled.pdb | egrep -c "^ATOM|^HETAT"`
+  set nl = `convert_pdb.awk -v only=ligand,atoms ../asu_labeled.pdb | egrep -c "^ATOM|^HETAT"`
+  # check every atom sits at R_c x + t_c (mod the cell) under the right name before moving any
+  awk -v np=$np -v nl=$nl 'FILENAME=="monomer_rot_trans.txt"{if(NF<13)next;c=++nc;\
+        for(m=1;m<=9;++m)R[c,m]=$(m+1);t[c,1]=$11;t[c,2]=$12;t[c,3]=$13;next}\
+      FILENAME=="renamed.pdb"{if(/^ATOM|^HETAT/){i=++na;x0[i]=substr($0,31,8);y0[i]=substr($0,39,8);z0[i]=substr($0,47,8);\
+        nm[i]=substr($0,13,8)};next}\
+      FILENAME ~ /^renamed_[0-9]+[.]pdb$/{if(/^ATOM|^HETAT/){c=substr(FILENAME,9)+0;i=++nn[c];\
+        dx[c,i]=substr($0,31,8)-x0[i];dy[c,i]=substr($0,39,8)-y0[i];dz[c,i]=substr($0,47,8)-z0[i]};next}\
+      /^CRYST1/{pi=atan2(1,1)*4;a=$2;b=$3;cc=$4;ca=cos($5*pi/180);cb=cos($6*pi/180);cg=cos($7*pi/180);sg=sin($7*pi/180);\
+        v=sqrt(1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg)}\
+      ! /^ATOM|^HETAT/{out[++no]=$0;next}\
+      {s=++ns;nw=na-np-nl;\
+       if(s<=nc*np){c=int((s-1)/np)+1;i=(s-1)%np+1}\
+       else if(s<=nc*(np+nl)){s-=nc*np;c=int((s-1)/nl)+1;i=np+(s-1)%nl+1}\
+       else{s-=nc*(np+nl);c=int((s-1)/nw)+1;i=np+nl+(s-1)%nw+1}\
+       X=substr($0,31,8);Y=substr($0,39,8);Z=substr($0,47,8);\
+       ex=R[c,1]*x0[i]+R[c,2]*y0[i]+R[c,3]*z0[i]+t[c,1]-X;ey=R[c,4]*x0[i]+R[c,5]*y0[i]+R[c,6]*z0[i]+t[c,2]-Y;\
+       ez=R[c,7]*x0[i]+R[c,8]*y0[i]+R[c,9]*z0[i]+t[c,3]-Z;\
+       fz=ez*sg/(cc*v);fy=ey/(b*sg)+ez*(cb*cg-ca)/(b*v*sg);fx=ex/a-ey*cg/(a*sg)+ez*(ca*cg-cb)/(a*v*sg);\
+       fx-=int(fx+(fx<0?-0.5:0.5));fy-=int(fy+(fy<0?-0.5:0.5));fz-=int(fz+(fz<0?-0.5:0.5));\
+       ex=a*fx+b*cg*fy+cc*cb*fz;ey=b*sg*fy+cc*(ca-cb*cg)/sg*fz;ez=cc*v/sg*fz;\
+       if(ex*ex+ey*ey+ez*ez>0.03^2 || substr($0,13,8)!=nm[i])++bad;\
+       X+=R[c,1]*dx[c,i]+R[c,2]*dy[c,i]+R[c,3]*dz[c,i];Y+=R[c,4]*dx[c,i]+R[c,5]*dy[c,i]+R[c,6]*dz[c,i];\
+       Z+=R[c,7]*dx[c,i]+R[c,8]*dy[c,i]+R[c,9]*dz[c,i];\
+       if(dx[c,i]!=0 || dy[c,i]!=0 || dz[c,i]!=0)++nmoved;\
+       out[++no]=sprintf("%s%8.3f%8.3f%8.3f%s",substr($0,1,30),X,Y,Z,substr($0,55))}\
+    END{if(bad || ns!=nc*na){printf("WARNING: %d of %d atoms in super.pdb do not match their copy: every copy keeps the first conformer\n",bad,ns);exit}\
+      for(k=1;k<=no;++k)print out[k] > "super_altcopies.pdb";\
+      printf("%d atoms moved to other conformers across %d copies\n",nmoved,nc)}' \
+    monomer_rot_trans.txt renamed.pdb renamed_*.pdb super.pdb | tee -a altloc_copies.log
+  if( -e super_altcopies.pdb ) then
+    mv super.pdb super_firstconf.pdb
+    mv super_altcopies.pdb super.pdb
+  endif
+endif
+
 # consolidate the copies to the chain scheme the Amber model will have (hurry Section 9 of 1aho_example_runme.com)
 reorganize_pdb_runme.com super.pdb outfile=consolidated.pdb \
   phenix_bumpcheck=0 declash=0 debug=0 >&! reorg.log
@@ -710,7 +792,7 @@ if(-e hydrated.rst7 && -e hydrated.prmtop) then
   echo "=== 9: hydration: already done, skipping ==="
   goto sec9done
 endif
-echo "=== 9: hydration (deadband +/- $pressure_deadband bar) ==="
+echo "=== 9: hydration (target $pressure_target bar, deadband +/- $pressure_deadband bar) ==="
 
 # resume from the last finished segment
 set h = 1
@@ -749,9 +831,9 @@ echo "pressure_scale: $ps waters/bar"
 while ( 1 )
   set press = `awk -v s=$last '$1==s{print $2}' pressure_vs_seg.txt | tail -n 1`
   set nwater = `awk -v s=$last '$1==s{print $5}' pressure_vs_seg.txt | tail -n 1`
-  set calm = `awk -v d=$pressure_deadband '{c=($2*$2<=d*d)?c+1:0} END{print c+0}' pressure_vs_seg.txt`
+  set calm = `awk -v d=$pressure_deadband -v p0=$pressure_target '{c=(($2-p0)^2<=d*d)?c+1:0} END{print c+0}' pressure_vs_seg.txt`
   if( $calm >= $hydrate_calm ) then
-    echo "pressure inside +/- $pressure_deadband bar for $calm segments: hydrated"
+    echo "pressure inside $pressure_target +/- $pressure_deadband bar for $calm segments: hydrated"
     break
   endif
   if( $h > $hydrate_max ) then
@@ -761,7 +843,7 @@ while ( 1 )
 
   # kappa_T step, or up to the target count if that is further (only while under-filled: once the
   # pressure is positive the liquid is merely compressed, and kappa_T is right)
-  set dw = `echo $press $ps $pressure_deadband $nwater $nwater_target | awk '$1*$1<=$3*$3{print 0;exit}\
+  set dw = `echo $press $ps $pressure_deadband $nwater $nwater_target $pressure_target | awk '{$1-=$6} $1*$1<=$3*$3{print 0;exit}\
     {d=-$1*$2;t=$5-$4} $1<0 && t>d{d=t} {printf("%.0f\n",d)}'`
   echo "segment ${h}: P = $press bar with $nwater waters (target $nwater_target), $ps waters/bar -> change by $dw"
 

@@ -99,6 +99,14 @@ skip when their output exists.  Design points:
   ASU model and rides through `expand2supercell_runme.com` + `reorganize_pdb_runme.com`
   (both preserve B), so `refpoints.pdb` = supercell atoms with B > 0, named exactly as
   the Amber model (no centroids_nearby matching needed).
+- **Split altlocs go to different copies** (`altloc_copies=1`).  After `expand2supercell`,
+  copy c of N takes, per residue, the conformer whose cumulative occupancy spans
+  (c-0.5)/N (letters in one order everywhere, so residues refined with equal occupancies,
+  e.g. a disulfide, keep the same letter in a copy).  `super.pdb` is each block of
+  `renamed.pdb` (protein, ligands, water) copy by copy at R_c x + t_c of
+  `monomer_rot_trans.txt` (mod a lattice vector), so the swap is x + R_c (x_conf -
+  x_first); every atom is checked against that before anything moves, else all copies
+  keep the first conformer.  Only unrestrained atoms move, so `refpoints.pdb` is unchanged.
 - Water is changed only at the end of the atom list, so leap2amber's `Prod.in`
   restraint groups (atom numbers) stay valid; hydrate/prod/settle inputs are edited
   copies of it.  `hydrate_runme.com` rewrites `ref.crd` itself; after
