@@ -25,13 +25,35 @@ SHAKE on H, `netfrc=0`, OPC water. The scripts and their outputs are in
 `ntp=4` stays the default in this repository. To get the true pressure, subtract the correction below from an
 `ntp=4` reading.
 
+## What `ntp=4` is
+
+The Amber22 manual (sander chapter) describes `ntp=4` as "md towards a targeted volume". Its stated uses:
+
+- **Purpose:** "not for production but for modifying the volume of the system", for example so that REMD replicas
+  share one box shape.
+- **Settings:** the target is set in `&ewald` with `target_a`, `target_b`, `target_c` (cell edges) and `target_n`
+  (iterations to reach it, default 100).
+
+How our runs used it:
+
+- **No target set:** the mdin files set none of the `target_` variables, and pmemd.cuda echoes none.
+- **Volume:** it stayed at 56,230.7130 A^3 to the last printed digit for all 100 ns of the w1 run, so the mode
+  holds the box where it starts.
+- **Printed pressure:** this is a by-product of a volume-targeting mode, and the manual says nothing about it.
+
+The documented way to watch the pressure without changing the volume is a constant-pressure run with a coupling time
+too long to act: `ntb=2, ntp=1` (or `2`), `barostat=1`, `taup=99999999999`. leap2amber has that line commented out
+above its `ntp=4` line, and the 2019 runs used the `ntp=2` form. The tests below show that this form reads the true
+pressure.
+
 ## Correcting an `ntp=4` reading
 
     P_true ~ P_ntp4 - 138.06 x T x N_water / V        (bar; T in K, V in A^3)
 
 At 287 K this is 39,600 bar x N_water / V. For the 1aho cell (709 waters, V = 56,231 A^3) it is 500 bar, and for
 the 2542-water OPC box (V = 75,735 A^3) it is 1330 bar, where 1302 +/- 55 was measured. The rule is empirical.
-It fits the two systems tested, and we have not looked at the pmemd source to see why `ntp=4` behaves this way. It
+It fits the two systems tested. We have not looked at the pmemd source to see why the volume-targeting mode
+reports pressure this way. It
 is not known whether ions or other small molecules count like waters (1aho's 26 NH4+/acetate would add ~18 bar).
 
 ## The tests
