@@ -3048,7 +3048,7 @@ awk 'NR==1{n=$1;dt=$2;next}\
 / dt=/{print space w[1] "=" dt "," esc;next}\
 / ntpr=/{print space w[1] "=" n/10 "," esc;next}\
 / ntwx=| ntwr=| ntr=/{print space w[1] "=" 0 "," esc;next}\
-/ ntb=/{print space "ntb=2,ntp=4," esc;next}\
+/ ntb=/{print space "ntb=2,ntp=1,barostat=1,taup=99999999999," esc;next}\
 /     Specific /{exit}\
 / restraint|wt type=|DISANG|LISTIN=POUT|dummy |nmropt=1/{\
    if(esc != "") print esc;\

@@ -213,17 +213,19 @@ endif
 # use a barostat or not
 set ntb = "ntb=1,ntp=0"
 if( $barostat ) then
-#   set ntb = "ntb=2,ntp=1,taup=9999999999"
-   set ntb = "ntb=2,ntp=4"
+#   set ntb = "ntb=2,ntp=4"
+   set ntb = "ntb=2,ntp=1,barostat=1,taup=99999999999"
 endif
 
 # ntb=2 is required to monitor the pressure, but also implies changing volume
 # ntb=1,ntp=0             -> periodic boundary, no pressure reporting - faster
 # ntp=1                   -> isotropic pressure scaling - changes volume
 # ntb=2,ntp=0             -> not allowed
-# ntb=2,ntp=1,taup=999999 -> pressure regulation without actually regulating
+# ntb=2,ntp=1,taup=999999 -> pressure regulation without actually regulating (barostat=1: Berendsen; the
+#                            Monte Carlo barostat ignores taup).  Reads the true pressure; ~10% slower than ntp=4
 # ntb=2,ntp=2,taup=999999 -> pressure regulation without actually regulating
-# ntb=2,ntp=4             -> pressure regulation to preserve volume
+# ntb=2,ntp=4             -> md towards a target volume (target_a/b/c in &ewald, "not for production"); with no
+#                            target it keeps the volume, but its PRESS reads ~N_water kT/V high (PRESSURE.md)
 
 
 if( $debug ) then
@@ -1334,8 +1336,9 @@ try2:
         /ntwx=/{print "  ntwr=10,";$0= "  ntwx=0,"}\
         /ntpr=/{$0="  ntpr=10,"}\
         /ntwr=/{$0="  ntwr=10,"}\
+        /^ *ntb=2,ntp=1/{active=1}\
         /ntb=2,ntp=4/{$0="  !" $0}\
-        /taup=9999/{$0="  " substr($0,index($0,$1)+1)}\
+        /^ *\!ntb=2,ntp=1,taup=9999/{if(active)next;$0="  " substr($0,index($0,$1)+1)}\
         {print}' >! ${t}.x
       mv ${t}.x ${t}${Stage}.in
       goto try2

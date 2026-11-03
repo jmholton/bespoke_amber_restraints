@@ -73,8 +73,8 @@ set hydrate_max = 20
 set hydrate_calm = 2
 # bar.  Means over 0.1 ns scatter by ~150 bar in a 1aho unit cell; 100 bar is ~3 waters there
 set pressure_deadband = 100
-# bar, as pmemd reports it.  Restraint forces are not in the virial, but leap2amber's ntp=4 reads high: +1300 bar
-# in pure OPC water and ~+750 bar in the 1aho cell, where ntp=1 or 2 with taup 1e11 read true (Monte Carlo check)
+# bar: the true pressure of the restrained cell (leap2amber's ntp=1, taup 1e11 reads true; restraint forces are not
+# in the virial).  The old ntp=4 read ~N_water kT/V high, ~+500 bar in a 1aho cell (PRESSURE.md)
 set pressure_target = 0
 # waters added or removed per bar of pressure.  auto: kappa_T x nwater_target = 4.5e-5/bar x the waters the cell
 # holds when full, worked out once from the cell (not recounted as the water changes)

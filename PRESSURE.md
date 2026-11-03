@@ -9,8 +9,8 @@ SHAKE on H, `netfrc=0`, OPC water. The scripts and their outputs are in
 
 - **Restraint forces never enter the reported pressure.** On the same coordinates and velocities, pmemd prints the
   same pressure, to 0.1 bar, with the restraints on or off.
-- **`ntp=4` reads high.** leap2amber writes `ntb=2,ntp=4` for every stage, and the barometer in
-  `optimize_weights_runme.com` uses it too. Against the Monte Carlo barostat, which sets the volume without using the
+- **`ntp=4` reads high.** Before this branch, leap2amber wrote `ntb=2,ntp=4` for every stage, and the barometer in
+  `optimize_weights_runme.com` used it too. Against the Monte Carlo barostat, which sets the volume without using the
   virial, it reads too high by about N_water kT / V: +1300 bar in a pure OPC box and about +500 bar in the 1aho cell.
   `ntp=1` or `ntp=2` with `barostat=1, taup=99999999999` keep the volume just as fixed and read the true value.
 - **Restraints do change the true pressure.** Holding the protein to its reference positions lowers the true pressure
@@ -22,8 +22,11 @@ SHAKE on H, `netfrc=0`, OPC water. The scripts and their outputs are in
   restrained reading of about +550 bar. The default `bulk_solvent_runme.com` cell (709 waters, `ntp=4` reading 0) was
   at about -600 bar.
 
-`ntp=4` stays the default in this repository. To get the true pressure, subtract the correction below from an
-`ntp=4` reading.
+This branch switches back to the old setting. leap2amber's MD stages and `optimize_weights_runme.com`'s barometer now
+use `ntb=2, ntp=1, barostat=1, taup=99999999999` in place of `ntp=4`, so the printed `PRESS` is the true pressure.
+The cost is about 10% in speed: 390 vs 435 ns/day for the OPC box, and 374 vs 410 for the 1aho cell. The volume
+did not change at the printed precision in any run. Pressures from runs made before this branch were made with
+`ntp=4`; to get the true pressure from those, subtract the correction below.
 
 ## What `ntp=4` is
 
@@ -42,9 +45,10 @@ How our runs used it:
 - **Printed pressure:** this is a by-product of a volume-targeting mode, and the manual says nothing about it.
 
 The documented way to watch the pressure without changing the volume is a constant-pressure run with a coupling time
-too long to act: `ntb=2, ntp=1` (or `2`), `barostat=1`, `taup=99999999999`. leap2amber has that line commented out
-above its `ntp=4` line, and the 2019 runs used the `ntp=2` form. The tests below show that this form reads the true
-pressure.
+too long to act: `ntb=2, ntp=1` (or `2`), `barostat=1`, `taup=99999999999`. leap2amber had that line commented out
+above its `ntp=4` line, and this branch restores it. The 2019 runs used the `ntp=2` form. The tests below show that
+this form reads the true pressure. `barostat=1` (Berendsen) has to be explicit, because the Monte Carlo barostat
+ignores `taup` and would change the volume.
 
 ## Correcting an `ntp=4` reading
 
