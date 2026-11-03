@@ -3180,7 +3180,7 @@ foreach substage ( settle equi )
 
     grep NaN ${ss}.out
     if(! $status) break
-    egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${ss}.out | grep '\*\*\*\*\*'
+    egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${ss}.out | grep '\*\*\*\*\*'
     if(! $status) break
 
     echo -n "re-aligning "
@@ -3219,7 +3219,7 @@ end
 if(-e ${Stage}_${substage}.out) then
   grep NaN ${Stage}_${substage}.out
   if(! $status) break
-  egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}_${substage}.out | grep '\*\*\*\*\*' 
+  egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${Stage}_${substage}.out | grep '\*\*\*\*\*' 
   if(! $status) break
 endif
 
@@ -3253,7 +3253,7 @@ foreach i ( `seq 1 $subruns` )
 
     grep NaN ${Stage}_${i}.out
     if(! $status) break
-    egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}_${i}.out | grep '\*\*\*\*\*'
+    egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${Stage}_${i}.out | grep '\*\*\*\*\*'
     if(! $status) break
 
     cpptraj -p xtal.prmtop -y ${Stage}_${i}.rst7 -c align_ref.crd << EOF >! align.log
@@ -3283,7 +3283,7 @@ EOF
   # check for errors
   grep NaN ${Stage}.out
   if(! $status) break
-  egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
+  egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
   if(! $status) break
 
   cp ${Stage}_${i}.rst7 ${Stage}.rst7

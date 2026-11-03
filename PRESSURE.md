@@ -28,6 +28,10 @@ The cost is about 10% in speed: 390 vs 435 ns/day for the OPC box, and 374 vs 41
 did not change at the printed precision in any run. Pressures from runs made before this branch were made with
 `ntp=4`; to get the true pressure from those, subtract the correction below.
 
+pmemd prints this `taup` as `**********` in the mdout header. The overflow checks in `bulk_solvent_runme.com` and
+`optimize_weights_runme.com` count lines containing `*****`, so they now skip lines that mention `taup`. Without that
+change, every segment reads as blown up.
+
 ## What `ntp=4` is
 
 The Amber22 manual (sander chapter) describes `ntp=4` as "md towards a targeted volume". Its stated uses:

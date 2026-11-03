@@ -896,7 +896,7 @@ while ( 1 )
   $pmemd -O -i hydrate.in -o hydrate_${h}.out -p xtal.prmtop -c ${laStage}.rst7 -ref ref.crd \
     -r hydrate_${h}.rst7 -inf hydrate.mdinfo
   set mdstatus = $status
-  set test = `egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' hydrate_${h}.out | egrep -c 'NaN|\*\*\*\*\*'`
+  set test = `egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' hydrate_${h}.out | egrep -c 'NaN|\*\*\*\*\*'`
   if( $mdstatus || ! -e hydrate_${h}.rst7 || $test ) then
     set BAD = "MD failed at hydrate_${h} (see hydrate_${h}.out)"
     goto exit
@@ -931,7 +931,7 @@ foreach i ( `seq 1 $nprod` )
   $pmemd -O -i prod.in -o prod_${i}.out -p xtal.prmtop -c ${last}.rst7 -ref ref.crd \
     -r prod_${i}.rst7 -x prod_${i}.nc -inf prod.mdinfo
   set mdstatus = $status
-  set test = `egrep -v 'Mask|NSTEP2=|^\*\*\*\*\*\*' prod_${i}.out | egrep -c 'NaN|\*\*\*\*\*'`
+  set test = `egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' prod_${i}.out | egrep -c 'NaN|\*\*\*\*\*'`
   if( $mdstatus || ! -e prod_${i}.rst7 || ! -e prod_${i}.nc || $test ) then
     set BAD = "MD failed at prod_${i} (see prod_${i}.out)"
     goto exit
