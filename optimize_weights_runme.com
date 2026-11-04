@@ -64,16 +64,21 @@ set Bfac_file = Bfac.pdb
 set Bfac_maxmod = 2
 set Bfac_modmode = add
 # B factors by LOCATION rather than by atom: a CCP4 map of B(x,y,z) that the
-# structure-factor step samples at each atom's position.  Set to a file name to
-# use a field you maintain yourself (Bfac_map_runme.com), or to "auto" to have
-# nc2mtz build one from $Bfac_file each time.  Empty = the per-atom path.
+# structure-factor step samples at each atom's position.
+#  refine = Bfac.map REPLACES Bfac.pdb as the refined B: seeded once from $Bfac_file,
+#           then every iteration updated by position from the difference map (same
+#           rule and Bfac_maxmod/Bfac_modmode as the per-atom update) and probed for
+#           every frame.  A water takes the B of wherever it is, so remaps never matter.
+#  auto   = nc2mtz rebuilds a field from $Bfac_file's per-atom B on every render.  That
+#           only re-deals per-molecule B by position (from one frame); kept for comparison.
+#  a file name = a fixed field you maintain yourself (Bfac_map_runme.com).
+#  Empty = the per-atom path.
 set Bfac_map = ""
-# map-field knobs, only used when Bfac_map is active (forwarded to nc2mtz).
+# map-field knobs (forwarded to nc2mtz; for refine they only shape the seed field).
 #  sigma = Gaussian width (A) of the B field; must be wide enough to span how far
 #          atoms move between frames, or displaced atoms drop into farB.
 #  grid  = map sampling (A).
-#  farB  = B assigned where no atom is nearby; keep modest (not 999) so coverage
-#          misses degrade gracefully instead of going invisible.
+#  farB  = B assigned where no atom is nearby.
 set Bfac_map_sigma = 0.5
 set Bfac_map_grid  = 0.5
 set Bfac_map_farB  = 999
@@ -1209,6 +1214,15 @@ if(-e "$trajectory" && $needtraj ) then
   echo "nc2mtz gemmi $trajectory  ${render_reso}A $Bfac_file "
   set nc2mtz_Bmap = ""
   if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB Bfac_map_selresn=$Bfac_map_selresn"
+  if( "$Bfac_map" == "refine" ) then
+    if( -e Bfac.map ) then
+      set nc2mtz_Bmap = "Bfac_map=$cwd/Bfac.map Bfac_map_selresn=$Bfac_map_selresn"
+    else
+      # first render: seed the field from the per-atom B, once; it is refined from here on
+      echo "seeding Bfac.map from $Bfac_file"
+      set nc2mtz_Bmap = "Bfac_map=auto Bfac_map_save=$cwd/Bfac.map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB Bfac_map_selresn=$Bfac_map_selresn"
+    endif
+  endif
   nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
     Bfac_file=$Bfac_file minB=$minB maxB=$maxB $nc2mtz_Bmap \
@@ -1334,6 +1348,15 @@ if( "$render_B_adjust" != "0" ) then
      echo "adding $deltaB to all B factors in $Bfac_file ($pegmin at min, $pegmax at max)"
      cp ${Bfac_file} Bfac_preadjust_${itr}.pdb
      cp newB.pdb ${Bfac_file}
+     if( "$Bfac_map" == "refine" && -e Bfac.map ) then
+       echo "adding $deltaB to the B-factor field Bfac.map"
+       Bfac_map update map=Bfac.map offset=$deltaB minB=2 maxB=999.99 outmap=${t}newB.map
+       if( $status || ! -e ${t}newB.map ) then
+         set BAD = "Bfac.map overall B adjustment failed"
+         goto exit
+       endif
+       mv ${t}newB.map Bfac.map
+     endif
   endif
 endif
 
@@ -1452,13 +1475,37 @@ if(-e premod_Bfac_${itr}.pdb) then
    echo "assuming B factors in premod_Bfac_${itr}.pdb are for $trajectory "
    cp premod_Bfac_${itr}.pdb Bfac.pdb
 endif
-rm -f new_Bfac.pdb
+# the B-factor field is refined by location alongside the per-atom B
+set Bmapopt = ""
+if( "$Bfac_map" == "refine" ) then
+  if(-e premod_Bfac_${itr}.map) then
+    echo "assuming B field in premod_Bfac_${itr}.map is for $trajectory "
+    cp premod_Bfac_${itr}.map Bfac.map
+  endif
+  if(-e Bfac.map) then
+    set Bmapopt = "Bfac_map=$cwd/Bfac.map Bfac_map_out=$cwd/new_Bfac.map"
+  else
+    echo "WARNING: Bfac_map=refine but no Bfac.map yet: per-atom B update only"
+  endif
+endif
+rm -f new_Bfac.pdb new_Bfac.map
 Bfac_update_diffmap.com Bfac.pdb modulo=$modulo mtzfile=cootme.mtz \
-  max_mod=$Bfac_maxmod mod_mode=$Bfac_modmode fft_B=$Bfac_fft_B \
+  max_mod=$Bfac_maxmod mod_mode=$Bfac_modmode fft_B=$Bfac_fft_B $Bmapopt \
   tempfile=${scratch}/Bud_ >&! Bfac_update_${itr}.log
 if( $status || ! -e new_Bfac.pdb) then
   set BAD = "Bfac update diffmap failed"
   goto exit
+endif
+if( "$Bmapopt" != "" ) then
+  if(! -e new_Bfac.map) then
+    set BAD = "Bfac.map update failed"
+    goto exit
+  endif
+  # only the latest pre-update field is kept for a restart; every updated field is archived
+  rm -f premod_Bfac_*.map
+  cp Bfac.map premod_Bfac_${itr}.map
+  mv new_Bfac.map Bfac.map
+  cp Bfac.map Bfac_${itr}.map
 endif
 
 awk 'NF<=2 || NF==3 && $2=="=" || /^[\[-]/ || /\/dev\/shm|^clearing|\/scratch\//{next} {print}' Bfac_update_${itr}.log

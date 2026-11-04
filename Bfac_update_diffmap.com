@@ -38,6 +38,13 @@ set min_Bfac = 2
 
 set ambig_same_Bfac = 1
 
+# B factors by LOCATION: a CCP4 map of B(x,y,z) (Bfac_map.c) refined here in place of,
+# or alongside, the per-atom B: every voxel gets the same rule as an atom, driven by the
+# difference map at that voxel.  Written to Bfac_map_out; the per-atom update still runs.
+set Bfac_map = ""
+set Bfac_map_out = new_Bfac.map
+set pdir = `dirname $0`
+
 set mtzlabel = DELFWT
 set phenixlabel = miller_array.labels.name
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
@@ -304,6 +311,32 @@ if( "$halfrho_neg" == "auto") set halfrho_neg = $halfrho
 
 
 echo "half-rho: $halfrho_pos $halfrho_neg"
+
+if( "$Bfac_map" != "" ) then
+  if(! -e "$Bfac_map") then
+    set BAD = "no B-factor field: $Bfac_map"
+    goto exit
+  endif
+  set Bmapexe = ${pdir}/Bfac_map
+  if( ! -x "$Bmapexe" ) then
+    echo "compiling Bfac_map ..."
+    gcc -O3 -o $Bmapexe ${pdir}/Bfac_map.c -lm
+  endif
+  # the same sigma-scaled fofc that the atoms are probed in, expanded to the whole cell
+  mapmask mapin ${t}fofc_sigma.map mapout ${t}fofc_cell.map << EOF >> $logfile
+xyzlim cell
+axis X Y Z
+EOF
+  echo "updating B-factor field $Bfac_map -> $Bfac_map_out"
+  $Bmapexe update map=$Bfac_map fofc=${t}fofc_cell.map outmap=$Bfac_map_out \
+     halfrho_pos=$halfrho_pos halfrho_neg=$halfrho_neg \
+     max_mod=$max_mod mod_mode=$mod_mode negative_scale=$negative_scale \
+     minB=$min_Bfac maxB=$max_Bfac
+  if( $status || ! -e "$Bfac_map_out" ) then
+    set BAD = "B-factor field update failed"
+    goto exit
+  endif
+endif
 
 # convert density probes into B factor modifiers
 # if fofc is positive decrease B factor

@@ -52,7 +52,13 @@
  * -----
  *   build   B-bearing PDB            -> CCP4 map of B(x,y,z)
  *   probe   PDB + CCP4 map           -> same PDB with B taken from the map
+ *   update  CCP4 map + Fo-Fc map     -> the map with B refined by location
  *   stats   CCP4 map                 -> distribution of B in the map
+ *
+ * The field is meant to REPLACE Bfac.pdb as the thing that gets refined: build
+ * it once (seeded from the per-atom B), then each iteration "update" it from the
+ * difference map and "probe" it for every frame.  Rebuilding it from per-atom B
+ * every time (nc2mtz Bfac_map=auto) only re-deals per-molecule B by position.
  *
  * Compile:  gcc -O3 -o Bfac_map Bfac_map.c -lm
  */
@@ -107,6 +113,20 @@ static FRAC cell_frac(CELL c)
     f.f12 = (cb*cg - ca) / (c.b * V * sg);
     f.f22 = sg / (c.c * V);
     return f;
+}
+
+/* fractional -> Cartesian, the inverse of cell_frac */
+static void cell_orth(CELL c, double xf, double yf, double zf,
+                      double *X, double *Y, double *Z)
+{
+    double ca = cos(c.alpha * M_PI / 180.0);
+    double cb = cos(c.beta  * M_PI / 180.0);
+    double cg = cos(c.gamma * M_PI / 180.0);
+    double sg = sin(c.gamma * M_PI / 180.0);
+    double V  = sqrt(1.0 - ca*ca - cb*cb - cg*cg + 2.0*ca*cb*cg);
+    *X = c.a*xf + c.b*cg*yf + c.c*cb*zf;
+    *Y =          c.b*sg*yf + c.c*(ca - cb*cg)/sg*zf;
+    *Z =                      c.c*V/sg*zf;
 }
 
 /* inverse metric diagonals: max fractional extent per Angstrom along each axis.
@@ -886,17 +906,38 @@ static int do_build(const char *pdbfile, const char *outmap,
 /* ------------------------------------------------------------------ */
 /* Rewrite only columns 61-66 of each ATOM/HETATM record, so whatever the caller
  * had in the rest of the line (element, serial, trailing tags) survives. */
+/* is this record a hydrogen?  element (cols 77-78) if present, else the atom name */
+static int pdb_is_H(const char *line)
+{
+    int L = (int)strlen(line);
+    char e0 = (L > 76) ? line[76] : ' ', e1 = (L > 77) ? line[77] : ' ';
+    if (e1 == '\n' || e1 == '\r') e1 = ' ';
+    if (e0 != ' ' || e1 != ' ') {
+        char e = (e0 != ' ') ? e0 : e1;
+        if (e0 != ' ' && e1 != ' ') return 0;      /* two-letter element */
+        return (e == 'H' || e == 'D');
+    }
+    return (line[12] == 'H' || line[12] == 'D' ||
+            (line[12] == ' ' && (line[13] == 'H' || line[13] == 'D')));
+}
+
 static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb,
                     CELL cell_override, int have_cell, double super_mult[3],
-                    double minB, double maxB, int verbose, const char *selresn)
+                    double minB, double maxB, int verbose, const char *selresn,
+                    int hfollow)
 {
     MAP  m;
     CELL cell;
     FRAC fr;
     FILE *in, *out;
     char line[512];
-    int  n = 0, cellstat, nover = 0;
+    int  n = 0, cellstat, nover = 0, nfollow = 0;
     double Bsum = 0.0, Bmin = 1e30, Bmax = -1e30;
+    /* hfollow: a hydrogen takes the B just sampled for the heavy atom before it in
+       the same residue (Amber lists each H after its parent), like hsame does for
+       per-atom B, instead of sampling the field a bond length away */
+    char   lastres[11] = "";
+    double lastheavyB = 0.0;
 
     m.rho = NULL;
     if (!read_ccp4(mapfile, &m)) return 0;
@@ -960,17 +1001,26 @@ static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb
         while (len < 66) line[len++] = ' ';
         line[len] = '\0';
 
-        X = pdb_field(line, 30, 8);
-        Y = pdb_field(line, 38, 8);
-        Z = pdb_field(line, 46, 8);
-        xf = fr.f00*X + fr.f01*Y + fr.f02*Z;
-        yf =            fr.f11*Y + fr.f12*Z;
-        zf =                       fr.f22*Z;
-        B  = map_interp(&m, xf, yf, zf);
+        if (hfollow && pdb_is_H(line) && lastres[0] && !strncmp(lastres, line + 17, 10)) {
+            B = lastheavyB;
+            ++nfollow;
+        } else {
+            X = pdb_field(line, 30, 8);
+            Y = pdb_field(line, 38, 8);
+            Z = pdb_field(line, 46, 8);
+            xf = fr.f00*X + fr.f01*Y + fr.f02*Z;
+            yf =            fr.f11*Y + fr.f12*Z;
+            zf =                       fr.f22*Z;
+            B  = map_interp(&m, xf, yf, zf);
 
-        if (B < minB)             B = minB;
-        if (maxB > 0 && B > maxB) B = maxB;
-        if (B > 999.99) { B = 999.99; ++nover; }
+            if (B < minB)             B = minB;
+            if (maxB > 0 && B > maxB) B = maxB;
+            if (B > 999.99) { B = 999.99; ++nover; }
+            if (!pdb_is_H(line)) {
+                memcpy(lastres, line + 17, 10); lastres[10] = '\0';
+                lastheavyB = B;
+            }
+        }
 
         {
             char Bstr[16];
@@ -987,10 +1037,107 @@ static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb
     if (out != stdout) fclose(out);
 
     if (verbose && n)
-        fprintf(stderr, "probed %d atoms from %s: B %.2f - %.2f  mean %.2f%s\n",
-                n, mapfile, Bmin, Bmax, Bsum / n,
+        fprintf(stderr, "probed %d atoms from %s (%d hydrogens took their parent's B): "
+                "B %.2f - %.2f  mean %.2f%s\n",
+                n, mapfile, nfollow, Bmin, Bmax, Bsum / n,
                 nover ? "  (some clipped to 999.99 to fit the PDB column)" : "");
     map_free(&m);
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* update                                                             */
+/* ------------------------------------------------------------------ */
+/* Refine the field itself, so B stays with the location from one iteration to
+ * the next whichever molecule happens to be there.  Each voxel gets the rule
+ * Bfac_update_diffmap.com applies to an atom, but driven by the difference map
+ * AT THAT VOXEL instead of by the fofc averaged along one molecule's path:
+ *     signif = (fofc/halfrho_pos)^5, or (fofc/halfrho_neg)^5 if fofc < 0,
+ *              clipped to [-1,1]
+ *     mult:  B *= maxmod^(-signif)          add:  B += -maxmod*signif
+ *     increases (signif < 0) are scaled by negative_scale^signif
+ * then offset is added (the overall B adjustment) and B clipped to [minB,maxB].
+ * fofc must be in sigma units; its cell may be smaller than the field's (an MD
+ * supercell field, a unit-cell difference map): it is sampled periodically. */
+static int do_update(const char *mapfile, const char *fofcfile, const char *outmap,
+                     double halfrho_pos, double halfrho_neg, double maxmod, int mult,
+                     double negative_scale, double offset, double minB, double maxB)
+{
+    MAP    m, d;
+    FRAC   fd;
+    size_t nvox;
+    int    ix, iy, iz, same = 1;
+    size_t ndown = 0, nup = 0, nlo = 0, nhi = 0;
+    double sumB0 = 0.0, sumB1 = 0.0;
+
+    m.rho = d.rho = NULL;
+    if (!read_ccp4(mapfile, &m)) return 0;
+    if (fofcfile && !read_ccp4(fofcfile, &d)) { map_free(&m); return 0; }
+    if (fofcfile && (halfrho_pos <= 0 || halfrho_neg <= 0)) {
+        fprintf(stderr, "ERROR: update needs halfrho_pos > 0 and halfrho_neg > 0\n");
+        map_free(&m); map_free(&d); return 0;
+    }
+    if (fofcfile && (mult ? maxmod <= 1.0 : maxmod < 0.0)) {
+        fprintf(stderr, "ERROR: max_mod %g makes no sense in %s mode\n",
+                maxmod, mult ? "mult" : "add");
+        map_free(&m); map_free(&d); return 0;
+    }
+    nvox = (size_t)m.nx * m.ny * m.nz;
+    if (fofcfile) {
+        fd   = cell_frac(d.cell);
+        same = (fabs(d.cell.a - m.cell.a) < 1e-3 && fabs(d.cell.b - m.cell.b) < 1e-3 &&
+                fabs(d.cell.c - m.cell.c) < 1e-3 && fabs(d.cell.alpha - m.cell.alpha) < 1e-3 &&
+                fabs(d.cell.beta - m.cell.beta) < 1e-3 && fabs(d.cell.gamma - m.cell.gamma) < 1e-3);
+        printf("field %s %dx%dx%d cell %.2f %.2f %.2f; fofc %s %dx%dx%d cell %.2f %.2f %.2f\n",
+               mapfile, m.nx, m.ny, m.nz, m.cell.a, m.cell.b, m.cell.c,
+               fofcfile, d.nx, d.ny, d.nz, d.cell.a, d.cell.b, d.cell.c);
+        printf("half-rho %g %g  max_mod %g (%s)  negative_scale %g\n",
+               halfrho_pos, halfrho_neg, maxmod, mult ? "mult" : "add", negative_scale);
+    }
+    if (offset != 0.0) printf("adding %g to every voxel\n", offset);
+
+    for (iz = 0; iz < m.nz; ++iz)
+      for (iy = 0; iy < m.ny; ++iy)
+        for (ix = 0; ix < m.nx; ++ix) {
+            size_t idx = MAPIDX(&m, ix, iy, iz);
+            double B = m.rho[idx], B0 = B;
+            if (fofcfile) {
+                double xf = (double)ix / m.nx, yf = (double)iy / m.ny, zf = (double)iz / m.nz;
+                double fofc, signif, mod;
+                if (!same) {
+                    double X, Y, Z;
+                    cell_orth(m.cell, xf, yf, zf, &X, &Y, &Z);
+                    xf = fd.f00*X + fd.f01*Y + fd.f02*Z;
+                    yf =            fd.f11*Y + fd.f12*Z;
+                    zf =                       fd.f22*Z;
+                }
+                fofc   = map_interp(&d, xf, yf, zf);
+                signif = pow(fabs(fofc) / (fofc < 0 ? halfrho_neg : halfrho_pos), 5.0);
+                if (signif > 1.0) signif = 1.0;
+                if (fofc < 0) signif = -signif;
+                mod = mult ? pow(maxmod, -signif) : -maxmod * signif;
+                if (signif < 0) mod *= pow(negative_scale, signif);
+                if (mult) { if (B <= 0.0) B = 0.01; B *= mod; }
+                else      B += mod;
+            }
+            B += offset;
+            if (B < minB) { B = minB; ++nlo; }
+            if (maxB > 0 && B > maxB) { B = maxB; ++nhi; }
+            if (B < B0 - 1e-6) ++ndown;
+            if (B > B0 + 1e-6) ++nup;
+            sumB0 += B0; sumB1 += B;
+            m.rho[idx] = (float)B;
+        }
+    printf("voxels: %.2f%% lowered, %.2f%% raised, %.2f%% at minB %g, %.2f%% at maxB %g; "
+           "mean B %.2f -> %.2f\n",
+           100.0*ndown/nvox, 100.0*nup/nvox, 100.0*nlo/nvox, minB, 100.0*nhi/nvox, maxB,
+           sumB0/nvox, sumB1/nvox);
+    {
+        char label[81];
+        snprintf(label, sizeof(label), "Bfac_map refined field (update of %.40s)", mapfile);
+        if (!write_ccp4(outmap, &m, label)) { map_free(&m); map_free(&d); return 0; }
+    }
+    map_free(&m); map_free(&d);
     return 1;
 }
 
@@ -1051,6 +1198,9 @@ static void usage(void)
 "\n"
 "  Bfac_map build pdb=Bfac.pdb [outmap=Bfac.map] [options]\n"
 "  Bfac_map probe pdb=frame.pdb map=Bfac.map [outpdb=-] [options]\n"
+"  Bfac_map update map=Bfac.map fofc=fofc_sigma.map halfrho_pos=h halfrho_neg=h \\\n"
+"                  [max_mod=2 mod_mode=add|mult negative_scale=0.9 offset=0] \\\n"
+"                  [minB=2 maxB=999.99] [outmap=Bfac.map]\n"
 "  Bfac_map stats map=Bfac.map\n"
 "\n"
 "build - each atom donates its B to the space around it:\n"
@@ -1086,6 +1236,14 @@ static void usage(void)
 "  symoplib=<path>  where to look sg= up  (default CLIBD/symop.lib)\n"
 "  wtol=1e-3        donation cutoff radius, as a fraction of the farB prior\n"
 "\n"
+"update - refine the field by location: every voxel gets the rule\n"
+"  Bfac_update_diffmap.com applies to an atom, driven by the difference map at\n"
+"  that voxel (signif = (fofc/halfrho)^5 clipped to [-1,1]; mult: B*=max_mod^-signif,\n"
+"  add: B+=-max_mod*signif; increases scaled by negative_scale^signif), then\n"
+"  offset= is added and B is clipped to [minB,maxB].  fofc= must be in sigma units\n"
+"  and span its whole cell, which may be smaller than the field's (sampled\n"
+"  periodically).  Without fofc= it only adds offset= (overall B shift).\n"
+"\n"
 "probe - trilinear interpolation of the map at each atom, rewriting only the\n"
 "  B column (columns 61-66) of each ATOM/HETATM record.  Sampling is periodic in\n"
 "  the map's cell, so atoms several cells out, or with unwrapped MD coordinates,\n"
@@ -1094,6 +1252,9 @@ static void usage(void)
 "  map=<file>       the B-factor map to read\n"
 "  outpdb=-         output PDB ('-' is stdout)\n"
 "  minB=0 maxB=0    clip the sampled B (maxB=0: none)\n"
+"  hfollow=1        a hydrogen takes the B just sampled for the heavy atom before\n"
+"                   it in the same residue (Amber order), instead of sampling the\n"
+"                   field a bond length away\n"
 "\n"
 "both:\n"
 "  cell=a,b,c,al,be,ga   coordinate frame, overriding CRYST1\n"
@@ -1121,6 +1282,9 @@ int main(int argc, char **argv)
     const char *sgname = NULL, *symops_str = NULL, *symoplib = NULL, *selresn = NULL;
     SYMOP  ops[MAXOPS];
     int    nops = 0, ispg = 1;
+    const char *fofcf = NULL;
+    double halfrho_pos = 0.0, halfrho_neg = 0.0, maxmod = 2.0, negscale = 0.9, offset = 0.0;
+    int    modmult = 0, hfollow = 1, minB_set = 0;
 
     memset(&cell_override, 0, sizeof(cell_override));
 
@@ -1131,7 +1295,7 @@ int main(int argc, char **argv)
         }
         if (!eq) {
             if (!mode && (!strcmp(arg, "build") || !strcmp(arg, "probe") ||
-                          !strcmp(arg, "stats"))) { mode = arg; continue; }
+                          !strcmp(arg, "update") || !strcmp(arg, "stats"))) { mode = arg; continue; }
             /* bare filenames: .pdb is coordinates, .map is a map */
             {
                 size_t L = strlen(arg);
@@ -1156,7 +1320,17 @@ int main(int argc, char **argv)
                                                                  gridspacing = atof(val);
             else if (!strcmp(key, "farb"))                            farB   = atof(val);
             else if (!strcmp(key, "fardist"))                         fardist= atof(val);
-            else if (!strcmp(key, "minb"))                            minB   = atof(val);
+            else if (!strcmp(key, "minb"))             { minB = atof(val); minB_set = 1; }
+            else if (!strcmp(key, "fofc") || !strcmp(key, "diffmap")) fofcf  = val;
+            else if (!strcmp(key, "halfrho_pos"))                     halfrho_pos = atof(val);
+            else if (!strcmp(key, "halfrho_neg"))                     halfrho_neg = atof(val);
+            else if (!strcmp(key, "halfrho"))         halfrho_pos = halfrho_neg = atof(val);
+            else if (!strcmp(key, "max_mod") || !strcmp(key, "maxmod")) maxmod = atof(val);
+            else if (!strcmp(key, "mod_mode") || !strcmp(key, "modmode"))
+                                                       modmult = !strcasecmp(val, "mult");
+            else if (!strcmp(key, "negative_scale"))                  negscale = atof(val);
+            else if (!strcmp(key, "offset"))                          offset = atof(val);
+            else if (!strcmp(key, "hfollow"))                         hfollow = atoi(val);
             else if (!strcmp(key, "maxb"))                            maxB   = atof(val);
             else if (!strcmp(key, "bscale"))                          Bscale = atof(val);
             else if (!strcmp(key, "boffset"))                         Boffset= atof(val);
@@ -1246,7 +1420,16 @@ int main(int argc, char **argv)
         if (!pdb)  { fprintf(stderr, "ERROR: probe needs pdb=<file>\n"); return 9; }
         if (!mapf) { fprintf(stderr, "ERROR: probe needs map=<file>\n"); return 9; }
         return do_probe(pdb, mapf, outpdb, cell_override, have_cell, super_mult,
-                        minB, maxB, verbose, selresn) ? 0 : 9;
+                        minB, maxB, verbose, selresn, hfollow) ? 0 : 9;
+    }
+    if (!strcmp(mode, "update")) {
+        if (!mapf) { fprintf(stderr, "ERROR: update needs map=<file>\n"); return 9; }
+        if (!minB_set) minB = 2.0;
+        if (maxB <= 0) maxB = 999.99;
+        /* default: overwrite the input, the field is the state being refined */
+        if (!strcmp(outmap, "Bfac.map")) outmap = mapf;
+        return do_update(mapf, fofcf, outmap, halfrho_pos, halfrho_neg, maxmod, modmult,
+                         negscale, offset, minB, maxB) ? 0 : 9;
     }
     if (!strcmp(mode, "stats")) {
         if (!mapf) { fprintf(stderr, "ERROR: stats needs map=<file>\n"); return 9; }

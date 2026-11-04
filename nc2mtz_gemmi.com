@@ -19,8 +19,13 @@ set auto_Bfac_file = rmsd2B.pdb
 # each atom's position.  gemmi sfcalc only takes per-atom B, so here the field is
 # sampled into the B column of every frame - the payoff (no per-atom sidecar at
 # all) is on the GPU path in nc2mtz_gpu.com; this is the reference for it.
-# Bfac_map=auto builds the field from the same per-atom B the old path used.
+# Bfac_map=auto builds the field from the same per-atom B the old path used, from
+# scratch every call, so it only re-deals per-atom B by position.  To refine B by
+# location, build it once (Bfac_map_save=) and pass that file on later calls, updating
+# it with Bfac_update_diffmap.com Bfac_map= (optimize_weights Bfac_map=refine).
 set Bfac_map = ""
+# copy the field built by Bfac_map=auto to this file
+set Bfac_map_save = ""
 set Bfac_map_sigma = 0.5
 set Bfac_map_grid = 0.5
 set Bfac_map_farB = 999
@@ -375,6 +380,10 @@ if( "$Bfac_map" != "" ) then
       goto exit
     endif
     set Bfac_map = ${t}Bfac.map
+    if( "$Bfac_map_save" != "" ) then
+      echo "saving the B-factor field as $Bfac_map_save"
+      cp $Bfac_map $Bfac_map_save
+    endif
   endif
   if( ! -e "$Bfac_map" ) then
     set BAD = "cannot read Bfac_map $Bfac_map"
