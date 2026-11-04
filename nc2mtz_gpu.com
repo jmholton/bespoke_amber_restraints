@@ -291,10 +291,12 @@ endif
 
 #setenv MEMSIZE `echo $CELL $reso | awk '{print int($1*$2*$3/($NF**3)*100)}'`
 
+# the B sidecar is matched to frames by atom order, and the frames have the water extra points stripped (strip
+# :WAT,HOH@Y1,EPW above), so drop them here too: otherwise 4-site water k takes the B of water ~3k/4
 touch ${t}Bfac.pdb
 if(-e "$Bfac_file") then
    cat  $Bfac_file |\
-   awk '/^ATOM|^HETAT/{print $0,"BFACTOR"}' |\
+   awk '/^ATOM|^HETAT/ && ! /EPW|Y1  HOH|Y 1  HOH/{print $0,"BFACTOR"}' |\
    cat >! ${t}Bfac.pdb
 endif
 
@@ -322,7 +324,8 @@ endif
 
 if( "$Bfac_file" == "rmsd2B" ) then
   echo "rmsd2B..."
-  echo "atomicfluct out ${t}bfac.out bfactor" |\
+  # numbered like the frames: without the water extra points
+  ( echo "strip :WAT,HOH@Y1,EPW" ; echo "atomicfluct out ${t}bfac.out bfactor" ) |\
   cpptraj.OMP -y $ncfile -p $topfile >! ${t}cpptraj_rmsd.log
 
   cat ${t}bfac.out $pdb |\
@@ -340,6 +343,7 @@ if(-e "$Bfac_file") then
    cat - $Bfac_file |\
    awk 'NR==1{minB=$1;maxB=$2;Bscale=$3;Boffset=$4;next}\
      ! /^ATOM|^HETAT/{next}\
+     /EPW|Y1  HOH|Y 1  HOH/{next}\
      {B=substr($0,61,6)*Bscale+Boffset;\
       pre=substr($0,1,60);post=substr($0,67)}\
      B<minB{B=minB} B>maxB{B=maxB}\
