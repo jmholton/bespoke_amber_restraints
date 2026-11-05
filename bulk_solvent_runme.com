@@ -61,6 +61,10 @@ set altloc_merge = 0.8
 # 1: the copies in the MD cell start in different conformers of those unrestrained split altlocs, in proportion to
 # their occupancies.  0: every copy starts in the first conformer
 set altloc_copies = 1
+# 1 (with altloc_copies): a water residue with one altloc letter goes only to the copies whose conformer (the letter
+# most of their split residues got) is that letter, so an ensemble's per-conformer waters are not all stacked into
+# every copy.  Blank-altloc waters, and letters no copy got, go to every copy.  0: every water in every copy
+set altloc_waters = 1
 set pdbscale = 0.01
 
 # MD: leap2amber stages, then hydration segments until the mean pressure is within the deadband of pressure_target
@@ -588,7 +592,9 @@ if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
           if(use[r,c]!=let[r,1])++moved[c]}\
         ++nres}\
       for(c=1;c<=ncopy;++c)line=line " " moved[c]+0;\
-      printf("%d residues with split conformers; per copy, residues not in the first conformer:%s\n",nres,line)}\
+      printf("%d residues with split conformers; per copy, residues not in the first conformer:%s\n",nres,line);\
+      for(c=1;c<=ncopy;++c){delete nu;best="";for(r in nl)if(++nu[use[r,c]]>nu[best])best=use[r,c];\
+        print c,best > "copy_letters.txt"}}\
     {for(c=1;c<=ncopy;++c){X=substr($0,31,8);Y=substr($0,39,8);Z=substr($0,47,8);id=substr($0,13,4) substr($0,18,10);\
        if(/^ATOM|^HETAT/ && split_[id])for(k=1;k<=n[id];++k)if(alt[id,k]==use[res[id],c]){X=x[id,k];Y=y[id,k];Z=z[id,k]}\
        if(/^ATOM|^HETAT/)printf("%s%8.3f%8.3f%8.3f%s\n",substr($0,1,30),X,Y,Z,substr($0,55)) > "asu_copy_" c ".pdb";\
@@ -602,8 +608,18 @@ if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
   end
   set np = `filter_pdb.awk -v only=protein,atoms ../asu_labeled.pdb | egrep -c "^ATOM|^HETAT"`
   set nl = `convert_pdb.awk -v only=ligand,atoms ../asu_labeled.pdb | egrep -c "^ATOM|^HETAT"`
+  # the altloc letters of each water atom of renamed.pdb, in its order (asu_noalt.pdb keeps the first line of each
+  # atom of asu_kept.pdb, and blanks the letter); "-" for none, or for a water residue with more than one letter
+  filter_pdb.awk -v only=water,atoms ../asu_kept.pdb |\
+  awk '/^ATOM|^HETAT/{rid=substr($0,22,6);id=substr($0,13,4) substr($0,18,10);L=substr($0,17,1);\
+      if(!(rid in rl))rl[rid]=L;else if(rl[rid]!=L)rl[rid]="-";if(!(id in seen)){seen[id]=1;r[++n]=rid}}\
+    END{for(i=1;i<=n;++i){L=rl[r[i]];if(L==" ")L="-";print L}}' >! water_letters.txt
+  if( ! $altloc_waters ) awk '{print "-"}' water_letters.txt >! ${t}wl.txt
+  if( ! $altloc_waters ) mv ${t}wl.txt water_letters.txt
   # check every atom sits at R_c x + t_c (mod the cell) under the right name before moving any
-  awk -v np=$np -v nl=$nl 'FILENAME=="monomer_rot_trans.txt"{if(NF<13)next;c=++nc;\
+  awk -v np=$np -v nl=$nl 'FILENAME=="copy_letters.txt"{cl[$1]=$2;isc[$2]=1;next}\
+      FILENAME=="water_letters.txt"{wl[++nwl]=$1;next}\
+      FILENAME=="monomer_rot_trans.txt"{if(NF<13)next;c=++nc;\
         for(m=1;m<=9;++m)R[c,m]=$(m+1);t[c,1]=$11;t[c,2]=$12;t[c,3]=$13;next}\
       FILENAME=="renamed.pdb"{if(/^ATOM|^HETAT/){i=++na;x0[i]=substr($0,31,8);y0[i]=substr($0,39,8);z0[i]=substr($0,47,8);\
         nm[i]=substr($0,13,8)};next}\
@@ -626,11 +642,14 @@ if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
        X+=R[c,1]*dx[c,i]+R[c,2]*dy[c,i]+R[c,3]*dz[c,i];Y+=R[c,4]*dx[c,i]+R[c,5]*dy[c,i]+R[c,6]*dz[c,i];\
        Z+=R[c,7]*dx[c,i]+R[c,8]*dy[c,i]+R[c,9]*dz[c,i];\
        if(dx[c,i]!=0 || dy[c,i]!=0 || dz[c,i]!=0)++nmoved;\
+       w=i-np-nl;if(w>0 && isc[wl[w]] && wl[w]!=cl[c]){++ndrop;next}\
        out[++no]=sprintf("%s%8.3f%8.3f%8.3f%s",substr($0,1,30),X,Y,Z,substr($0,55))}\
-    END{if(bad || ns!=nc*na){printf("WARNING: %d of %d atoms in super.pdb do not match their copy: every copy keeps the first conformer\n",bad,ns);exit}\
+    END{if(bad || ns!=nc*na || nwl!=na-np-nl){printf("WARNING: %d of %d atoms in super.pdb do not match their copy: every copy keeps the first conformer\n",bad,ns);exit}\
       for(k=1;k<=no;++k)print out[k] > "super_altcopies.pdb";\
-      printf("%d atoms moved to other conformers across %d copies\n",nmoved,nc)}' \
-    monomer_rot_trans.txt renamed.pdb renamed_*.pdb super.pdb | tee -a altloc_copies.log
+      printf("%d atoms moved to other conformers across %d copies\n",nmoved,nc);\
+      printf("%d water atoms of other conformers left out (copy letters:",ndrop+0);\
+      for(c=1;c<=nc;++c)printf(" %s",cl[c]);print ")"}' \
+    copy_letters.txt water_letters.txt monomer_rot_trans.txt renamed.pdb renamed_*.pdb super.pdb | tee -a altloc_copies.log
   if( -e super_altcopies.pdb ) then
     mv super.pdb super_firstconf.pdb
     mv super_altcopies.pdb super.pdb
