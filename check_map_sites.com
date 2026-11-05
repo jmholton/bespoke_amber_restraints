@@ -101,9 +101,12 @@ EOF
           /Space group =/{split($0,s,"\047");sg=s[2];next}\
           END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' |\
         cat - ${tempfile}_probe.pdb >! ${tempfile}_probe_c1.pdb
+        # on the input map's own grid spacing, and back in atom order (phenix reorders atoms)
+        set gridstep = `echo | mapdump mapin ${mapfile} | awk '/Grid sampling/{nx=$(NF-2);ny=$(NF-1);nz=$NF} /Cell dimensions/{a=$(NF-5);b=$(NF-4);c=$(NF-3)} END{s=a/nx;if(b/ny<s)s=b/ny;if(c/nz<s)s=c/nz;printf("%.3f",s)}'`
         phenix.map_value_at_point ${tempfile}onecol.mtz ${tempfile}_probe_c1.pdb \
-          ${phenixlabel}=F scale=volume |\
+          ${phenixlabel}=F scale=volume grid_step=$gridstep |\
         tee -a ${tempfile}phenix.log |\
+        cat ${tempfile}_probe_c1.pdb - | map_values_inorder.awk |\
         awk '/Map value:/{print $NF}' | tee ${tempfile}phenixpeeks
     endif
     set test = `cat ${tempfile}phenixpeeks | wc -l`

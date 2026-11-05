@@ -631,7 +631,7 @@ if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
       /^CRYST1/{pi=atan2(1,1)*4;a=$2;b=$3;cc=$4;ca=cos($5*pi/180);cb=cos($6*pi/180);cg=cos($7*pi/180);sg=sin($7*pi/180);\
         v=sqrt(1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg)}\
       ! /^ATOM|^HETAT/{out[++no]=$0;next}\
-      {s=++ns;nw=na-np-nl;\
+      {s=++ns;nw=na-np-nl;if(ns==1)wlok=(nwl==nw);\
        if(s<=nc*np){c=int((s-1)/np)+1;i=(s-1)%np+1}\
        else if(s<=nc*(np+nl)){s-=nc*np;c=int((s-1)/nl)+1;i=np+(s-1)%nl+1}\
        else{s-=nc*(np+nl);c=int((s-1)/nw)+1;i=np+nl+(s-1)%nw+1}\
@@ -645,11 +645,12 @@ if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
        X+=R[c,1]*dx[c,i]+R[c,2]*dy[c,i]+R[c,3]*dz[c,i];Y+=R[c,4]*dx[c,i]+R[c,5]*dy[c,i]+R[c,6]*dz[c,i];\
        Z+=R[c,7]*dx[c,i]+R[c,8]*dy[c,i]+R[c,9]*dz[c,i];\
        if(dx[c,i]!=0 || dy[c,i]!=0 || dz[c,i]!=0)++nmoved;\
-       w=i-np-nl;if(w>0 && isc[wl[w]] && wl[w]!=cl[c]){++ndrop;next}\
+       w=i-np-nl;if(wlok && w>0 && isc[wl[w]] && wl[w]!=cl[c]){++ndrop;next}\
        out[++no]=sprintf("%s%8.3f%8.3f%8.3f%s",substr($0,1,30),X,Y,Z,substr($0,55))}\
-    END{if(bad || ns!=nc*na || nwl!=na-np-nl){printf("WARNING: %d of %d atoms in super.pdb do not match their copy: every copy keeps the first conformer\n",bad,ns);exit}\
+    END{if(bad || ns!=nc*na){printf("WARNING: %d of %d atoms in super.pdb do not match their copy: every copy keeps the first conformer\n",bad,ns);exit}\
       for(k=1;k<=no;++k)print out[k] > "super_altcopies.pdb";\
       printf("%d atoms moved to other conformers across %d copies\n",nmoved,nc);\
+      if(! wlok){printf("WARNING: %d water altloc letters for %d water atoms: every water goes to every copy\n",nwl,na-np-nl);exit}\
       printf("%d water atoms of other conformers left out (copy letters:",ndrop+0);\
       for(c=1;c<=nc;++c)printf(" %s",cl[c]);print ")"}' \
     copy_letters.txt water_letters.txt monomer_rot_trans.txt renamed.pdb renamed_*.pdb super.pdb | tee -a altloc_copies.log

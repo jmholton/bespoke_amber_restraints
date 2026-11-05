@@ -16,6 +16,9 @@ set mtzfile = cootme.mtz
 set mtzlabel = DELFWT
 
 set phenixlabel = miller_array.labels.name
+# map grid points per resolution element for phenix.map_value_at_point (its own default, 0.5 A,
+# flattens the density atoms sit on at high resolution: 27% low at 1aho's 0.965 A, d/6 1.6%)
+set grid_sample = 6
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
 if( "$test" == "1" ) set phenixlabel = label
 
@@ -136,8 +139,10 @@ awk '/Cell Dimensions :/{getline;getline;\
   /Space group =/{split($0,s,"\047");sg=s[2];next}\
   END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' |\
 cat - ${t}disposable.pdb >! ${t}disposable_c1.pdb
+set gridstep = `echo head | mtzdump hklin $mtzfile | awk -v n=$grid_sample '/Resolution Range/{getline;getline;printf("%.3f",$6/n)}'`
 phenix.map_value_at_point $mtzfile ${t}disposable_c1.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma >! ${t}map_values.log
+          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep |\
+cat ${t}disposable_c1.pdb - | map_values_inorder.awk >! ${t}map_values.log
 
 cat ${t}map_values.log ${t}disposable.pdb |\
 awk '/Map value:/{++n;rho[n]=$NF;next}\

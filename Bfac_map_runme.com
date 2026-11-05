@@ -118,10 +118,13 @@ set super_mult_csv = `echo $super_mult | awk '{print $1","$2","$3}'`
 
 # the C program does the work
 set exe = "$pdir/Bfac_map"
-if( ! -x "$exe" ) then
+# (re)compile when missing or older than its source
+set test = 1
+if( -x "$exe" && -e "$pdir/Bfac_map.c" ) set test = `find "$pdir/Bfac_map.c" -newer "$exe" | wc -l`
+if( $test ) then
   if( -e "$pdir/Bfac_map.c" ) then
     echo "compiling Bfac_map ..."
-    gcc -O3 -o "$exe" "$pdir/Bfac_map.c" -lm
+    gcc -O3 -o "${exe}_$$" "$pdir/Bfac_map.c" -lm && mv -f "${exe}_$$" "$exe"
     if( $status || ! -x "$exe" ) then
       set BAD = "cannot compile $pdir/Bfac_map.c"
       goto exit

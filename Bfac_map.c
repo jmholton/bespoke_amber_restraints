@@ -1058,17 +1058,82 @@ static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb
  *     increases (signif < 0) are scaled by negative_scale^signif
  * then offset is added (the overall B adjustment) and B clipped to [minB,maxB].
  * fofc must be in sigma units; its cell may be smaller than the field's (an MD
- * supercell field, a unit-cell difference map): it is sampled periodically. */
+ * supercell field, a unit-cell difference map): it is sampled periodically.
+ *
+ * With mask=, the difference map only moves the voxels that the mask atoms
+ * (every frame's probed atoms) read: the 8 corners of the grid cell each atom
+ * interpolates from, plus any voxel within mask_pad A of it.  Elsewhere - where
+ * no selected atom went, e.g. inside the protein for a water-only field - the
+ * fofc belongs to other atoms, so the field keeps its value.  offset= still
+ * shifts every voxel. */
+
+/* is this record an extra point (nc2mtz strips @Y1,EPW from the frames)? */
+static int pdb_is_EP(const char *line)
+{
+    char name[5]; int i, j = 0;
+    for (i = 12; i < 16 && line[i] && line[i] != '\n'; ++i) if (line[i] != ' ') name[j++] = line[i];
+    name[j] = '\0';
+    return (!strcmp(name, "EPW") || !strcmp(name, "Y1"));
+}
+
+/* mark the voxels of m that the selected atoms of maskfile ("-" = stdin) read */
+static int mark_mask(const MAP *m, const char *maskfile, const char *selresn, int skipH,
+                     double pad, unsigned char *mask, long *natoms)
+{
+    FILE  *f;
+    char   line[512];
+    FRAC   fr = cell_frac(m->cell);
+    double g11, g22, g33, g12, g13, g23, rfx, rfy, rfz;
+    int    px = 0, py = 0, pz = 0;
+
+    cell_metric(m->cell, &g11, &g22, &g33, &g12, &g13, &g23);
+    if (pad > 0) {
+        cell_recip_diag(m->cell, &rfx, &rfy, &rfz);
+        px = (int)ceil(pad * rfx * m->nx); py = (int)ceil(pad * rfy * m->ny); pz = (int)ceil(pad * rfz * m->nz);
+    }
+    f = strcmp(maskfile, "-") ? fopen(maskfile, "r") : stdin;
+    if (!f) { fprintf(stderr, "ERROR: cannot open mask %s\n", maskfile); return 0; }
+    *natoms = 0;
+    while (fgets(line, sizeof(line), f)) {
+        double X, Y, Z, gx, gy, gz;
+        int    i0, j0, k0, di, dj, dk, len = (int)strlen(line);
+        if (strncmp(line, "ATOM  ", 6) && strncmp(line, "HETATM", 6)) continue;
+        while (len && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len < 54) continue;
+        if (selresn && selresn[0] && !resn_sel(line + 17, selresn)) continue;
+        if ((skipH && pdb_is_H(line)) || pdb_is_EP(line)) continue;
+        X = pdb_field(line, 30, 8); Y = pdb_field(line, 38, 8); Z = pdb_field(line, 46, 8);
+        gx = fr.f00*X + fr.f01*Y + fr.f02*Z; gy = fr.f11*Y + fr.f12*Z; gz = fr.f22*Z;
+        gx = (gx - floor(gx)) * m->nx; gy = (gy - floor(gy)) * m->ny; gz = (gz - floor(gz)) * m->nz;
+        i0 = (int)floor(gx); j0 = (int)floor(gy); k0 = (int)floor(gz);
+        /* the interpolation cell, as map_interp reads it */
+        for (dk = 0; dk <= 1; ++dk) for (dj = 0; dj <= 1; ++dj) for (di = 0; di <= 1; ++di)
+            mask[MAPIDX(m, (i0 + di) % m->nx, (j0 + dj) % m->ny, (k0 + dk) % m->nz)] = 1;
+        for (dk = -pz; dk <= pz + 1; ++dk) for (dj = -py; dj <= py + 1; ++dj) for (di = -px; di <= px + 1; ++di) {
+            double dx = (i0 + di - gx) / m->nx, dy = (j0 + dj - gy) / m->ny, dz = (k0 + dk - gz) / m->nz;
+            double r2 = g11*dx*dx + g22*dy*dy + g33*dz*dz + 2.0*(g12*dx*dy + g13*dx*dz + g23*dy*dz);
+            if (pad <= 0 || r2 > pad*pad) continue;
+            mask[MAPIDX(m, ((i0 + di) % m->nx + m->nx) % m->nx, ((j0 + dj) % m->ny + m->ny) % m->ny,
+                           ((k0 + dk) % m->nz + m->nz) % m->nz)] = 1;
+        }
+        ++*natoms;
+    }
+    if (f != stdin) fclose(f);
+    return 1;
+}
+
 static int do_update(const char *mapfile, const char *fofcfile, const char *outmap,
                      double halfrho_pos, double halfrho_neg, double maxmod, int mult,
-                     double negative_scale, double offset, double minB, double maxB)
+                     double negative_scale, double offset, double minB, double maxB,
+                     const char *maskfile, const char *selresn, int skipH, double pad)
 {
     MAP    m, d;
     FRAC   fd;
-    size_t nvox;
+    size_t nvox, nmask = 0, v;
     int    ix, iy, iz, same = 1;
     size_t ndown = 0, nup = 0, nlo = 0, nhi = 0;
     double sumB0 = 0.0, sumB1 = 0.0;
+    unsigned char *mask = NULL;
 
     m.rho = d.rho = NULL;
     if (!read_ccp4(mapfile, &m)) return 0;
@@ -1077,12 +1142,26 @@ static int do_update(const char *mapfile, const char *fofcfile, const char *outm
         fprintf(stderr, "ERROR: update needs halfrho_pos > 0 and halfrho_neg > 0\n");
         map_free(&m); map_free(&d); return 0;
     }
-    if (fofcfile && (mult ? maxmod <= 1.0 : maxmod < 0.0)) {
+    /* mult max_mod 1 and add max_mod 0 are legal no-ops, as in the per-atom update */
+    if (fofcfile && (mult ? maxmod < 1.0 : maxmod < 0.0)) {
         fprintf(stderr, "ERROR: max_mod %g makes no sense in %s mode\n",
                 maxmod, mult ? "mult" : "add");
         map_free(&m); map_free(&d); return 0;
     }
     nvox = (size_t)m.nx * m.ny * m.nz;
+    if (fofcfile && maskfile) {
+        long natoms = 0;
+        mask = (unsigned char *)calloc(nvox, 1);
+        if (!mask) { fprintf(stderr, "ERROR: out of memory for the mask\n"); map_free(&m); map_free(&d); return 0; }
+        if (!mark_mask(&m, maskfile, selresn, skipH, pad, mask, &natoms)) {
+            free(mask); map_free(&m); map_free(&d); return 0;
+        }
+        for (v = 0; v < nvox; ++v) nmask += mask[v];
+        printf("mask: %ld %satoms%s%s from %s read %.2f%% of the voxels (pad %g A)\n",
+               natoms, skipH ? "non-H " : "", (selresn && selresn[0]) ? " of " : "",
+               (selresn && selresn[0]) ? selresn : "", maskfile, 100.0*nmask/nvox, pad);
+        if (!natoms) fprintf(stderr, "WARNING: no mask atoms: the difference map moves nothing\n");
+    }
     if (fofcfile) {
         fd   = cell_frac(d.cell);
         same = (fabs(d.cell.a - m.cell.a) < 1e-3 && fabs(d.cell.b - m.cell.b) < 1e-3 &&
@@ -1101,7 +1180,7 @@ static int do_update(const char *mapfile, const char *fofcfile, const char *outm
         for (ix = 0; ix < m.nx; ++ix) {
             size_t idx = MAPIDX(&m, ix, iy, iz);
             double B = m.rho[idx], B0 = B;
-            if (fofcfile) {
+            if (fofcfile && (!mask || mask[idx])) {
                 double xf = (double)ix / m.nx, yf = (double)iy / m.ny, zf = (double)iz / m.nz;
                 double fofc, signif, mod;
                 if (!same) {
@@ -1132,6 +1211,7 @@ static int do_update(const char *mapfile, const char *fofcfile, const char *outm
            "mean B %.2f -> %.2f\n",
            100.0*ndown/nvox, 100.0*nup/nvox, 100.0*nlo/nvox, minB, 100.0*nhi/nvox, maxB,
            sumB0/nvox, sumB1/nvox);
+    free(mask);
     {
         char label[81];
         snprintf(label, sizeof(label), "Bfac_map refined field (update of %.40s)", mapfile);
@@ -1200,7 +1280,7 @@ static void usage(void)
 "  Bfac_map probe pdb=frame.pdb map=Bfac.map [outpdb=-] [options]\n"
 "  Bfac_map update map=Bfac.map fofc=fofc_sigma.map halfrho_pos=h halfrho_neg=h \\\n"
 "                  [max_mod=2 mod_mode=add|mult negative_scale=0.9 offset=0] \\\n"
-"                  [minB=2 maxB=999.99] [outmap=Bfac.map]\n"
+"                  [minB=2 maxB=999.99] [mask=frames.pdb|- selresn=HOH mask_pad=0] [outmap=<map>]\n"
 "  Bfac_map stats map=Bfac.map\n"
 "\n"
 "build - each atom donates its B to the space around it:\n"
@@ -1243,6 +1323,13 @@ static void usage(void)
 "  offset= is added and B is clipped to [minB,maxB].  fofc= must be in sigma units\n"
 "  and span its whole cell, which may be smaller than the field's (sampled\n"
 "  periodically).  Without fofc= it only adds offset= (overall B shift).\n"
+"  outmap= defaults to the input map (the field is the state being refined).\n"
+"  mask=<pdb>|-     only the voxels these atoms read move with fofc: the 8\n"
+"                   corners each atom interpolates from (all frames concatenated,\n"
+"                   '-' = stdin).  selresn= picks the atoms, hydrogens are skipped\n"
+"                   while hfollow=1 (they read their parent's B), extra points\n"
+"                   always.  Everywhere else keeps its B (offset= still applies).\n"
+"  mask_pad=0       also move voxels within this many A of a mask atom\n"
 "\n"
 "probe - trilinear interpolation of the map at each atom, rewriting only the\n"
 "  B column (columns 61-66) of each ATOM/HETATM record.  Sampling is periodic in\n"
@@ -1271,7 +1358,7 @@ int main(int argc, char **argv)
     const char *mode   = NULL;
     const char *pdb    = NULL;
     const char *mapf   = NULL;
-    const char *outmap = "Bfac.map";
+    const char *outmap = NULL;
     const char *outpdb = "-";
     double sigma = 0.5, gridspacing = 0.5, farB = 999.0, fardist = 4.5;
     double minB = 0.0, maxB = 0.0, Bscale = 1.0, Boffset = 0.0, wtol = 1e-3;
@@ -1282,8 +1369,9 @@ int main(int argc, char **argv)
     const char *sgname = NULL, *symops_str = NULL, *symoplib = NULL, *selresn = NULL;
     SYMOP  ops[MAXOPS];
     int    nops = 0, ispg = 1;
-    const char *fofcf = NULL;
+    const char *fofcf = NULL, *maskf = NULL;
     double halfrho_pos = 0.0, halfrho_neg = 0.0, maxmod = 2.0, negscale = 0.9, offset = 0.0;
+    double mask_pad = 0.0;
     int    modmult = 0, hfollow = 1, minB_set = 0;
 
     memset(&cell_override, 0, sizeof(cell_override));
@@ -1330,6 +1418,8 @@ int main(int argc, char **argv)
                                                        modmult = !strcasecmp(val, "mult");
             else if (!strcmp(key, "negative_scale"))                  negscale = atof(val);
             else if (!strcmp(key, "offset"))                          offset = atof(val);
+            else if (!strcmp(key, "mask"))                            maskf  = val;
+            else if (!strcmp(key, "mask_pad"))                        mask_pad = atof(val);
             else if (!strcmp(key, "hfollow"))                         hfollow = atoi(val);
             else if (!strcmp(key, "maxb"))                            maxB   = atof(val);
             else if (!strcmp(key, "bscale"))                          Bscale = atof(val);
@@ -1411,6 +1501,7 @@ int main(int argc, char **argv)
             nops = 1;
             ispg = 1;
         }
+        if (!outmap) outmap = "Bfac.map";
         return do_build(pdb, outmap, cell_override, have_cell, super_mult,
                         sigma, gridspacing, nxyz, farB, fardist,
                         minB, maxB, Bscale, Boffset, useocc, wtol, selresn,
@@ -1427,9 +1518,10 @@ int main(int argc, char **argv)
         if (!minB_set) minB = 2.0;
         if (maxB <= 0) maxB = 999.99;
         /* default: overwrite the input, the field is the state being refined */
-        if (!strcmp(outmap, "Bfac.map")) outmap = mapf;
+        if (!outmap) outmap = mapf;
+        if (maskf && !fofcf) fprintf(stderr, "WARNING: mask= only limits the fofc= update\n");
         return do_update(mapf, fofcf, outmap, halfrho_pos, halfrho_neg, maxmod, modmult,
-                         negscale, offset, minB, maxB) ? 0 : 9;
+                         negscale, offset, minB, maxB, maskf, selresn, hfollow, mask_pad) ? 0 : 9;
     }
     if (!strcmp(mode, "stats")) {
         if (!mapf) { fprintf(stderr, "ERROR: stats needs map=<file>\n"); return 9; }

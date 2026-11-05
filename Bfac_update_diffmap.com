@@ -27,6 +27,10 @@ set overall_scale = 1
 set overall_offset = 0
 set negative_scale = 0.9
 set fft_B = 0
+# fofc map grid points per resolution element, for the map and for the phenix probe of the atoms
+# in it.  Linear interpolation flattens the extremes atoms sit on: at 1aho's 0.965 A, against a
+# 0.12 A grid, phenix's own 0.5 A default (d/2) read 27% low, d/4 6%, d/6 1.6%
+set grid_sample = 6
 set shan_B = auto
 set Wilson_B = 2
 set halfrho_pos = auto
@@ -43,6 +47,13 @@ set ambig_same_Bfac = 1
 # difference map at that voxel.  Written to Bfac_map_out; the per-atom update still runs.
 set Bfac_map = ""
 set Bfac_map_out = new_Bfac.map
+# the residues the field supplies B for (as nc2mtz Bfac_map_selresn; "" = all atoms)
+set Bfac_map_selresn = ""
+# 1: only the voxels those residues' atoms read in the trajectory frames move; elsewhere
+# (e.g. inside the protein, for a water field) the fofc belongs to other atoms.  0: every voxel
+set Bfac_map_mask = 1
+# also move voxels within this many A of a masked atom
+set Bfac_map_mask_pad = 0
 set pdir = `dirname $0`
 
 set mtzlabel = DELFWT
@@ -130,12 +141,15 @@ endif
 set mtzreso = `echo head | mtzdump hklin $mtzfile | awk '/Resolution Range/{getline;getline;print $6}'`
 
 set fftreso = `echo $mtzreso 1.2 | awk '{print ($2*($1^-3))^(-1/3)}'`
+# grid spacing mtzreso/grid_sample, the same for this map and for the atom probe below
+set fftsample = `echo $grid_sample $fftreso $mtzreso | awk '{print $1*$2/$3}'`
 
 echo "fofc with B=$fft_B"
 fft hklin $mtzfile mapout ${t}ffted.map << EOF >> $logfile
 labin F1=$mtzlabel PHI=PHDELWT
 scale F1 1 $fft_B
 reso $fftreso
+grid sample $fftsample
 EOF
 echo scale sigma 1 0 |\
 mapmask mapin ${t}ffted.map mapout ${t}fofc_sigma.map >> $logfile
@@ -149,7 +163,7 @@ EOF
 sfall mapin ${t}extended.map hklout ${t}sfalled.mtz << EOF >> $logfile
 mode sfcalc mapin
 sfsg 1
-reso 1
+reso $mtzreso
 EOF
 cad hklin1 ${t}sfalled.mtz hklout ${t}diffmap.mtz << EOF >> $logfile
 labin file 1 E1=FC E2=PHIC
@@ -169,6 +183,9 @@ set GRID = `awk '/Grid sampling/{print "GRID", $(NF-2), $(NF-1), $NF; exit}' ${t
 set AXIS = `awk '/Fast, medium, slow/{print "AXIS", $(NF-2), $(NF-1), $NF}' ${t}mapdump.txt | awk '$NF !~ /[^ XYZ]/'`
 set LIMITS = `awk '/Fast, medium, slow/{o[$(NF-2)]=1;o[$(NF-1)]=2;o[$NF]=3; print "XYZLIM",b[o["X"]],e[o["X"]], b[o["Y"]],e[o["Y"]], b[o["Z"]],e[o["Z"]]; exit} /Start and stop points/{b[1]=$(NF-5); e[1]=$(NF-4); b[2]=$(NF-3); e[2]=$(NF-2); b[3]=$(NF-1); e[3]=$NF}' ${t}mapdump.txt`
 set smallCELL = `awk '/Cell dimensions /{print $4,$5,$6,$7,$8,$9;exit}' ${t}mapdump.txt`
+# the atoms are probed on the same grid spacing as the field's fofc map
+set gridstep = `echo $GRID $smallCELL | awk '{s=$5/$2; if($6/$3>s)s=$6/$3; if($7/$4>s)s=$7/$4; printf("%.3f",s)}'`
+echo "fofc ${GRID}: probing atoms with grid_step $gridstep"
 set smallSGnum  = `awk '/ Space-group /{print $NF;exit}' ${t}mapdump.txt`
 set smallSG = `awk -v n=$smallSGnum '$1==n{print $4;exit}' ${CLIBD}/symop.lib`
 set nsymops = `awk -v n=$smallSGnum '$1==n{print $3;exit}' ${CLIBD}/symop.lib`
@@ -236,7 +253,7 @@ awk '/EPW|Y1  HOH|Y 1  HOH/{next} \
 awk '{x=substr(\$0,31,8);y=substr(\$0,39,8);z=substr(\$0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}'  >! \${t}key.txt
 phenix.map_value_at_point ${t}diffmap.mtz \${t}.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma $debuglog |\
+          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep $debuglog |\
 cat \${t}key.txt - |\
 awk '\$NF=="KEY"{n[\$1]=\$2;next}\
   /Map value:/ && \$3~/^\(/{print n[\$3],\$3,++i,\$NF;next}\
@@ -317,21 +334,32 @@ if( "$Bfac_map" != "" ) then
     set BAD = "no B-factor field: $Bfac_map"
     goto exit
   endif
+  # (re)compile when missing or older than its source: an old binary has no update mode
   set Bmapexe = ${pdir}/Bfac_map
-  if( ! -x "$Bmapexe" ) then
+  set test = 1
+  if( -x "$Bmapexe" ) set test = `find ${pdir}/Bfac_map.c -newer $Bmapexe | wc -l`
+  if( $test ) then
     echo "compiling Bfac_map ..."
-    gcc -O3 -o $Bmapexe ${pdir}/Bfac_map.c -lm
+    gcc -O3 -o ${Bmapexe}_$$ ${pdir}/Bfac_map.c -lm && mv -f ${Bmapexe}_$$ $Bmapexe
+    if( $status || ! -x "$Bmapexe" ) then
+      set BAD = "cannot compile ${pdir}/Bfac_map.c"
+      goto exit
+    endif
   endif
-  # the same sigma-scaled fofc that the atoms are probed in, expanded to the whole cell
+  # the fofc the atoms are probed in (same coefficients, resolution, fft_B, sigma and grid spacing as
+  # the probe of diffmap.mtz), expanded to the whole cell
   mapmask mapin ${t}fofc_sigma.map mapout ${t}fofc_cell.map << EOF >> $logfile
 xyzlim cell
 axis X Y Z
 EOF
+  set maskopt = ""
+  if( $Bfac_map_mask ) set maskopt = "mask=- mask_pad=$Bfac_map_mask_pad"
   echo "updating B-factor field $Bfac_map -> $Bfac_map_out"
+  cat ${trajectory}/md.*.pdb |\
   $Bmapexe update map=$Bfac_map fofc=${t}fofc_cell.map outmap=$Bfac_map_out \
      halfrho_pos=$halfrho_pos halfrho_neg=$halfrho_neg \
      max_mod=$max_mod mod_mode=$mod_mode negative_scale=$negative_scale \
-     minB=$min_Bfac maxB=$max_Bfac
+     minB=$min_Bfac maxB=$max_Bfac selresn=$Bfac_map_selresn $maskopt
   if( $status || ! -e "$Bfac_map_out" ) then
     set BAD = "B-factor field update failed"
     goto exit

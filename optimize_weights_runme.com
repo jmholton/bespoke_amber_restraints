@@ -65,10 +65,13 @@ set Bfac_maxmod = 2
 set Bfac_modmode = add
 # B factors by LOCATION rather than by atom: a CCP4 map of B(x,y,z) that the
 # structure-factor step samples at each atom's position.
-#  refine = Bfac.map REPLACES Bfac.pdb as the refined B: seeded once from $Bfac_file,
-#           then every iteration updated by position from the difference map (same
-#           rule and Bfac_maxmod/Bfac_modmode as the per-atom update) and probed for
-#           every frame.  A water takes the B of wherever it is, so remaps never matter.
+#  refine = Bfac.map REPLACES Bfac.pdb as the refined B: seeded once from $Bfac_file
+#           (or at the uniform render_B if there is none), then every iteration updated
+#           by position from the difference map (same rule and Bfac_maxmod/Bfac_modmode
+#           as the per-atom update) wherever the Bfac_map_selresn atoms went in the
+#           frames, and probed for every frame.  A water takes the B of wherever it is,
+#           so remaps never matter.  The example runmes hand Bfac_${previtr}.map on to
+#           the next stage with Bfac_${previtr}.pdb.
 #  auto   = nc2mtz rebuilds a field from $Bfac_file's per-atom B on every render.  That
 #           only re-deals per-molecule B by position (from one frame); kept for comparison.
 #  a file name = a fixed field you maintain yourself (Bfac_map_runme.com).
@@ -1219,7 +1222,11 @@ if(-e "$trajectory" && $needtraj ) then
       set nc2mtz_Bmap = "Bfac_map=$cwd/Bfac.map Bfac_map_selresn=$Bfac_map_selresn"
     else
       # first render: seed the field from the per-atom B, once; it is refined from here on
-      echo "seeding Bfac.map from $Bfac_file"
+      if( -e "$Bfac_file" || "$Bfac_file" == "rmsd2B" ) then
+        echo "seeding Bfac.map from $Bfac_file"
+      else
+        echo "seeding Bfac.map at the uniform render_B=$render_B"
+      endif
       set nc2mtz_Bmap = "Bfac_map=auto Bfac_map_save=$cwd/Bfac.map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB Bfac_map_selresn=$Bfac_map_selresn"
     endif
   endif
@@ -1329,8 +1336,8 @@ if( "$render_B_adjust" != "0" ) then
      set render_B = `echo $render_B $render_B_adjust $render_B_min $stats | awk '{newB=$1+$2*$6} newB<$3{newB=$3} {print newB}'`
      echo "next render_B will be: $render_B"
   endif
+  set deltaB = `echo $stats $render_B_adjust | awk '{print $3*$NF}'`
   if(-e "$Bfac_file") then
-     set deltaB = `echo $stats $render_B_adjust | awk '{print $3*$NF}'`
      echo "$deltaB 2 999.99" |\
      cat - "$Bfac_file" |\
      awk 'NR==1{deltaB=$1;minB=$2;maxB=$3;next}\
@@ -1348,15 +1355,16 @@ if( "$render_B_adjust" != "0" ) then
      echo "adding $deltaB to all B factors in $Bfac_file ($pegmin at min, $pegmax at max)"
      cp ${Bfac_file} Bfac_preadjust_${itr}.pdb
      cp newB.pdb ${Bfac_file}
-     if( "$Bfac_map" == "refine" && -e Bfac.map ) then
-       echo "adding $deltaB to the B-factor field Bfac.map"
-       Bfac_map update map=Bfac.map offset=$deltaB minB=2 maxB=999.99 outmap=${t}newB.map
-       if( $status || ! -e ${t}newB.map ) then
-         set BAD = "Bfac.map overall B adjustment failed"
-         goto exit
-       endif
-       mv ${t}newB.map Bfac.map
+  endif
+  # the field gets the same shift, with or without a per-atom B file
+  if( "$Bfac_map" == "refine" && -e Bfac.map ) then
+     echo "adding $deltaB to the B-factor field Bfac.map"
+     Bfac_map update map=Bfac.map offset=$deltaB minB=2 maxB=999.99 outmap=${t}newB.map
+     if( $status || ! -e ${t}newB.map ) then
+       set BAD = "Bfac.map overall B adjustment failed"
+       goto exit
      endif
+     mv ${t}newB.map Bfac.map
   endif
 endif
 
@@ -1483,7 +1491,7 @@ if( "$Bfac_map" == "refine" ) then
     cp premod_Bfac_${itr}.map Bfac.map
   endif
   if(-e Bfac.map) then
-    set Bmapopt = "Bfac_map=$cwd/Bfac.map Bfac_map_out=$cwd/new_Bfac.map"
+    set Bmapopt = "Bfac_map=$cwd/Bfac.map Bfac_map_out=$cwd/new_Bfac.map Bfac_map_selresn=$Bfac_map_selresn"
   else
     echo "WARNING: Bfac_map=refine but no Bfac.map yet: per-atom B update only"
   endif

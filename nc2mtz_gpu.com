@@ -354,10 +354,13 @@ endif
 # ---- B-factor field ---------------------------------------------------------
 set bfacmapopt = ""
 if( "$Bfac_map" != "" ) then
+  # (re)compile when missing or older than its source: an old binary lacks newer modes
   set Bmapexe = ${pdir}/Bfac_map
-  if( ! -x "$Bmapexe" ) then
+  set test = 1
+  if( -x "$Bmapexe" ) set test = `find ${pdir}/Bfac_map.c -newer $Bmapexe | wc -l`
+  if( $test ) then
     echo "compiling Bfac_map ..."
-    gcc -O3 -o $Bmapexe ${pdir}/Bfac_map.c -lm
+    gcc -O3 -o ${Bmapexe}_$$ ${pdir}/Bfac_map.c -lm && mv -f ${Bmapexe}_$$ $Bmapexe
     if( $status || ! -x "$Bmapexe" ) then
       set BAD = "cannot compile ${pdir}/Bfac_map.c"
       goto exit

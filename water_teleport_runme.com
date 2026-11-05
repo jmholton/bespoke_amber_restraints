@@ -36,6 +36,9 @@ if(! $?AMBERHOME) then
 endif
 
 set phenixlabel = miller_array.labels.name
+# map grid points per resolution element for phenix.map_value_at_point (its own default, 0.5 A,
+# flattens the density atoms sit on at high resolution: 27% low at 1aho's 0.965 A, d/6 1.6%)
+set grid_sample = 6
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
 if( "$test" == "1" ) set phenixlabel = label
 
@@ -207,8 +210,10 @@ awk '/Cell Dimensions :/{getline;getline;\
   /Space group =/{split($0,s,"\047");sg=s[2];next}\
   END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' |\
 cat - ${t}open_refpoints.pdb >! ${t}open_refpoints_c1.pdb
+set gridstep = `echo head | mtzdump hklin $mtzfile | awk -v n=$grid_sample '/Resolution Range/{getline;getline;printf("%.3f",$6/n)}'`
 phenix.map_value_at_point $mtzfile ${t}open_refpoints_c1.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma >! ${t}map_values_ref.log
+          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep |\
+cat ${t}open_refpoints_c1.pdb - | map_values_inorder.awk >! ${t}map_values_ref.log
 
 echo "looking for locations with rho>$minrho and >$mindist A to nearest neighbor"
 cat ${t}map_values_ref.log ${t}open_refpoints.pdb |\
@@ -331,8 +336,10 @@ awk '/Cell Dimensions :/{getline;getline;\
   /Space group =/{split($0,s,"\047");sg=s[2];next}\
   END{printf "CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %-11s\n",a,b,c,al,be,ga,sg}' |\
 cat - ${t}xyz.pdb >! ${t}xyz_c1.pdb
+set gridstep = `echo head | mtzdump hklin $mtzfile | awk -v n=$grid_sample '/Resolution Range/{getline;getline;printf("%.3f",$6/n)}'`
 phenix.map_value_at_point $mtzfile ${t}xyz_c1.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma >! ${t}map_values.log
+          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep |\
+cat ${t}xyz_c1.pdb - | map_values_inorder.awk >! ${t}map_values.log
 
 cat ${t}map_values.log ${t}xyz.pdb |\
 awk '/Map value:/{rho[++n]=$NF;next}\

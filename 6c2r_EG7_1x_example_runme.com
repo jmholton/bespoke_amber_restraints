@@ -1413,6 +1413,7 @@ cp ../${prevdir}/xtal.prmtop .
 cp ../${prevdir}/padded.parm7 .
 cp ../${prevdir}/orignames.pdb .
 if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+if (-e ../${prevdir}/Bfac_${previtr}.map) cp ../${prevdir}/Bfac_${previtr}.map Bfac.map
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
@@ -1556,6 +1557,7 @@ cp ../${prevdir}/xtal.prmtop .
 cp ../${prevdir}/padded.parm7 .
 cp ../${prevdir}/orignames.pdb .
 if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+if (-e ../${prevdir}/Bfac_${previtr}.map) cp ../${prevdir}/Bfac_${previtr}.map Bfac.map
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
@@ -1698,6 +1700,7 @@ cp ../${prevdir}/xtal.prmtop .
 cp ../${prevdir}/padded.parm7 .
 cp ../${prevdir}/orignames.pdb .
 if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+if (-e ../${prevdir}/Bfac_${previtr}.map) cp ../${prevdir}/Bfac_${previtr}.map Bfac.map
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .
@@ -1805,6 +1808,7 @@ cp ../${prevdir}/xtal.prmtop .
 cp ../${prevdir}/padded.parm7 .
 cp ../${prevdir}/orignames.pdb .
 if (-e ../${prevdir}/Bfac_${previtr}.pdb) cp ../${prevdir}/Bfac_${previtr}.pdb Bfac.pdb
+if (-e ../${prevdir}/Bfac_${previtr}.map) cp ../${prevdir}/Bfac_${previtr}.map Bfac.map
 cp ../${prevdir}/chir_omega0.rst .
 cp chir_omega0.rst chir_omega.rst
 cp ../xtal_properties.sourceme .

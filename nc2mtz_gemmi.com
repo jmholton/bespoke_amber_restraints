@@ -330,10 +330,13 @@ endif
 # ---- B-factor field ---------------------------------------------------------
 set Bmapexe = ""
 if( "$Bfac_map" != "" ) then
+  # (re)compile when missing or older than its source: an old binary lacks newer modes
   set Bmapexe = ${pdir}/Bfac_map
-  if( ! -x "$Bmapexe" ) then
+  set test = 1
+  if( -x "$Bmapexe" ) set test = `find ${pdir}/Bfac_map.c -newer $Bmapexe | wc -l`
+  if( $test ) then
     echo "compiling Bfac_map ..."
-    gcc -O3 -o $Bmapexe ${pdir}/Bfac_map.c -lm
+    gcc -O3 -o ${Bmapexe}_$$ ${pdir}/Bfac_map.c -lm && mv -f ${Bmapexe}_$$ $Bmapexe
     if( $status || ! -x "$Bmapexe" ) then
       set BAD = "cannot compile ${pdir}/Bfac_map.c"
       goto exit
@@ -343,10 +346,12 @@ if( "$Bfac_map" != "" ) then
     # ${t}Bfac.pdb already has minB/maxB/Bscale/Boffset applied, so the field
     # holds final B values
     set test = `egrep -c "^ATOM|^HETAT" ${t}Bfac.pdb`
-    if( "$test" == "0" ) then
+    if( "$test" == "0" && "$Bfac_map_save" == "" ) then
       set BAD = "Bfac_map=auto needs a source of per-atom B: pass Bfac_file=<pdb> or Bfac_file=rmsd2B"
       goto exit
     endif
+    # a seed for a refined field (Bfac_map_save) may start flat
+    if( "$test" == "0" ) echo "no per-atom B: seeding the field at the uniform B=$B"
     # The field's coordinates have to be real, so build it from a trajectory
     # frame with the per-atom B merged onto it rather than from $Bfac_file's own
     # coordinates.  A production Bfac.pdb is a B sidecar: it can carry hundreds

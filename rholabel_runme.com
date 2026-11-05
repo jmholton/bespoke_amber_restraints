@@ -19,6 +19,9 @@ mkdir -p ${CCP4_SCR}
 
 set mtzlabel = auto
 set phenixlabel = miller_array.labels.name
+# map grid points per resolution element for phenix.map_value_at_point (its own default, 0.5 A,
+# flattens the density atoms sit on at high resolution: 27% low at 1aho's 0.965 A, d/6 1.6%)
+set grid_sample = 6
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
 if( "$test" == "1" ) set phenixlabel = label
 
@@ -123,6 +126,7 @@ echo "mtzlabel = $mtzlabel"
 
 
 set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.txt`
+set gridstep = `echo $mtzreso $grid_sample | awk '{printf("%.3f",$1/$2)}'`
 
 # some new versions of phenix must have a cell
 cat ${t}mtzdump.txt |\
@@ -137,7 +141,7 @@ awk '/^ATOM|^HETAT/{print substr($0,1,80)}' $pdbfile >> ${t}.pdb
 awk '{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
   printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
 phenix.map_value_at_point $mtzfile ${t}.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma |\
+          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep |\
 tee ${t}debug_rawlog.txt |\
 cat ${t}key.txt - |\
 awk '$NF=="KEY"{n[$1]=$2;next}\
