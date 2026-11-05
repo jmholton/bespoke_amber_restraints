@@ -3355,9 +3355,12 @@ EOF
 #   1 itr        2 TIME(ps)    3 TEMP(K)   4 PRESS     5 Etot      6 EKtot
 #   7 EPtot      8 BOND        9 ANGLE    10 DIHED    11 1-4 NB   12 1-4 EEL
 #  13 VDWAALS   14 EELEC      15 EHBOND   16 RESTRAINT 17 EAMBER (non-restraint)
-# col16 (RESTRAINT) is the total restraint energy; a flat col16 over the last N
-# iterations means the weight optimization has stabilized (used by the opt2
-# monitor in the example runme).  EHBOND (col15) is always 0 in these runs.
+# With CMAP (ff19SB) pmemd prints an extra UB / IMP / CMAP line after DIHED, so cols
+# 11-13 are UB, IMP, CMAP and the rest shift by 3 (20 columns, RESTRAINT = col19).
+# Read RESTRAINT as the next-to-last column, $(NF-1), which is right in both layouts.
+# It is the total restraint energy; flat over the last N iterations means the weight
+# optimization has stabilized (the opt2 monitor in the example runmes).  EHBOND is
+# always 0 in these runs.
 
   set files = `awk '/^trajin/{print $2}' ${t}trajin.txt | awk -F "." '{print $1".rst7";print $1".nc"}'`
   if( $debug ) echo "deleting $files"

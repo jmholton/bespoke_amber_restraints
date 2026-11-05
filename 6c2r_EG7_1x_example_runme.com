@@ -1564,7 +1564,7 @@ cp ../xtal_properties.sourceme .
 # decaying weights, and repick + release.  void_scale=0 — water is self-tuning by
 # pressure, no more void-based addition.  B-factor mods stay OFF until the weights
 # have stabilized (opt3).  Exit when the amber RESTRAINT energy
-# (amber_energy_vs_itr.txt col16) stops trending — the automatable proxy for the
+# (amber_energy_vs_itr.txt, next-to-last column) stops trending — the automatable proxy for the
 # sorted_weights.txt log-log shape settling.  Runs in the background; maxitr caps.
 ./optimize_weights_runme.com prod_ns=0.5 max_mult=2 Bfac_maxmod=0 weight_power=1 \
     teleport_waters=1 hydrate_itr=1 add_radius=2.1 \
@@ -1583,8 +1583,9 @@ while ( 1 )
   if ( ! -e amber_energy_vs_itr.txt ) continue
   set nE = `wc -l < amber_energy_vs_itr.txt`
   if ( $nE < $pwin ) continue
-  # col16 = RESTRAINT energy; flat (pscore < 0.5) = weights stabilized
-  set flat = `tail -n $pwin amber_energy_vs_itr.txt | awk '{n++;sx+=NR;sy+=$16;sxx+=NR*NR;sxy+=NR*$16;syy+=$16*$16} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
+  # next-to-last column = RESTRAINT energy (col16, or col19 when the force field has CMAP, e.g. ff19SB);
+  # flat (pscore < 0.5) = weights stabilized
+  set flat = `tail -n $pwin amber_energy_vs_itr.txt | awk '{n++;sx+=NR;e=$(NF-1);sy+=e;sxx+=NR*NR;sxy+=NR*e;syy+=e*e} END{d=(n*sxx-sx*sx);sl=(d!=0)?(n*sxy-sx*sy)/d:0;m=sy/n;sd=sqrt(syy/n-m*m);ps=(sd>0)?sqrt(sl*sl)*sqrt(n)/sd:0;print (ps<0.5)?1:0}'`
   if ( "$flat" == "1" ) then
     echo "opt2: restraint energy stable over last $pwin iters (weights settled) — touching ./exit"
     touch exit
@@ -1609,7 +1610,7 @@ sec12done:
 #   opt1 stage 2: pressure stable     - same regime; exit when pressure is flat
 #   opt2:         weight optimization - max_mult=2, decaying weights, repick +
 #                 release, void_scale=0; exit when the amber RESTRAINT energy is
-#                 flat (amber_energy_vs_itr.txt col16 = weights converged)
+#                 flat (amber_energy_vs_itr.txt next-to-last column = weights converged)
 #   opt3:         B-factor mods ON    - ONLY after the weights converge; keep B
 #                 subtle (Bfac_maxmod=2); exit when fofc_R is level
 #   opt4+:        continuation of opt3 - more iterations of the coupled B+weight
@@ -1638,7 +1639,7 @@ sec12done:
 #     inversions / cis-peptides appear); leave them at their default 0.
 # Monitor:
 #   cat opt*/fofc_Rplot.txt | sort -k2g | head                       # best R
-#   grep -H . opt*/amber_energy_vs_itr.txt | awk '{print $0}' | tail  # RESTRAINT=col16
+#   grep -H . opt*/amber_energy_vs_itr.txt | awk '{print $0}' | tail  # RESTRAINT = next-to-last column
 # Water model (set at leap2amber / Section 10, not here): SPC/E gives the lowest R
 # at allatom_weight=0 (~37.7); OPC3 gives the lowest restraint energy.
 
