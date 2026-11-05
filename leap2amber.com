@@ -472,13 +472,27 @@ else
   awk -v t=$t '{gsub(t,"");print}' ${t}tleap.in >! tleap.in
 endif
 
-# make sure full cell is in there?
-#ChBox -c ${t}tleaped.crd -o ${t}celled.crd -X $CELL[1] -Y $CELL[2] -Z $CELL[3] \
-#  -al $CELL[4] -bt $CELL[5] -gm $CELL[6] 
-
 if(! -e ${t}tleaped.rst7 ) then
     set BAD = "tleap failed"
     goto exit
+endif
+
+# tleap's "set x box" is orthogonal: a non-orthogonal cell (monoclinic 7KR0, beta 103.56) would be imaged as a
+# rectangular box and its copies overlap across the cell edges.  Put the angles into the restart (ChBox; every
+# later restart and PDB inherits them from there) and beta into the topology's BOX_DIMENSIONS
+set nonortho = `echo $CELL | awk '{print ($4!=90 || $5!=90 || $6!=90)}'`
+if( $nonortho ) then
+  echo "non-orthogonal cell: setting box angles $CELL[4] $CELL[5] $CELL[6]"
+  ChBox -c ${t}tleaped.rst7 -o ${t}chbox.rst7 -X $CELL[1] -Y $CELL[2] -Z $CELL[3] \
+    -al $CELL[4] -bt $CELL[5] -gm $CELL[6] >&! ${t}chbox.log
+  if( $status || ! -s ${t}chbox.rst7 ) then
+    set BAD = "ChBox failed (see ${t}chbox.log)"
+    goto exit
+  endif
+  mv ${t}chbox.rst7 ${t}tleaped.rst7
+  awk -v beta=$CELL[5] '/^%FLAG/{f=($2=="BOX_DIMENSIONS");print;next} /^%FORMAT/{print;next}\
+    f{$0=sprintf("%16.8E",beta) substr($0,17);f=0} {print}' ${t}tleaped.parm7 >! ${t}chbox.parm7
+  mv ${t}chbox.parm7 ${t}tleaped.parm7
 endif
 
 set charge = `awk '/unperturbed charge/{gsub("[)(]","");print $7}' ${t}tleap.out | tail -n 1`

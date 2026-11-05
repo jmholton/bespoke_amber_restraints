@@ -107,6 +107,15 @@ skip when their output exists.  Design points:
   `monomer_rot_trans.txt` (mod a lattice vector), so the swap is x + R_c (x_conf -
   x_first); every atom is checked against that before anything moves, else all copies
   keep the first conformer.  Only unrestrained atoms move, so `refpoints.pdb` is unchanged.
+- **Lettered waters go with their conformer** (`altloc_waters=1`, with `altloc_copies`).  A
+  water residue with a single altloc letter is kept only in the copies whose conformer
+  (the letter most of their split residues got, `supercell/copy_letters.txt`) is that
+  letter; blank waters, and letters no copy got, stay in every copy.  Without this a
+  multi-conformer ensemble (7KR0 S0112: 6 conformers, 2681 lettered + 89 shared waters)
+  stacks every conformer's waters into every copy.  Copies then differ in water count,
+  which is fine: waters are unrestrained and at the end of the atom list.  Pick
+  `super_mult` so the copy count is a multiple of the conformer count (C2, 6
+  conformers: 1,3,1 = 12 copies, 2 per conformer).
 - Water is changed only at the end of the atom list, so leap2amber's `Prod.in`
   restraint groups (atom numbers) stay valid; hydrate/prod/settle inputs are edited
   copies of it.  `hydrate_runme.com` rewrites `ref.crd` itself; after
