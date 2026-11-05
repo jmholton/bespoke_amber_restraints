@@ -614,8 +614,11 @@ if( $altloc_copies && $ncopy > 1 && $nsplit > 0 ) then
   awk '/^ATOM|^HETAT/{rid=substr($0,22,6);id=substr($0,13,4) substr($0,18,10);L=substr($0,17,1);\
       if(!(rid in rl))rl[rid]=L;else if(rl[rid]!=L)rl[rid]="-";if(!(id in seen)){seen[id]=1;r[++n]=rid}}\
     END{for(i=1;i<=n;++i){L=rl[r[i]];if(L==" ")L="-";print L}}' >! water_letters.txt
-  if( ! $altloc_waters ) awk '{print "-"}' water_letters.txt >! ${t}wl.txt
-  if( ! $altloc_waters ) mv ${t}wl.txt water_letters.txt
+  # (if/then: a one-line tcsh if does its redirect even when the condition is false)
+  if( ! $altloc_waters ) then
+    awk '{print "-"}' water_letters.txt >! ${t}wl.txt
+    mv ${t}wl.txt water_letters.txt
+  endif
   # check every atom sits at R_c x + t_c (mod the cell) under the right name before moving any
   awk -v np=$np -v nl=$nl 'FILENAME=="copy_letters.txt"{cl[$1]=$2;isc[$2]=1;next}\
       FILENAME=="water_letters.txt"{wl[++nwl]=$1;next}\
