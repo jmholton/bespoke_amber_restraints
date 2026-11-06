@@ -19,9 +19,6 @@ mkdir -p ${CCP4_SCR}
 
 set mtzlabel = auto
 set phenixlabel = miller_array.labels.name
-# map grid points per resolution element for phenix.map_value_at_point (its own default, 0.5 A,
-# flattens the density atoms sit on at high resolution: 27% low at 1aho's 0.965 A, d/6 1.6%)
-set grid_sample = 6
 set test = `phenix.version | awk '/Release tag/{print ( $NF < 5000 )}'`
 if( "$test" == "1" ) set phenixlabel = label
 
@@ -126,7 +123,6 @@ echo "mtzlabel = $mtzlabel"
 
 
 set mtzreso = `awk '/Resolution Range/{getline;getline;print $6}' ${t}mtzdump.txt`
-set gridstep = `echo $mtzreso $grid_sample | awk '{printf("%.3f",$1/$2)}'`
 
 # some new versions of phenix must have a cell
 cat ${t}mtzdump.txt |\
@@ -137,18 +133,9 @@ awk '/Cell Dimensions :/{getline;getline;\
  >! ${t}.pdb
 awk '/^ATOM|^HETAT/{print substr($0,1,80)}' $pdbfile >> ${t}.pdb
 
-# key could be off name or xyz position, hard to say
-awk '{x=substr($0,31,8);y=substr($0,39,8);z=substr($0,47,8);\
-  printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}' ${t}.pdb >! ${t}key.txt
-phenix.map_value_at_point $mtzfile ${t}.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep |\
-tee ${t}debug_rawlog.txt |\
-cat ${t}key.txt - |\
-awk '$NF=="KEY"{n[$1]=$2;next}\
-  /Map value:/ && $3~/^\(/{print "RHO",n[$3],$3,++i,$NF;next}\
-  /Map value:/ && /^\"/{rho=$NF;point=substr($0,index($0," Point: "));\
-     split(point,w);xyz="(" w[2] w[3] w[4] ")";\
-     print "RHO",n[xyz],xyz,++i,$NF}' |\
+# mapman, else the same spline in C (Bfac_map peek), else phenix: one value per atom, in order
+check_map_sites.com ${t}.pdb $mtzfile mtzlabel=$mtzlabel scale=sigma |\
+awk 'NF==1 && ($1+0)==$1{++i;print "RHO",i,"-",i,$1}' |\
 tee ${t}debug_rhovalues.txt |\
 cat - $pdbfile |\
 awk '/^RHO/{rho[$4]=rho[$2]=$NF;next}\

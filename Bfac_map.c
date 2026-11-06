@@ -53,6 +53,7 @@
  *   build   B-bearing PDB            -> CCP4 map of B(x,y,z)
  *   probe   PDB + CCP4 map           -> same PDB with B taken from the map
  *   update  CCP4 map + Fo-Fc map     -> the map with B refined by location
+ *   peek    PDB + any full-cell map  -> the map value at each atom (mapman-style spline)
  *   stats   CCP4 map                 -> distribution of B in the map
  *
  * The field is meant to REPLACE Bfac.pdb as the thing that gets refined: build
@@ -355,6 +356,49 @@ static double map_interp(const MAP *m, double xf, double yf, double zf)
           +    tx *(1-ty)*   tz  * m->rho[MAPIDX(m, i1, j0, k1)]
           + (1-tx)*   ty *   tz  * m->rho[MAPIDX(m, i0, j1, k1)]
           +    tx *   ty *   tz  * m->rho[MAPIDX(m, i1, j1, k1)];
+}
+
+/* tricubic interpolation, periodic: separable 4-point cubic along each axis (Everett's central-difference
+   formula = the cubic through grid points -1,0,1,2), which is mapman's "peek ... spline" (gklib intrpl.f,
+   Wayne's interpolation) away from map edges.  Against a d/12 tricubic reference, fofc at atoms read with
+   slope 0.966 on a d/3 grid and 0.997 on d/6, where trilinear needs d/6 for 0.961. */
+static double map_interp_cubic(const MAP *m, double xf, double yf, double zf)
+{
+    double g[3], w[3][4], rx[4][4], rxy[4], v = 0.0;
+    int    i0[3], n[3] = { m->nx, m->ny, m->nz }, ix[4], iy[4], iz[4], a, j, k;
+
+    xf -= floor(xf); yf -= floor(yf); zf -= floor(zf);
+    g[0] = xf * m->nx; g[1] = yf * m->ny; g[2] = zf * m->nz;
+    for (a = 0; a < 3; ++a) {
+        double s;
+        i0[a] = (int)floor(g[a]);
+        s = g[a] - i0[a];
+        /* Lagrange weights of points -1, 0, 1, 2 */
+        w[a][0] = -s * (s - 1.0) * (s - 2.0) / 6.0;
+        w[a][1] =  (s + 1.0) * (s - 1.0) * (s - 2.0) / 2.0;
+        w[a][2] = -(s + 1.0) * s * (s - 2.0) / 2.0;
+        w[a][3] =  (s + 1.0) * s * (s - 1.0) / 6.0;
+    }
+    for (j = 0; j < 4; ++j) {
+        ix[j] = (((i0[0] + j - 1) % n[0]) + n[0]) % n[0];
+        iy[j] = (((i0[1] + j - 1) % n[1]) + n[1]) % n[1];
+        iz[j] = (((i0[2] + j - 1) % n[2]) + n[2]) % n[2];
+    }
+    for (k = 0; k < 4; ++k)
+        for (j = 0; j < 4; ++j) {
+            const float *row = m->rho + MAPIDX(m, 0, iy[j], iz[k]);
+            rx[k][j] = w[0][0]*row[ix[0]] + w[0][1]*row[ix[1]] + w[0][2]*row[ix[2]] + w[0][3]*row[ix[3]];
+        }
+    for (k = 0; k < 4; ++k)
+        rxy[k] = w[1][0]*rx[k][0] + w[1][1]*rx[k][1] + w[1][2]*rx[k][2] + w[1][3]*rx[k][3];
+    for (k = 0; k < 4; ++k) v += w[2][k] * rxy[k];
+    return v;
+}
+
+/* sample with the chosen interpolation: 1 = tricubic, 0 = trilinear */
+static double map_sample(const MAP *m, double xf, double yf, double zf, int cubic)
+{
+    return cubic ? map_interp_cubic(m, xf, yf, zf) : map_interp(m, xf, yf, zf);
 }
 
 /* ------------------------------------------------------------------ */
@@ -924,7 +968,7 @@ static int pdb_is_H(const char *line)
 static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb,
                     CELL cell_override, int have_cell, double super_mult[3],
                     double minB, double maxB, int verbose, const char *selresn,
-                    int hfollow)
+                    int hfollow, int cubic)
 {
     MAP  m;
     CELL cell;
@@ -1011,7 +1055,7 @@ static int do_probe(const char *pdbfile, const char *mapfile, const char *outpdb
             xf = fr.f00*X + fr.f01*Y + fr.f02*Z;
             yf =            fr.f11*Y + fr.f12*Z;
             zf =                       fr.f22*Z;
-            B  = map_interp(&m, xf, yf, zf);
+            B  = map_sample(&m, xf, yf, zf, cubic);
 
             if (B < minB)             B = minB;
             if (maxB > 0 && B > maxB) B = maxB;
@@ -1125,7 +1169,7 @@ static int mark_mask(const MAP *m, const char *maskfile, const char *selresn, in
 static int do_update(const char *mapfile, const char *fofcfile, const char *outmap,
                      double halfrho_pos, double halfrho_neg, double maxmod, int mult,
                      double negative_scale, double offset, double minB, double maxB,
-                     const char *maskfile, const char *selresn, int skipH, double pad)
+                     const char *maskfile, const char *selresn, int skipH, double pad, int cubic)
 {
     MAP    m, d;
     FRAC   fd;
@@ -1190,7 +1234,7 @@ static int do_update(const char *mapfile, const char *fofcfile, const char *outm
                     yf =            fd.f11*Y + fd.f12*Z;
                     zf =                       fd.f22*Z;
                 }
-                fofc   = map_interp(&d, xf, yf, zf);
+                fofc   = map_sample(&d, xf, yf, zf, cubic);
                 signif = pow(fabs(fofc) / (fofc < 0 ? halfrho_neg : halfrho_pos), 5.0);
                 if (signif > 1.0) signif = 1.0;
                 if (fofc < 0) signif = -signif;
@@ -1218,6 +1262,38 @@ static int do_update(const char *mapfile, const char *fofcfile, const char *outm
         if (!write_ccp4(outmap, &m, label)) { map_free(&m); map_free(&d); return 0; }
     }
     map_free(&m); map_free(&d);
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* peek                                                               */
+/* ------------------------------------------------------------------ */
+/* the map value at each ATOM/HETATM of pdbfile, one per line in file order, like mapman's
+ * "peek value ... spline": a version-proof stand-in for mapman or phenix.map_value_at_point.
+ * Coordinates are orthogonal A in the map's own cell (any CRYST1 is ignored); sampling is periodic. */
+static int do_peek(const char *pdbfile, const char *mapfile, int cubic)
+{
+    MAP  m;
+    FRAC fr;
+    FILE *in;
+    char line[512];
+    long n = 0;
+
+    m.rho = NULL;
+    if (!read_ccp4(mapfile, &m)) return 0;
+    fr = cell_frac(m.cell);
+    in = strcmp(pdbfile, "-") ? fopen(pdbfile, "r") : stdin;
+    if (!in) { fprintf(stderr, "ERROR: cannot open %s\n", pdbfile); map_free(&m); return 0; }
+    while (fgets(line, sizeof(line), in)) {
+        double X, Y, Z;
+        if (strncmp(line, "ATOM  ", 6) && strncmp(line, "HETATM", 6)) continue;
+        X = pdb_field(line, 30, 8); Y = pdb_field(line, 38, 8); Z = pdb_field(line, 46, 8);
+        printf("%.4f\n", map_sample(&m, fr.f00*X + fr.f01*Y + fr.f02*Z, fr.f11*Y + fr.f12*Z, fr.f22*Z, cubic));
+        ++n;
+    }
+    if (in != stdin) fclose(in);
+    map_free(&m);
+    if (!n) fprintf(stderr, "WARNING: no atoms in %s\n", pdbfile);
     return 1;
 }
 
@@ -1281,6 +1357,7 @@ static void usage(void)
 "  Bfac_map update map=Bfac.map fofc=fofc_sigma.map halfrho_pos=h halfrho_neg=h \\\n"
 "                  [max_mod=2 mod_mode=add|mult negative_scale=0.9 offset=0] \\\n"
 "                  [minB=2 maxB=999.99] [mask=frames.pdb|- selresn=HOH mask_pad=0] [outmap=<map>]\n"
+"  Bfac_map peek pdb=atoms.pdb|- map=any.map [interp=cubic]\n"
 "  Bfac_map stats map=Bfac.map\n"
 "\n"
 "build - each atom donates its B to the space around it:\n"
@@ -1331,7 +1408,15 @@ static void usage(void)
 "                   always.  Everywhere else keeps its B (offset= still applies).\n"
 "  mask_pad=0       also move voxels within this many A of a mask atom\n"
 "\n"
-"probe - trilinear interpolation of the map at each atom, rewriting only the\n"
+"peek - print the map value at each atom, one line per ATOM/HETATM in file\n"
+"  order (mapman's \"peek value ... spline\" without mapman).  The map must span\n"
+"  its cell (mapmask xyzlim cell); coordinates are taken in the map's cell.\n"
+"\n"
+"interp=linear|cubic  trilinear, or tricubic (4-point cubic along each axis,\n"
+"                   as mapman's spline).  Default: cubic for peek and for\n"
+"                   update's fofc map, linear for probe (the B field).\n"
+"\n"
+"probe - interpolation of the map at each atom, rewriting only the\n"
 "  B column (columns 61-66) of each ATOM/HETATM record.  Sampling is periodic in\n"
 "  the map's cell, so atoms several cells out, or with unwrapped MD coordinates,\n"
 "  read the equivalent voxel.  Space-group symmetry is not applied here - it is\n"
@@ -1372,7 +1457,7 @@ int main(int argc, char **argv)
     const char *fofcf = NULL, *maskf = NULL;
     double halfrho_pos = 0.0, halfrho_neg = 0.0, maxmod = 2.0, negscale = 0.9, offset = 0.0;
     double mask_pad = 0.0;
-    int    modmult = 0, hfollow = 1, minB_set = 0;
+    int    modmult = 0, hfollow = 1, minB_set = 0, interp = -1;   /* -1: the mode's default */
 
     memset(&cell_override, 0, sizeof(cell_override));
 
@@ -1383,7 +1468,7 @@ int main(int argc, char **argv)
         }
         if (!eq) {
             if (!mode && (!strcmp(arg, "build") || !strcmp(arg, "probe") ||
-                          !strcmp(arg, "update") || !strcmp(arg, "stats"))) { mode = arg; continue; }
+                          !strcmp(arg, "update") || !strcmp(arg, "stats") || !strcmp(arg, "peek"))) { mode = arg; continue; }
             /* bare filenames: .pdb is coordinates, .map is a map */
             {
                 size_t L = strlen(arg);
@@ -1421,6 +1506,11 @@ int main(int argc, char **argv)
             else if (!strcmp(key, "mask"))                            maskf  = val;
             else if (!strcmp(key, "mask_pad"))                        mask_pad = atof(val);
             else if (!strcmp(key, "hfollow"))                         hfollow = atoi(val);
+            else if (!strcmp(key, "interp") || !strcmp(key, "interpolation")) {
+                if (!strncasecmp(val, "cub", 3) || !strncasecmp(val, "spl", 3) || !strcmp(val, "1")) interp = 1;
+                else if (!strncasecmp(val, "lin", 3) || !strcmp(val, "0")) interp = 0;
+                else { fprintf(stderr, "ERROR: interp must be linear or cubic\n"); return 9; }
+            }
             else if (!strcmp(key, "maxb"))                            maxB   = atof(val);
             else if (!strcmp(key, "bscale"))                          Bscale = atof(val);
             else if (!strcmp(key, "boffset"))                         Boffset= atof(val);
@@ -1511,7 +1601,7 @@ int main(int argc, char **argv)
         if (!pdb)  { fprintf(stderr, "ERROR: probe needs pdb=<file>\n"); return 9; }
         if (!mapf) { fprintf(stderr, "ERROR: probe needs map=<file>\n"); return 9; }
         return do_probe(pdb, mapf, outpdb, cell_override, have_cell, super_mult,
-                        minB, maxB, verbose, selresn, hfollow) ? 0 : 9;
+                        minB, maxB, verbose, selresn, hfollow, interp == 1) ? 0 : 9;
     }
     if (!strcmp(mode, "update")) {
         if (!mapf) { fprintf(stderr, "ERROR: update needs map=<file>\n"); return 9; }
@@ -1521,7 +1611,13 @@ int main(int argc, char **argv)
         if (!outmap) outmap = mapf;
         if (maskf && !fofcf) fprintf(stderr, "WARNING: mask= only limits the fofc= update\n");
         return do_update(mapf, fofcf, outmap, halfrho_pos, halfrho_neg, maxmod, modmult,
-                         negscale, offset, minB, maxB, maskf, selresn, hfollow, mask_pad) ? 0 : 9;
+                         negscale, offset, minB, maxB, maskf, selresn, hfollow, mask_pad,
+                         interp != 0) ? 0 : 9;
+    }
+    if (!strcmp(mode, "peek")) {
+        if (!pdb)  { fprintf(stderr, "ERROR: peek needs pdb=<file>\n"); return 9; }
+        if (!mapf) { fprintf(stderr, "ERROR: peek needs map=<file>\n"); return 9; }
+        return do_peek(pdb, mapf, interp != 0) ? 0 : 9;
     }
     if (!strcmp(mode, "stats")) {
         if (!mapf) { fprintf(stderr, "ERROR: stats needs map=<file>\n"); return 9; }

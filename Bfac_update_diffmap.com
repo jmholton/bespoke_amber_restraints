@@ -27,9 +27,9 @@ set overall_scale = 1
 set overall_offset = 0
 set negative_scale = 0.9
 set fft_B = 0
-# fofc map grid points per resolution element, for the map and for the phenix probe of the atoms
-# in it.  Linear interpolation flattens the extremes atoms sit on: at 1aho's 0.965 A, against a
-# 0.12 A grid, phenix's own 0.5 A default (d/2) read 27% low, d/4 6%, d/6 1.6%
+# fofc map grid points per resolution element.  The atoms (check_map_sites: mapman or Bfac_map peek)
+# and the field update read it with the same cubic spline: against a d/12 tricubic reference, slope
+# 0.997 at d/6 (d/4 0.987; phenix.map_value_at_point's linear 0.5 A default 0.72 at 1aho's 0.965 A)
 set grid_sample = 6
 set shan_B = auto
 set Wilson_B = 2
@@ -141,7 +141,7 @@ endif
 set mtzreso = `echo head | mtzdump hklin $mtzfile | awk '/Resolution Range/{getline;getline;print $6}'`
 
 set fftreso = `echo $mtzreso 1.2 | awk '{print ($2*($1^-3))^(-1/3)}'`
-# grid spacing mtzreso/grid_sample, the same for this map and for the atom probe below
+# grid spacing mtzreso/grid_sample
 set fftsample = `echo $grid_sample $fftreso $mtzreso | awk '{print $1*$2/$3}'`
 
 echo "fofc with B=$fft_B"
@@ -154,27 +154,13 @@ EOF
 echo scale sigma 1 0 |\
 mapmask mapin ${t}ffted.map mapout ${t}fofc_sigma.map >> $logfile
 echo | mapdump mapin ${t}fofc_sigma.map | grep "mum dens"
-
-echo "back-and-forth fft to purify symmetry"
-mapmask mapin1 ${t}ffted.map mapout ${t}extended.map << EOF >> $logfile
+# the sigma-scaled fofc over the whole cell: the atoms are probed in it and the B field is updated from it
+mapmask mapin ${t}fofc_sigma.map mapout ${t}fofc_cell.map << EOF >> $logfile
 xyzlim cell
-axis Z X Y
+axis X Y Z
 EOF
-sfall mapin ${t}extended.map hklout ${t}sfalled.mtz << EOF >> $logfile
-mode sfcalc mapin
-sfsg 1
-reso $mtzreso
-EOF
-cad hklin1 ${t}sfalled.mtz hklout ${t}diffmap.mtz << EOF >> $logfile
-labin file 1 E1=FC E2=PHIC
-labou file 1 E1=$mtzlabel E2=PHDELWT
-reso over_all $mtzreso
-EOF
-
-
-
-if(! -s "${t}diffmap.mtz" ) then
-    set BAD = "map reduction to $smallSG failed "
+if(! -s "${t}fofc_cell.map" ) then
+    set BAD = "fofc map over the cell failed"
     goto exit
 endif
 
@@ -183,9 +169,7 @@ set GRID = `awk '/Grid sampling/{print "GRID", $(NF-2), $(NF-1), $NF; exit}' ${t
 set AXIS = `awk '/Fast, medium, slow/{print "AXIS", $(NF-2), $(NF-1), $NF}' ${t}mapdump.txt | awk '$NF !~ /[^ XYZ]/'`
 set LIMITS = `awk '/Fast, medium, slow/{o[$(NF-2)]=1;o[$(NF-1)]=2;o[$NF]=3; print "XYZLIM",b[o["X"]],e[o["X"]], b[o["Y"]],e[o["Y"]], b[o["Z"]],e[o["Z"]]; exit} /Start and stop points/{b[1]=$(NF-5); e[1]=$(NF-4); b[2]=$(NF-3); e[2]=$(NF-2); b[3]=$(NF-1); e[3]=$NF}' ${t}mapdump.txt`
 set smallCELL = `awk '/Cell dimensions /{print $4,$5,$6,$7,$8,$9;exit}' ${t}mapdump.txt`
-# the atoms are probed on the same grid spacing as the field's fofc map
-set gridstep = `echo $GRID $smallCELL | awk '{s=$5/$2; if($6/$3>s)s=$6/$3; if($7/$4>s)s=$7/$4; printf("%.3f",s)}'`
-echo "fofc ${GRID}: probing atoms with grid_step $gridstep"
+echo "fofc ${GRID}"
 set smallSGnum  = `awk '/ Space-group /{print $NF;exit}' ${t}mapdump.txt`
 set smallSG = `awk -v n=$smallSGnum '$1==n{print $4;exit}' ${CLIBD}/symop.lib`
 set nsymops = `awk -v n=$smallSGnum '$1==n{print $3;exit}' ${CLIBD}/symop.lib`
@@ -237,8 +221,6 @@ awk '{printf("CRYST1%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f %s %s %s %s\n",$1,$2,$3,$4,$5
 cat >! ${t}smallcell.pdb
 
 
-set debuglog = ""
-if( $debug ) set debuglog = '| tee ${t}debug.log'
 cat << EOF >! ${t}peek.csh
 #! /bin/tcsh -f
 set pdb = "\$1"
@@ -248,18 +230,10 @@ if( $debug ) set t = ${t}_temp_\$\$_
 #set t = tempfile_temp_
 cp ${t}smallcell.pdb \${t}.pdb
 awk '/EPW|Y1  HOH|Y 1  HOH/{next} \
- /^ATOM|^HETAT/ && substr(\$0,77,2) !~ / H|XP| Y/' \$pdb |\
- tee -a \${t}.pdb |\
-awk '{x=substr(\$0,31,8);y=substr(\$0,39,8);z=substr(\$0,47,8);\
-  printf("(%.3f,%.3f,%.3f) %d KEY\n",x,y,z,++n)}'  >! \${t}key.txt
-phenix.map_value_at_point ${t}diffmap.mtz \${t}.pdb \
-          ${phenixlabel}=$mtzlabel scale=sigma grid_step=$gridstep $debuglog |\
-cat \${t}key.txt - |\
-awk '\$NF=="KEY"{n[\$1]=\$2;next}\
-  /Map value:/ && \$3~/^\(/{print n[\$3],\$3,++i,\$NF;next}\
-  /Map value:/ && /^"/{point=substr(\$0,index(\$0," Point: "));\
-    split(point,w);xyz="(" w[2] w[3] w[4] ")";\
-    print n[xyz],xyz,++i,\$NF}'
+ /^ATOM|^HETAT/ && substr(\$0,77,2) !~ / H|XP| Y/' \$pdb >> \${t}.pdb
+# mapman, else the same spline in C (Bfac_map peek), else phenix: "atom# fofc", in atom order
+check_map_sites.com \${t}.pdb ${t}fofc_cell.map |\
+awk 'NF==1 && (\$1+0)==\$1{print ++n,\$1}'
 if( ! $debug ) rm -f \${t}*
 EOF
 chmod a+x ${t}peek.csh
@@ -346,12 +320,8 @@ if( "$Bfac_map" != "" ) then
       goto exit
     endif
   endif
-  # the fofc the atoms are probed in (same coefficients, resolution, fft_B, sigma and grid spacing as
-  # the probe of diffmap.mtz), expanded to the whole cell
-  mapmask mapin ${t}fofc_sigma.map mapout ${t}fofc_cell.map << EOF >> $logfile
-xyzlim cell
-axis X Y Z
-EOF
+  # the field is updated from the same fofc map the atoms are probed in (fofc_cell.map), read with
+  # the same cubic spline (Bfac_map update interp=cubic, its default)
   set maskopt = ""
   if( $Bfac_map_mask ) set maskopt = "mask=- mask_pad=$Bfac_map_mask_pad"
   echo "updating B-factor field $Bfac_map -> $Bfac_map_out"
