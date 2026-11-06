@@ -588,7 +588,26 @@ over the protein atoms with reference density >= 1 (the mask and all 25 translat
 - **Effect on the maps:** for the CA-only runs, CC between the aligned and raw maps is 0.86-0.92 at 1.9-0.96 A and
   ~1.0 below 2.5 A. Their high-resolution CC with longcalm rises only from ~0.32 to ~0.34. b5sd1 and af_std are
   unchanged (CC 1.000 in every shell).
-- R-free of the aligned maps (`hurry/alchain.sh`): pending.
+- **R-free of the aligned maps** (`hurry/alchain.sh`), mean of two starts, raw -> aligned:
+
+  | map | none | r3 |
+  |---|---|---|
+  | ff19_opc_mult | 0.1386 -> 0.1387 | 0.1162 -> 0.1155 |
+  | ff19_opc_loca | 0.1399 -> 0.1406 | 0.1179 -> 0.1184 |
+  | ff19_opc_locw | 0.1393 -> 0.1390 | 0.1174 -> 0.1163 |
+  | ff19_opc, iterations 651-750 | 0.1429 -> 0.1425 | 0.1180 -> 0.1177 |
+  | b5sd1 | 0.1186 -> 0.1185 | 0.1076 -> 0.1070 |
+  | af_std | 0.1205 -> 0.1205 | 0.1067 -> 0.1071 |
+
+  Alignment changes nothing. Before building, every map moves by 0.0007 or less. The round-3 changes (up to 0.0011)
+  are the size of the water-pick noise: the aligned b5sd1 and af_std maps are identical to the raw ones (CC 1.000), yet
+  their rounds moved by up to 0.0013.
+- **What does separate the CA-only runs is the protein.** After the translation fit, the high-density protein atoms
+  sit 0.92-1.14 A rms from their reference positions in the CA-only runs (locw 0.92, mult 0.98, loca 1.07, ff19_opc at
+  iterations 651-750 1.14), against 0.27-0.47 A in the restrained runs (mean over every frame of the window, from the
+  align logs). loca and ff19_opc stray most and make the two worst maps. The solvent organises around a protein
+  surface that is not the crystal's, and translating the lattice back cannot fix that. Among the restrained runs,
+  protein rmsd does not predict the map: k1B holds the protein closest (0.27 A) and makes the worst restrained map.
 
 ## 7KR0, PRISM's six-conformer ensemble (2026-11-04/05, octamus1)
 
