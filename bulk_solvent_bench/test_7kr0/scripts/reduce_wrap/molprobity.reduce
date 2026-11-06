@@ -1,0 +1,34 @@
+#!/bin/bash
+# phenix.refine runs Reduce under a fixed 200 s timeout (mmtbx.utils.run_reduce_with_timeout) for its clashscore
+# (-oh -his -flip -keep -allalt -limit120 -pen9999) and its N/Q/H flip report (-build -allalt).  On the six-conformer
+# 7KR0 ensemble with altloc waters these take 200 s to well over 300 s on octamus1, Reduce is killed, and the
+# refinement dies ("Reduce crashed ... Return code: -15").  This wrapper, first on PATH, drops -flip and -allalt and
+# turns -build into the clashscore call without them (-oh -his -keep -limit120 -pen9999: 2 s on that model; -oh -his
+# -keep -noflip and -oh -rotexoh -his -noflip still take >280 s).  If Reduce still runs past 150 s it is stopped and
+# the model goes back unchanged (its riding H kept), so phenix never times out.  Only the reported clashscore and the
+# N/Q/H flip list change; nothing that is refined.  Each call is logged in calls.log next to this script.
+here=$(cd "$(dirname "$0")" && pwd)
+real=$(type -ap molprobity.reduce | while read -r p; do [ "$(cd "$(dirname "$p")" && pwd)" != "$here" ] && echo "$p" && break; done)
+args=()
+for a in "$@"; do
+  case "$a" in
+    -allalt|-flip|-ALLALT|-FLIP) ;;
+    -build|-BUILD) args+=(-oh -his -keep -limit120 -pen9999) ;;
+    *) args+=("$a") ;;
+  esac
+done
+tmp=$(mktemp /dev/shm/reduce_wrap_XXXXXX)
+cat > "$tmp"
+s=$(date +%s)
+if timeout 150 "$real" "${args[@]}" < "$tmp" > "$tmp.out" 2> "$tmp.err"; then
+  cat "$tmp.out"
+  cat "$tmp.err" >&2
+  how="ok"
+else
+  rc=$?
+  cat "$tmp"
+  how="FAILED rc=$rc, model returned unchanged"
+fi
+echo "$(date +%H:%M:%S) $PWD $* -> ${args[*]}: $(( $(date +%s) - s )) s $how" >> "$here/calls.log"
+rm -f "$tmp" "$tmp.out" "$tmp.err"
+exit 0
