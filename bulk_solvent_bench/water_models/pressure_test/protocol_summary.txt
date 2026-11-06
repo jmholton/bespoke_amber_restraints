@@ -1,0 +1,21 @@
+1 ns, every restraint off, 1aho cell (709 waters), mean after 0.1 ns:
+  prod_50  u4    460 +/-  28   u1    -77 +/-  34   u2     65 +/-  34   MC true   -169 +/-  43
+  prod_100 u4    461 +/-  33   u1      2 +/-  27   u2    -20 +/-  55   MC true   -259 +/-  51
+
+optimize_weights barometer (5 ps, dt 0.5 fs, mean of 10 printed pressures), 1aho cell, all restraints off:
+  prod_10   ntp=4     680   ntp=1     124   difference   +556
+  prod_20   ntp=4     830   ntp=1    -492   difference  +1322
+  prod_30   ntp=4     733   ntp=1     206   difference   +527
+  prod_40   ntp=4     170   ntp=1    -388   difference   +558
+  prod_50   ntp=4     471   ntp=1    -116   difference   +586
+  prod_60   ntp=4     551   ntp=1      -2   difference   +553
+  prod_70   ntp=4     225   ntp=1    -462   difference   +687
+  prod_80   ntp=4     556   ntp=1    -367   difference   +923
+  prod_90   ntp=4     222   ntp=1      66   difference   +156
+  prod_100  ntp=4     342   ntp=1     -22   difference   +364
+  mean over 10 frames: ntp=4 478, ntp=1 -145, ntp=4 - ntp=1 = +623 +/- 100
+
+OPC box, true +103 bar at this volume, 50 ps, mean after 5 ps:
+  dt 0.5 fs   ntp=4   1421 +/-  25   ntp=1    121 +/-  34
+  dt 1   fs   ntp=4   1360 +/-  38   ntp=1     79 +/-  25
+  dt 2   fs   ntp=4   1479 +/-  42   ntp=1     82 +/-  24

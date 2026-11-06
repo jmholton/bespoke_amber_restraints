@@ -1,0 +1,13 @@
+[1] 3571065
+[2] 3571066
+[3] 3571067
+[4] 3571068
+[5] 3571069
+[6] 3571070
+[6]  + Done                          ./run_jig.csh scan_ac0_map.mtz scan_ac0 4 >& jig_scan_${tag}_j${j}.out
+[5]  + Done                          ./run_jig.csh scan_ac0_map.mtz scan_ac0 3 >& jig_scan_${tag}_j${j}.out
+[4]  + Done                          ./run_jig.csh scan_ac0_map.mtz scan_ac0 2 >& jig_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_jig.csh scan_ac0_map.mtz scan_ac0 1 >& jig_scan_${tag}_j${j}.out
+[2]  + Done                          ./run_exocc.csh starthere scan_ac0_map.mtz scan_ac0 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_ac0_map.mtz scan_ac0 1 >& exocc_starthere_scan_${tag}_j${j}.out
+ac0 done

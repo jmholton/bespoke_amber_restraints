@@ -1,0 +1,93 @@
+w1 round 1: altconf: kept 42 of 45 peaks, conformers: A34 B7 C1
+w1_r2 round 1: altconf: kept 46 of 50 peaks, conformers: A38 B7 C1
+pm500 round 1: altconf: kept 43 of 46 peaks, conformers: A35 B7 D1
+pp500 round 1: altconf: kept 44 of 47 peaks, conformers: A37 B6 C1
+pp1500 round 1: altconf: kept 46 of 52 peaks, conformers: A38 B6 C1 D1
+md2019 round 1: altconf: kept 31 of 43 peaks, conformers: A24 B6 C1
+[1] 1534009
+[2] 1534010
+[3] 1534011
+[4] 1534012
+[5] 1534013
+[6] 1534014
+[7] 1534015
+[8] 1534016
+[9] 1534018
+[10] 1534019
+[11] 1534020
+[12] 1534024
+[12] + Done                          ./run_exocc.csh cw1_md2019 md2019_map.mtz md2019 2 >& exocc_cw${n}_${t}_j${j}.out
+[11] - Done                          ./run_exocc.csh cw1_md2019 md2019_map.mtz md2019 1 >& exocc_cw${n}_${t}_j${j}.out
+[10] + Done                          ./run_exocc.csh cw1_pp1500 scan_pp1500_map.mtz scan_pp1500 2 >& exocc_cw${n}_${t}_j${j}.out
+[9]  + Done                          ./run_exocc.csh cw1_pp1500 scan_pp1500_map.mtz scan_pp1500 1 >& exocc_cw${n}_${t}_j${j}.out
+[8]  + Done                          ./run_exocc.csh cw1_pp500 scan_pp500_map.mtz scan_pp500 2 >& exocc_cw${n}_${t}_j${j}.out
+[7]  + Done                          ./run_exocc.csh cw1_pp500 scan_pp500_map.mtz scan_pp500 1 >& exocc_cw${n}_${t}_j${j}.out
+[6]  + Done                          ./run_exocc.csh cw1_pm500 scan_pm500_map.mtz scan_pm500 2 >& exocc_cw${n}_${t}_j${j}.out
+[5]  + Done                          ./run_exocc.csh cw1_pm500 scan_pm500_map.mtz scan_pm500 1 >& exocc_cw${n}_${t}_j${j}.out
+[4]  + Done                          ./run_exocc.csh cw1_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 2 >& exocc_cw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh cw1_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 1 >& exocc_cw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh cw1_w1 scan_w1_map.mtz scan_w1 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw1_w1 scan_w1_map.mtz scan_w1 1 >& exocc_cw${n}_${t}_j${j}.out
+round 1 done
+w1 round 2: altconf: kept 27 of 38 peaks, conformers: A21 B4 C1 D1
+w1_r2 round 2: altconf: kept 25 of 32 peaks, conformers: A18 B5 C2
+pm500 round 2: altconf: kept 26 of 38 peaks, conformers: A24 C2
+pp500 round 2: altconf: kept 27 of 35 peaks, conformers: A19 B6 C2
+pp1500 round 2: altconf: kept 33 of 41 peaks, conformers: A23 B8 C2
+md2019 round 2: altconf: kept 9 of 20 peaks, conformers: A8 B1
+[1] 1660863
+[2] 1660864
+[3] 1660865
+[4] 1660866
+[5] 1660867
+[6] 1660868
+[7] 1660869
+[8] 1660870
+[9] 1660873
+[10] 1660874
+[11] 1660875
+[12] 1660877
+[12] + Done                          ./run_exocc.csh cw2_md2019 md2019_map.mtz md2019 2 >& exocc_cw${n}_${t}_j${j}.out
+[11] + Done                          ./run_exocc.csh cw2_md2019 md2019_map.mtz md2019 1 >& exocc_cw${n}_${t}_j${j}.out
+[10] + Done                          ./run_exocc.csh cw2_pp1500 scan_pp1500_map.mtz scan_pp1500 2 >& exocc_cw${n}_${t}_j${j}.out
+[9]  + Done                          ./run_exocc.csh cw2_pp1500 scan_pp1500_map.mtz scan_pp1500 1 >& exocc_cw${n}_${t}_j${j}.out
+[8]  + Done                          ./run_exocc.csh cw2_pp500 scan_pp500_map.mtz scan_pp500 2 >& exocc_cw${n}_${t}_j${j}.out
+[7]  + Done                          ./run_exocc.csh cw2_pp500 scan_pp500_map.mtz scan_pp500 1 >& exocc_cw${n}_${t}_j${j}.out
+[6]  + Done                          ./run_exocc.csh cw2_pm500 scan_pm500_map.mtz scan_pm500 2 >& exocc_cw${n}_${t}_j${j}.out
+[5]  + Done                          ./run_exocc.csh cw2_pm500 scan_pm500_map.mtz scan_pm500 1 >& exocc_cw${n}_${t}_j${j}.out
+[4]  + Done                          ./run_exocc.csh cw2_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 2 >& exocc_cw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh cw2_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 1 >& exocc_cw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh cw2_w1 scan_w1_map.mtz scan_w1 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw2_w1 scan_w1_map.mtz scan_w1 1 >& exocc_cw${n}_${t}_j${j}.out
+round 2 done
+w1 round 3: altconf: kept 14 of 24 peaks, conformers: A10 B3 C1
+w1_r2 round 3: altconf: kept 10 of 15 peaks, conformers: A6 B2 C2
+pm500 round 3: altconf: kept 14 of 24 peaks, conformers: A10 B3 C1
+pp500 round 3: altconf: kept 9 of 19 peaks, conformers: A6 B2 C1
+pp1500 round 3: altconf: kept 9 of 23 peaks, conformers: A3 B5 C1
+md2019 round 3: altconf: kept 5 of 12 peaks, conformers: A4 I1
+[1] 1772061
+[2] 1772062
+[3] 1772063
+[4] 1772064
+[5] 1772065
+[6] 1772066
+[7] 1772067
+[8] 1772068
+[9] 1772071
+[10] 1772072
+[11] 1772073
+[12] 1772076
+[12] + Done                          ./run_exocc.csh cw3_md2019 md2019_map.mtz md2019 2 >& exocc_cw${n}_${t}_j${j}.out
+[11] + Done                          ./run_exocc.csh cw3_md2019 md2019_map.mtz md2019 1 >& exocc_cw${n}_${t}_j${j}.out
+[10] + Done                          ./run_exocc.csh cw3_pp1500 scan_pp1500_map.mtz scan_pp1500 2 >& exocc_cw${n}_${t}_j${j}.out
+[9]  + Done                          ./run_exocc.csh cw3_pp1500 scan_pp1500_map.mtz scan_pp1500 1 >& exocc_cw${n}_${t}_j${j}.out
+[8]  + Done                          ./run_exocc.csh cw3_pp500 scan_pp500_map.mtz scan_pp500 2 >& exocc_cw${n}_${t}_j${j}.out
+[7]  + Done                          ./run_exocc.csh cw3_pp500 scan_pp500_map.mtz scan_pp500 1 >& exocc_cw${n}_${t}_j${j}.out
+[6]  + Done                          ./run_exocc.csh cw3_pm500 scan_pm500_map.mtz scan_pm500 2 >& exocc_cw${n}_${t}_j${j}.out
+[5]  + Done                          ./run_exocc.csh cw3_pm500 scan_pm500_map.mtz scan_pm500 1 >& exocc_cw${n}_${t}_j${j}.out
+[4]  + Done                          ./run_exocc.csh cw3_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 2 >& exocc_cw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh cw3_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 1 >& exocc_cw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh cw3_w1 scan_w1_map.mtz scan_w1 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw3_w1 scan_w1_map.mtz scan_w1 1 >& exocc_cw${n}_${t}_j${j}.out
+round 3 done

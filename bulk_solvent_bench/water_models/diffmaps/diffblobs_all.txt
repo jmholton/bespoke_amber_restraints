@@ -1,0 +1,135 @@
+== starthere flat   map rms 0.1788   rms in solvent region 0.2136, in protein 0.1665  (solvent region 24% of cell)
+  positive blobs > 3 rms: 75, total score 66.8; on 2019 core sites (<1 A): 21, score 27.1; top 6:
+     +9.0 rms  score   2.82  vol   3.2 A^3  nearest A GLU32 OE1N            2.4 A  2019-core-site  0.2 A
+    +10.9 rms  score   2.78  vol   3.0 A^3  nearest A ARG62 NH2M            1.6 A  2019-core-site  0.0 A
+     +9.6 rms  score   2.55  vol   2.8 A^3  nearest A ARG62 NA              2.6 A  2019-core-site  0.2 A
+     +6.1 rms  score   2.31  vol   3.3 A^3  nearest z HOH219 OB             1.9 A  2019-core-site  2.4 A
+     +8.7 rms  score   2.26  vol   2.5 A^3  nearest A HIS54 CE1E            2.5 A  2019-core-site  6.9 A
+     +6.7 rms  score   2.17  vol   3.0 A^3  nearest A TYR5 OHE              2.4 A  2019-core-site  0.2 A
+  negative blobs > 3 rms: 16, total score 4.5; on 2019 core sites (<1 A): 0, score 0.0; top 6:
+     -3.6 rms  score   0.71  vol   1.2 A^3  nearest A LYS58 NK              1.3 A  2019-core-site  2.6 A
+     -4.2 rms  score   0.59  vol   1.0 A^3  nearest A PHE15 CZA             1.4 A  2019-core-site  4.5 A
+     -3.7 rms  score   0.48  vol   0.8 A^3  nearest A TYR47 CZA             0.5 A  2019-core-site  6.2 A
+     -3.8 rms  score   0.47  vol   0.8 A^3  nearest A PRO52 CGF             2.1 A  2019-core-site  3.6 A
+     -3.6 rms  score   0.37  vol   0.6 A^3  nearest A ARG18 NH1B            1.7 A  2019-core-site  5.3 A
+     -3.5 rms  score   0.33  vol   0.6 A^3  nearest A TYR47 CGC             1.8 A  2019-core-site  6.1 A
+== starthere example   map rms 0.1042   rms in solvent region 0.1118, in protein 0.1018  (solvent region 24% of cell)
+  positive blobs > 3 rms: 84, total score 14.4; on 2019 core sites (<1 A): 6, score 1.4; top 6:
+     +7.1 rms  score   0.84  vol   1.8 A^3  nearest A LYS2 NZK              2.3 A  2019-core-site  2.0 A
+     +5.9 rms  score   0.62  vol   1.5 A^3  nearest z HOH130 Or             2.2 A  2019-core-site  0.5 A
+     +6.3 rms  score   0.55  vol   1.2 A^3  nearest A LEU29 OG              2.6 A  2019-core-site  6.8 A
+     +6.5 rms  score   0.52  vol   1.2 A^3  nearest A ASN19 NB              2.7 A  2019-core-site  0.8 A
+     +4.4 rms  score   0.50  vol   1.4 A^3  nearest A HIS54 NE2C            2.3 A  2019-core-site  2.8 A
+     +5.8 rms  score   0.48  vol   1.1 A^3  nearest A TYR47 OHA             2.3 A  2019-core-site  5.0 A
+  negative blobs > 3 rms: 45, total score 3.8; on 2019 core sites (<1 A): 7, score 0.6; top 6:
+     -3.6 rms  score   0.26  vol   0.8 A^3  nearest A TYR47 CBD             1.3 A  2019-core-site  7.2 A
+     -3.5 rms  score   0.21  vol   0.6 A^3  nearest A LYS28 CDK             1.9 A  2019-core-site  3.0 A
+     -4.0 rms  score   0.20  vol   0.6 A^3  nearest A PRO52 CGF             2.1 A  2019-core-site  3.6 A
+     -3.5 rms  score   0.17  vol   0.5 A^3  nearest z HOH28 Og              0.4 A  2019-core-site  0.5 A
+     -3.8 rms  score   0.17  vol   0.5 A^3  nearest A ARG62 OD              2.7 A  2019-core-site  3.1 A
+     -3.6 rms  score   0.16  vol   0.5 A^3  nearest A HIS64 CE1E            1.3 A  2019-core-site  2.4 A
+== starthere md2019   map rms 0.1094   rms in solvent region 0.1171, in protein 0.1068  (solvent region 24% of cell)
+  positive blobs > 3 rms: 84, total score 16.3; on 2019 core sites (<1 A): 5, score 2.5; top 6:
+     +6.5 rms  score   0.83  vol   1.8 A^3  nearest A LYS2 NZK              2.3 A  2019-core-site  2.0 A
+     +6.1 rms  score   0.75  vol   1.7 A^3  nearest z HOH130 Or             2.2 A  2019-core-site  0.5 A
+     +6.4 rms  score   0.67  vol   1.5 A^3  nearest A GLU32 OE1N            2.4 A  2019-core-site  0.5 A
+     +6.2 rms  score   0.65  vol   1.4 A^3  nearest A LEU29 OG              2.6 A  2019-core-site  6.8 A
+     +4.3 rms  score   0.54  vol   1.4 A^3  nearest A HIS64 NE2C            2.6 A  2019-core-site  2.1 A
+     +4.6 rms  score   0.53  vol   1.4 A^3  nearest A ILE6 OA               0.3 A  2019-core-site  2.9 A
+  negative blobs > 3 rms: 40, total score 5.6; on 2019 core sites (<1 A): 4, score 1.3; top 6:
+     -8.8 rms  score   0.84  vol   1.6 A^3  nearest z HOH231 OJ             2.6 A  2019-core-site  0.4 A
+     -5.2 rms  score   0.57  vol   1.4 A^3  nearest z HOH164 OD             1.3 A  2019-core-site  2.8 A
+     -3.7 rms  score   0.39  vol   1.1 A^3  nearest A LYS28 CDK             1.7 A  2019-core-site  2.9 A
+     -5.2 rms  score   0.33  vol   0.8 A^3  nearest A HIS64 OB              1.3 A  2019-core-site  2.8 A
+     -4.7 rms  score   0.32  vol   0.8 A^3  nearest A ASP9 OD1N             2.1 A  2019-core-site  3.2 A
+     -6.0 rms  score   0.29  vol   0.7 A^3  nearest A GLU25 OE2J            2.0 A  2019-core-site  0.4 A
+== starthere opc_10ns   map rms 0.1359   rms in solvent region 0.1577, in protein 0.1282  (solvent region 24% of cell)
+  positive blobs > 3 rms: 80, total score 36.0; on 2019 core sites (<1 A): 19, score 16.0; top 6:
+    +10.2 rms  score   1.99  vol   2.7 A^3  nearest A LYS2 NZK              2.4 A  2019-core-site  2.2 A
+     +8.7 rms  score   1.97  vol   3.0 A^3  nearest A GLU32 OE1N            2.5 A  2019-core-site  0.3 A
+     +8.9 rms  score   1.76  vol   2.6 A^3  nearest A ARG62 NA              2.5 A  2019-core-site  0.4 A
+     +8.9 rms  score   1.73  vol   2.5 A^3  nearest A VAL1 NH               2.5 A  2019-core-site  0.2 A
+     +7.6 rms  score   1.26  vol   1.9 A^3  nearest A ARG62 CDR             2.0 A  2019-core-site  0.3 A
+     +6.6 rms  score   1.11  vol   1.9 A^3  nearest A TYR5 OHE              2.1 A  2019-core-site  0.2 A
+  negative blobs > 3 rms: 30, total score 8.5; on 2019 core sites (<1 A): 3, score 0.7; top 6:
+    -10.4 rms  score   1.76  vol   2.5 A^3  nearest z HOH164 OD             1.0 A  2019-core-site  2.5 A
+     -9.6 rms  score   1.44  vol   2.1 A^3  nearest A ARG56 NH1B            1.0 A  2019-core-site  3.4 A
+     -6.5 rms  score   0.65  vol   1.2 A^3  nearest A LYS50 NZC             2.2 A  2019-core-site  1.9 A
+     -3.8 rms  score   0.37  vol   0.8 A^3  nearest A PRO52 CGF             1.9 A  2019-core-site  3.9 A
+     -4.8 rms  score   0.35  vol   0.7 A^3  nearest A ASP9 OD1N             2.4 A  2019-core-site  3.2 A
+     -3.8 rms  score   0.32  vol   0.7 A^3  nearest A ALA20 CBB             3.7 A  2019-core-site  1.4 A
+== starthere spce_10ns   map rms 0.1356   rms in solvent region 0.1567, in protein 0.1283  (solvent region 24% of cell)
+  positive blobs > 3 rms: 81, total score 36.3; on 2019 core sites (<1 A): 20, score 15.4; top 6:
+     +9.6 rms  score   2.07  vol   3.0 A^3  nearest A ARG62 NA              2.5 A  2019-core-site  0.4 A
+    +10.1 rms  score   2.06  vol   2.9 A^3  nearest A LYS2 NZK              2.4 A  2019-core-site  2.2 A
+     +7.8 rms  score   1.56  vol   2.4 A^3  nearest A GLU32 OE1N            2.5 A  2019-core-site  0.3 A
+     +8.5 rms  score   1.54  vol   2.4 A^3  nearest A VAL1 NH               2.5 A  2019-core-site  0.2 A
+     +8.6 rms  score   1.16  vol   1.8 A^3  nearest A ASP9 OD1C             2.6 A  2019-core-site  0.3 A
+     +8.1 rms  score   1.10  vol   1.8 A^3  nearest A TYR47 OHA             2.3 A  2019-core-site  5.5 A
+  negative blobs > 3 rms: 35, total score 10.1; on 2019 core sites (<1 A): 3, score 1.0; top 6:
+    -10.5 rms  score   1.65  vol   2.3 A^3  nearest A ARG56 NH1B            1.0 A  2019-core-site  3.4 A
+    -10.0 rms  score   1.59  vol   2.2 A^3  nearest z HOH164 OD             1.0 A  2019-core-site  2.3 A
+     -4.2 rms  score   0.73  vol   1.6 A^3  nearest A TYR47 CBD             1.8 A  2019-core-site  6.7 A
+     -6.0 rms  score   0.67  vol   1.2 A^3  nearest A ARG56 NH2L            2.2 A  2019-core-site  2.2 A
+     -6.6 rms  score   0.64  vol   1.0 A^3  nearest A ASP9 OD1N             2.1 A  2019-core-site  3.2 A
+     -5.6 rms  score   0.57  vol   1.0 A^3  nearest z HOH103 Oo             0.9 A  2019-core-site  0.9 A
+== deposited flat   map rms 0.1769   rms in solvent region 0.1757, in protein 0.1776  (solvent region 40% of cell)
+  positive blobs > 3 rms: 159, total score 35.6; on 2019 core sites (<1 A): 7, score 1.2; top 6:
+     +6.6 rms  score   2.08  vol   2.9 A^3  nearest A HOH101 O              1.0 A  2019-core-site  4.1 A
+     +7.3 rms  score   1.19  vol   1.6 A^3  nearest A HOH74 O               0.9 A  2019-core-site  3.7 A
+     +5.0 rms  score   1.11  vol   1.7 A^3  nearest A ASP9 OD1B             1.9 A  2019-core-site  4.7 A
+     +3.8 rms  score   1.03  vol   1.7 A^3  nearest A HOH96 O               2.3 A  2019-core-site  3.7 A
+     +6.8 rms  score   0.75  vol   1.0 A^3  nearest A HOH67 O               0.9 A  2019-core-site  2.9 A
+     +5.5 rms  score   0.71  vol   1.0 A^3  nearest A ASP8 OD1              0.9 A  2019-core-site  4.9 A
+  negative blobs > 3 rms: 53, total score 12.2; on 2019 core sites (<1 A): 1, score 0.1; top 6:
+     -6.1 rms  score   2.45  vol   3.5 A^3  nearest A ARG56 CZ              0.6 A  2019-core-site  3.2 A
+     -4.6 rms  score   0.71  vol   1.1 A^3  nearest A ARG62 N               0.6 A  2019-core-site  3.3 A
+     -4.5 rms  score   0.69  vol   1.1 A^3  nearest A ARG62 CA              0.7 A  2019-core-site  3.6 A
+     -4.4 rms  score   0.58  vol   0.9 A^3  nearest A HIS64 C               0.6 A  2019-core-site  3.4 A
+     -5.7 rms  score   0.58  vol   0.8 A^3  nearest A ASP53 OD2             0.6 A  2019-core-site  3.3 A
+     -5.2 rms  score   0.36  vol   0.5 A^3  nearest A ASP9 O                0.7 A  2019-core-site  5.0 A
+== deposited md2019   map rms 0.1592   rms in solvent region 0.1501, in protein 0.1649  (solvent region 40% of cell)
+  positive blobs > 3 rms: 160, total score 32.2; on 2019 core sites (<1 A): 1, score 0.1; top 6:
+     +6.5 rms  score   2.31  vol   3.6 A^3  nearest A HOH99 O               0.9 A  2019-core-site  3.0 A
+     +4.7 rms  score   1.04  vol   1.8 A^3  nearest A ASP9 OD1B             2.0 A  2019-core-site  4.6 A
+     +9.0 rms  score   0.93  vol   1.2 A^3  nearest A GLY17 O               1.2 A  2019-core-site  4.6 A
+     +9.0 rms  score   0.89  vol   1.0 A^3  nearest A ARG62 NH2             1.2 A  2019-core-site  3.4 A
+     +5.9 rms  score   0.85  vol   1.3 A^3  nearest A ASP8 OD1              0.9 A  2019-core-site  4.9 A
+     +3.9 rms  score   0.74  vol   1.4 A^3  nearest A LYS50 CE              1.3 A  2019-core-site  3.5 A
+  negative blobs > 3 rms: 67, total score 10.9; on 2019 core sites (<1 A): 3, score 0.2; top 6:
+     -5.9 rms  score   1.35  vol   2.2 A^3  nearest A ARG56 CZ              0.6 A  2019-core-site  3.2 A
+     -6.0 rms  score   0.60  vol   0.9 A^3  nearest A ASP53 OD2             0.6 A  2019-core-site  3.3 A
+     -4.4 rms  score   0.56  vol   1.0 A^3  nearest A HIS64 C               0.6 A  2019-core-site  3.4 A
+     -4.1 rms  score   0.38  vol   0.7 A^3  nearest A ARG62 CA              0.7 A  2019-core-site  3.6 A
+     -6.0 rms  score   0.36  vol   0.6 A^3  nearest A LYS28 O               0.6 A  2019-core-site  8.1 A
+     -4.4 rms  score   0.35  vol   0.6 A^3  nearest A GLU32 C               0.7 A  2019-core-site  4.4 A
+== deposited opc_10ns   map rms 0.1641   rms in solvent region 0.1582, in protein 0.1679  (solvent region 40% of cell)
+  positive blobs > 3 rms: 177, total score 34.7; on 2019 core sites (<1 A): 5, score 0.7; top 6:
+     +6.3 rms  score   1.63  vol   2.5 A^3  nearest A HOH99 O               0.9 A  2019-core-site  3.0 A
+     +4.9 rms  score   1.15  vol   1.9 A^3  nearest A ASP9 OD1B             2.0 A  2019-core-site  4.6 A
+     +8.6 rms  score   0.91  vol   1.1 A^3  nearest A GLY17 O               1.2 A  2019-core-site  4.6 A
+     +6.9 rms  score   0.82  vol   1.1 A^3  nearest A HOH74 O               0.9 A  2019-core-site  3.7 A
+     +5.9 rms  score   0.80  vol   1.2 A^3  nearest A ASP8 OD1              0.9 A  2019-core-site  4.9 A
+     +8.3 rms  score   0.80  vol   1.0 A^3  nearest A ARG62 NH2             1.2 A  2019-core-site  3.4 A
+  negative blobs > 3 rms: 54, total score 9.4; on 2019 core sites (<1 A): 3, score 0.3; top 6:
+     -5.7 rms  score   1.04  vol   1.7 A^3  nearest A ARG56 CZ              0.6 A  2019-core-site  3.2 A
+     -5.8 rms  score   0.55  vol   0.8 A^3  nearest A HOH73 O               0.8 A  2019-core-site  2.4 A
+     -5.4 rms  score   0.50  vol   0.8 A^3  nearest A HOH100 O              1.2 A  2019-core-site  3.1 A
+     -4.3 rms  score   0.40  vol   0.7 A^3  nearest A GLU24 OE1A            0.6 A  2019-core-site  5.1 A
+     -4.1 rms  score   0.38  vol   0.7 A^3  nearest A HIS64 C               0.6 A  2019-core-site  3.4 A
+     -5.4 rms  score   0.38  vol   0.6 A^3  nearest A ASP53 OD2             0.6 A  2019-core-site  3.3 A
+== deposited spce_10ns   map rms 0.1653   rms in solvent region 0.1593, in protein 0.1692  (solvent region 40% of cell)
+  positive blobs > 3 rms: 167, total score 34.4; on 2019 core sites (<1 A): 5, score 0.9; top 6:
+     +6.8 rms  score   1.92  vol   2.8 A^3  nearest A HOH99 O               0.8 A  2019-core-site  3.0 A
+     +5.0 rms  score   1.07  vol   1.7 A^3  nearest A ASP9 OD1B             1.6 A  2019-core-site  4.9 A
+     +8.7 rms  score   0.94  vol   1.2 A^3  nearest A GLY17 O               1.2 A  2019-core-site  4.6 A
+     +7.1 rms  score   0.84  vol   1.1 A^3  nearest A HOH67 O               1.0 A  2019-core-site  2.9 A
+     +8.4 rms  score   0.82  vol   1.0 A^3  nearest A ARG62 NH2             1.2 A  2019-core-site  3.4 A
+     +5.8 rms  score   0.80  vol   1.2 A^3  nearest A ASP8 OD1              0.9 A  2019-core-site  4.9 A
+  negative blobs > 3 rms: 51, total score 9.1; on 2019 core sites (<1 A): 1, score 0.1; top 6:
+     -5.5 rms  score   0.90  vol   1.5 A^3  nearest A ARG56 CZ              0.6 A  2019-core-site  3.2 A
+     -5.4 rms  score   0.66  vol   1.0 A^3  nearest A HOH100 O              1.3 A  2019-core-site  3.4 A
+     -5.9 rms  score   0.60  vol   0.9 A^3  nearest A HOH73 O               0.8 A  2019-core-site  2.4 A
+     -5.3 rms  score   0.37  vol   0.6 A^3  nearest A ASP53 OD2             0.6 A  2019-core-site  3.3 A
+     -5.2 rms  score   0.33  vol   0.5 A^3  nearest A ASP9 O                0.6 A  2019-core-site  4.6 A
+     -4.0 rms  score   0.31  vol   0.5 A^3  nearest A HIS64 C               0.6 A  2019-core-site  3.4 A

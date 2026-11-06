@@ -1,0 +1,52 @@
+flat round 3: added 32 waters
+example round 3: added 22 waters
+md2019 round 3: added 24 waters
+opc_10ns round 3: added 28 waters
+spce_10ns round 3: added 35 waters
+[1] 183321
+[2] 183322
+[3] 183323
+[4] 183324
+[5] 183325
+[6] 183326
+[7] 183327
+[8] 183328
+[9] 183329
+[10] 183331
+[10] + Done                          ./run_exocc.csh aw3_spce_10ns spce_10ns_map.mtz spce_10ns 2 >& exocc_aw${n}_${m}_j${j}.out
+[9]  + Done                          ./run_exocc.csh aw3_opc_10ns opc_10ns_map.mtz opc_10ns 2 >& exocc_aw${n}_${m}_j${j}.out
+[8]  + Done                          ./run_exocc.csh aw3_md2019 md2019_map.mtz md2019 2 >& exocc_aw${n}_${m}_j${j}.out
+[7]  + Done                          ./run_exocc.csh aw3_example example_FPART.mtz example 2 >& exocc_aw${n}_example_j${j}.out
+[6]  + Done                          ./run_exocc.csh aw3_flat flat flat 2 >& exocc_aw${n}_flat_j${j}.out
+[5]  + Done                          ./run_exocc.csh aw3_spce_10ns spce_10ns_map.mtz spce_10ns 1 >& exocc_aw${n}_${m}_j${j}.out
+[4]  + Done                          ./run_exocc.csh aw3_opc_10ns opc_10ns_map.mtz opc_10ns 1 >& exocc_aw${n}_${m}_j${j}.out
+[3]  + Done                          ./run_exocc.csh aw3_md2019 md2019_map.mtz md2019 1 >& exocc_aw${n}_${m}_j${j}.out
+[2]  + Done                          ./run_exocc.csh aw3_example example_FPART.mtz example 1 >& exocc_aw${n}_example_j${j}.out
+[1]  + Done                          ./run_exocc.csh aw3_flat flat flat 1 >& exocc_aw${n}_flat_j${j}.out
+round 3 done
+flat round 4: added 17 waters
+example round 4: added 6 waters
+md2019 round 4: added 3 waters
+opc_10ns round 4: added 15 waters
+spce_10ns round 4: added 15 waters
+[1] 136681
+[2] 136682
+[3] 136683
+[4] 136684
+[5] 136685
+[6] 136686
+[7] 136687
+[8] 136688
+[9] 136689
+[10] 136692
+[10]   Done                          ./run_exocc.csh aw4_spce_10ns spce_10ns_map.mtz spce_10ns 2 >& exocc_aw${n}_${m}_j${j}.out
+[9]  - Done                          ./run_exocc.csh aw4_opc_10ns opc_10ns_map.mtz opc_10ns 2 >& exocc_aw${n}_${m}_j${j}.out
+[8]  + Done                          ./run_exocc.csh aw4_md2019 md2019_map.mtz md2019 2 >& exocc_aw${n}_${m}_j${j}.out
+[7]  + Done                          ./run_exocc.csh aw4_example example_FPART.mtz example 2 >& exocc_aw${n}_example_j${j}.out
+[6]  + Done                          ./run_exocc.csh aw4_flat flat flat 2 >& exocc_aw${n}_flat_j${j}.out
+[5]  + Done                          ./run_exocc.csh aw4_spce_10ns spce_10ns_map.mtz spce_10ns 1 >& exocc_aw${n}_${m}_j${j}.out
+[4]  + Done                          ./run_exocc.csh aw4_opc_10ns opc_10ns_map.mtz opc_10ns 1 >& exocc_aw${n}_${m}_j${j}.out
+[3]  + Done                          ./run_exocc.csh aw4_md2019 md2019_map.mtz md2019 1 >& exocc_aw${n}_${m}_j${j}.out
+[2]  + Done                          ./run_exocc.csh aw4_example example_FPART.mtz example 1 >& exocc_aw${n}_example_j${j}.out
+[1]  + Done                          ./run_exocc.csh aw4_flat flat flat 1 >& exocc_aw${n}_flat_j${j}.out
+round 4 done

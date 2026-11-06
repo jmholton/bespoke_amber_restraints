@@ -1,0 +1,16 @@
+w1      watertype=opc
+w01     watertype=opc weight_per_sigma=0.1
+w03     watertype=opc weight_per_sigma=0.3
+w3      watertype=opc weight_per_sigma=3 max_weight=30 pdbscale=0.1
+w10     watertype=opc weight_per_sigma=10 max_weight=99 pdbscale=0.1
+flat10  watertype=opc min_rho=0 weight_per_sigma=100 max_weight=10
+pm500   watertype=opc pressure_target=-500
+pp500   watertype=opc pressure_target=500
+pp1500  watertype=opc pressure_target=1500
+w1_r2   watertype=opc
+ac0     watertype=opc altloc_copies=0
+ac0_r2  watertype=opc altloc_copies=0
+pp1500_r2 watertype=opc pressure_target=1500
+pp3000  watertype=opc pressure_target=3000
+n1      watertype=opc
+n1_r2   watertype=opc

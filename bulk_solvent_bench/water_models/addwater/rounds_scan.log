@@ -1,0 +1,78 @@
+pm500 round 1: added 29 waters
+w1 round 1: added 28 waters
+w1_r2 round 1: added 33 waters
+pp500 round 1: added 31 waters
+pp1500 round 1: added 32 waters
+[1] 857307
+[2] 857308
+[3] 857309
+[4] 857310
+[5] 857311
+[6] 857312
+[7] 857313
+[8] 857314
+[9] 857316
+[10] 857317
+[10]   Done                          ./run_exocc.csh sw1_pp1500 scan_pp1500_map.mtz scan_pp1500 2 >& exocc_sw${n}_${t}_j${j}.out
+[9]  - Done                          ./run_exocc.csh sw1_pp1500 scan_pp1500_map.mtz scan_pp1500 1 >& exocc_sw${n}_${t}_j${j}.out
+[8]  + Done                          ./run_exocc.csh sw1_pp500 scan_pp500_map.mtz scan_pp500 2 >& exocc_sw${n}_${t}_j${j}.out
+[7]  + Done                          ./run_exocc.csh sw1_pp500 scan_pp500_map.mtz scan_pp500 1 >& exocc_sw${n}_${t}_j${j}.out
+[6]  + Done                          ./run_exocc.csh sw1_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 2 >& exocc_sw${n}_${t}_j${j}.out
+[5]  + Done                          ./run_exocc.csh sw1_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 1 >& exocc_sw${n}_${t}_j${j}.out
+[4]  + Done                          ./run_exocc.csh sw1_w1 scan_w1_map.mtz scan_w1 2 >& exocc_sw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh sw1_w1 scan_w1_map.mtz scan_w1 1 >& exocc_sw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh sw1_pm500 scan_pm500_map.mtz scan_pm500 2 >& exocc_sw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh sw1_pm500 scan_pm500_map.mtz scan_pm500 1 >& exocc_sw${n}_${t}_j${j}.out
+round 1 done
+pm500 round 2: added 12 waters
+w1 round 2: added 21 waters
+w1_r2 round 2: added 18 waters
+pp500 round 2: added 15 waters
+pp1500 round 2: added 13 waters
+[1] 957018
+[2] 957019
+[3] 957020
+[4] 957021
+[5] 957022
+[6] 957023
+[7] 957024
+[8] 957025
+[9] 957026
+[10] 957027
+[10] - Done                          ./run_exocc.csh sw2_pp1500 scan_pp1500_map.mtz scan_pp1500 2 >& exocc_sw${n}_${t}_j${j}.out
+[9]  - Done                          ./run_exocc.csh sw2_pp1500 scan_pp1500_map.mtz scan_pp1500 1 >& exocc_sw${n}_${t}_j${j}.out
+[8]  + Done                          ./run_exocc.csh sw2_pp500 scan_pp500_map.mtz scan_pp500 2 >& exocc_sw${n}_${t}_j${j}.out
+[7]  + Done                          ./run_exocc.csh sw2_pp500 scan_pp500_map.mtz scan_pp500 1 >& exocc_sw${n}_${t}_j${j}.out
+[6]  + Done                          ./run_exocc.csh sw2_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 2 >& exocc_sw${n}_${t}_j${j}.out
+[5]  + Done                          ./run_exocc.csh sw2_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 1 >& exocc_sw${n}_${t}_j${j}.out
+[4]  + Done                          ./run_exocc.csh sw2_w1 scan_w1_map.mtz scan_w1 2 >& exocc_sw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh sw2_w1 scan_w1_map.mtz scan_w1 1 >& exocc_sw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh sw2_pm500 scan_pm500_map.mtz scan_pm500 2 >& exocc_sw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh sw2_pm500 scan_pm500_map.mtz scan_pm500 1 >& exocc_sw${n}_${t}_j${j}.out
+round 2 done
+pm500 round 3: added 15 waters
+w1 round 3: added 16 waters
+w1_r2 round 3: added 10 waters
+pp500 round 3: added 11 waters
+pp1500 round 3: added 11 waters
+[1] 1090672
+[2] 1090673
+[3] 1090674
+[4] 1090675
+[5] 1090676
+[6] 1090677
+[7] 1090678
+[8] 1090679
+[9] 1090680
+[10] 1090681
+[10] - Done                          ./run_exocc.csh sw3_pp1500 scan_pp1500_map.mtz scan_pp1500 2 >& exocc_sw${n}_${t}_j${j}.out
+[9]  + Done                          ./run_exocc.csh sw3_pp1500 scan_pp1500_map.mtz scan_pp1500 1 >& exocc_sw${n}_${t}_j${j}.out
+[8]  + Done                          ./run_exocc.csh sw3_pp500 scan_pp500_map.mtz scan_pp500 2 >& exocc_sw${n}_${t}_j${j}.out
+[7]  + Done                          ./run_exocc.csh sw3_pp500 scan_pp500_map.mtz scan_pp500 1 >& exocc_sw${n}_${t}_j${j}.out
+[6]  + Done                          ./run_exocc.csh sw3_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 2 >& exocc_sw${n}_${t}_j${j}.out
+[5]  + Done                          ./run_exocc.csh sw3_w1_r2 scan_w1_r2_map.mtz scan_w1_r2 1 >& exocc_sw${n}_${t}_j${j}.out
+[4]  + Done                          ./run_exocc.csh sw3_w1 scan_w1_map.mtz scan_w1 2 >& exocc_sw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh sw3_w1 scan_w1_map.mtz scan_w1 1 >& exocc_sw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh sw3_pm500 scan_pm500_map.mtz scan_pm500 2 >& exocc_sw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh sw3_pm500 scan_pm500_map.mtz scan_pm500 1 >& exocc_sw${n}_${t}_j${j}.out
+round 3 done

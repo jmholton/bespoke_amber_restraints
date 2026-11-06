@@ -1,0 +1,9 @@
+== flat10   map rms 0.1365   rms in solvent region 0.1591, in protein 0.1286  (solvent region 24% of cell)
+  positive blobs > 3 rms: 84, total score 39.7; on 2019 core sites (<1 A): 18, score 16.9; top 3:
+     +9.9 rms  score   2.12  vol   3.1 A^3  nearest A TYR21 OHO             2.5 A  2019-core-site  0.2 A
+    +10.7 rms  score   2.09  vol   2.8 A^3  nearest A LYS2 NZK              2.4 A  2019-core-site  2.2 A
+     +8.8 rms  score   1.86  vol   2.7 A^3  nearest A GLU32 OE1N            2.4 A  2019-core-site  0.2 A
+  negative blobs > 3 rms: 30, total score 7.9; on 2019 core sites (<1 A): 3, score 0.3; top 3:
+     -8.7 rms  score   1.38  vol   2.1 A^3  nearest z HOH164 OD             0.9 A  2019-core-site  2.4 A
+     -9.1 rms  score   1.30  vol   1.9 A^3  nearest A ARG56 NH1B            0.8 A  2019-core-site  3.3 A
+     -4.2 rms  score   0.72  vol   1.6 A^3  nearest A PRO52 CGF             1.9 A  2019-core-site  3.9 A

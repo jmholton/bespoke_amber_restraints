@@ -1,0 +1,18 @@
+MC barostat at 1 bar: <V> = 76085.9 +/- 54.0 A^3 (400 samples), kappa from fluctuations 45.5 e-6/bar
+ntp=4 at V = 75735.0: reads  1404.8 +/- 52.7 bar; the MC equation of state says   102.9 +/- 16; error +1302 bar
+ntp=1 at V = 75735.0: reads   115.5 +/- 13.7 bar; the MC equation of state says   102.9 +/- 16; error +13 bar
+ntp=2 at V = 75735.0: reads   104.7 +/- 16.2 bar; the MC equation of state says   102.9 +/- 16; error +2 bar
+
+frozen coordinates (dt 1e-5 ps), reported pressure at steps 1, 2, 10, 20:
+frozen_100_r1          P   -572.2   -572.3   -573.8   -574.6   VIRIAL   1362.5   1365.0
+frozen_100_r2          P   -572.2   -572.3   -573.8   -574.6   VIRIAL   1362.5   1365.0
+frozen_100_r4          P   -572.2   -572.4   -573.8   -574.5   VIRIAL   1362.5   1364.9
+frozen_100_u1          P   -572.2   -572.3   -573.8   -574.6   VIRIAL   1362.5   1365.0
+frozen_100_u2          P   -572.2   -572.3   -573.8   -574.6   VIRIAL   1362.5   1365.0
+frozen_100_u4          P   -572.2   -572.4   -573.7   -574.5   VIRIAL   1362.5   1364.9
+frozen_50_r1           P   -694.9   -694.2   -690.3   -684.5   VIRIAL   1485.4   1472.0
+frozen_50_r2           P   -694.9   -694.2   -690.3   -684.5   VIRIAL   1485.4   1472.0
+frozen_50_r4           P   -694.9   -694.2   -690.2   -684.4   VIRIAL   1485.4   1471.8
+frozen_50_u1           P   -694.9   -694.2   -690.3   -684.5   VIRIAL   1485.4   1472.0
+frozen_50_u2           P   -694.9   -694.2   -690.3   -684.5   VIRIAL   1485.4   1472.0
+frozen_50_u4           P   -694.9   -694.2   -690.2   -684.4   VIRIAL   1485.4   1471.8

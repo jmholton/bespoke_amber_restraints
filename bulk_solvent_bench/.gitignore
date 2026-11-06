@@ -1,0 +1,22 @@
+# whitelist: scripts, notes and small text results only (trajectories, maps, models stay local)
+*
+!*/
+!.gitignore
+!*.csh
+!*.com
+!*.sh
+!*.py
+!*.awk
+!*.md
+!*.txt
+!*.sourceme
+!*.in
+# a copy of the bespoke_amber_restraints repo, already on GitHub
+water_models/repo_scan/
+water_models/repo_*/
+temp_*
+!phenix_check/*.out
+!water_models/addwater/*.log
+!water_models/scan/*.log
+# own clone of bespoke_amber_restraints (its own git repo)
+bespoke_amber_restraints/

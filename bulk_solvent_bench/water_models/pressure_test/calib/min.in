@@ -1,0 +1,4 @@
+min
+ &cntrl
+  imin=1, maxcyc=1000, ntb=1, cut=9, ntpr=200,
+ /

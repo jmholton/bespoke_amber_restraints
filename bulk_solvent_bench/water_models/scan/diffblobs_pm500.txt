@@ -1,0 +1,9 @@
+== pm500   map rms 0.1360   rms in solvent region 0.1581, in protein 0.1283  (solvent region 24% of cell)
+  positive blobs > 3 rms: 88, total score 37.6; on 2019 core sites (<1 A): 18, score 16.0; top 3:
+    +10.9 rms  score   1.98  vol   2.6 A^3  nearest A LYS2 NZK              2.4 A  2019-core-site  2.2 A
+     +8.4 rms  score   1.95  vol   3.0 A^3  nearest A GLU32 OE1N            2.2 A  2019-core-site  0.3 A
+     +8.5 rms  score   1.68  vol   2.6 A^3  nearest A VAL1 NH               2.5 A  2019-core-site  0.2 A
+  negative blobs > 3 rms: 37, total score 8.8; on 2019 core sites (<1 A): 1, score 0.3; top 3:
+     -9.5 rms  score   1.61  vol   2.4 A^3  nearest z HOH164 OD             0.9 A  2019-core-site  2.4 A
+     -9.0 rms  score   1.50  vol   2.2 A^3  nearest A ARG56 NH1B            0.8 A  2019-core-site  3.3 A
+     -5.8 rms  score   0.60  vol   1.1 A^3  nearest A LYS50 NZC             2.2 A  2019-core-site  1.9 A

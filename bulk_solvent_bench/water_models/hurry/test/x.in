@@ -1,0 +1,7 @@
+parm /scratch/jamesh/projects/amber/1aho_hurry_test/longcalm/padded.parm7
+parmstrip @6004-999999
+trajin /scratch/jamesh/projects/amber/1aho_hurry_test/longcalm/amber_2000.nc 5 25 5
+strip !(:WAT,HOH,NH4,ACY)
+strip :WAT,HOH@Y1,EPW
+trajout test/f.pdb pdb multi pdbv3 keepext sg "P 1"
+go

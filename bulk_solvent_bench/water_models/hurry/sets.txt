@@ -1,0 +1,43 @@
+# tag          run:first_itr:last_itr:itr_step:frame_stride ...   (25 frames per 0.5-ns iteration)
+hl_longcalm    longcalm:1000:2000:10:5
+hl_lcal2ns     longcalm:1997:2000:1:1
+hl_longconv    longconv:790:1790:10:5
+hl_afpool      af_rel4:101:200:5:5 maw0_rel4:101:200:5:5 bcsx_rel4:101:200:5:5 sxyz_rel4:101:200:5:5 altB1_rel4:101:200:5:5
+hl_afstd       af_std:101:200:5:5
+hl_noalt       noalt:101:200:5:5
+hl_noaltopc    noalt_opc:101:200:5:5
+hl_s005        g_s005_hie:101:200:5:5
+hl_s068        g_s068_hie:101:200:5:5
+hl_s02         salt02_opt:101:200:5:5
+# lower uniform B, and each run's own per-atom B (premod_Bfac_<itr+1>.pdb via nc2mtz_gemmi.com: bfac_map.csh, *_bf)
+hl_lcb5        longcalm:1000:2000:10:5 B=5
+hl_lcb2        longcalm:1000:2000:10:5 B=2
+hl_afb5        af_std:101:200:5:5 B=5
+hl_afb2        af_std:101:200:5:5 B=2
+hl_lcbf        longcalm:1000:2000:10:5
+hl_afbf        af_std:101:200:5:5
+# 2026-11-05: the overnight ff19/OPC optimize_weights runs (ff19_opc_b5_2s2r and b5sd1_2s2r render at uniform B 5,
+# k1B_2s2r refines per-atom B), second halves as for af_std: uniform B 10, then each run's own rendering (B 5; own
+# per-atom B via bfac_map.csh, hl_k1Bbf).  hl_afstd_rep is a copy of map_hl_afstd.mtz, a same-host repeat of the test
+hl_b5          ff19_opc_b5_2s2r:101:200:5:5
+hl_b5sd1       ff19_opc_b5sd1_2s2r:101:200:5:5
+hl_k1B         ff19_opc_k1B_2s2r:101:200:5:5
+hl_b5b5        ff19_opc_b5_2s2r:101:200:5:5 B=5
+hl_b5sd1b5     ff19_opc_b5sd1_2s2r:101:200:5:5 B=5
+hl_k1Bbf       ff19_opc_k1B_2s2r:101:200:5:5
+# 2026-11-05: the CA-only runs of build_ff19_opc (11 NH4/15 ACY, ff19SB + OPC with CMAP): 232 of 256 CA restrained (a
+# 5 A hole around Cys12), k ramped 1 -> 0.02 by itr 113 (halving every 20 itr) then held, no water restraints.  mult,
+# loca and locw differ only in the run's own B handling, which the uniform-B render ignores.  hl_ff19opc: their parent
+# run ff19_opc, same protocol, late window
+hl_mult        ff19_opc_mult:101:200:5:5
+hl_loca        ff19_opc_loca:101:200:5:5
+hl_locw        ff19_opc_locw:101:200:5:5
+hl_ff19opc     ff19_opc:651:750:5:5
+# align: each frame first translated onto the run's alignment reference, as optimize_weights_runme.com does before it
+# makes its mtz (extract_frames.csh align; the translations are checked against the run's align_<itr>.log)
+hl_mult_al     ff19_opc_mult:101:200:5:5 align
+hl_loca_al     ff19_opc_loca:101:200:5:5 align
+hl_locw_al     ff19_opc_locw:101:200:5:5 align
+hl_ff19opc_al  ff19_opc:651:750:5:5 align
+hl_b5sd1_al    ff19_opc_b5sd1_2s2r:101:200:5:5 align
+hl_afstd_al    af_std:101:200:5:5 align

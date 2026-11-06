@@ -1,0 +1,4 @@
+[1] 2740665
+[2] 2740666
+[2]  + Done                          phenix.refine nowater.pdb refme_small.mtz refinement.main.number_of_macro_cycles=3 refinement.refine.strategy=individual_sites+individual_adp --overwrite output.prefix=nowater_md refinement.input.bulk_solvent_map.file_name=bulk_solvent_B.mtz refinement.input.bulk_solvent_map.amplitudes_label=FPART refinement.input.bulk_solvent_map.phases_label=PHIPART >& ${model}_${tag}.log
+[1]  + Done                          phenix.refine withwater.pdb refme_small.mtz refinement.main.number_of_macro_cycles=3 refinement.refine.strategy=individual_sites+individual_adp --overwrite output.prefix=withwater_md refinement.input.bulk_solvent_map.file_name=bulk_solvent_B.mtz refinement.input.bulk_solvent_map.amplitudes_label=FPART refinement.input.bulk_solvent_map.phases_label=PHIPART >& ${model}_${tag}.log
