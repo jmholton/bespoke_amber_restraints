@@ -212,6 +212,20 @@ score on the 2019 core water sites / all positive blobs (example model, `diffblo
   solvent, xyz+ADP+occupancies, `under20_occ_groups.eff` = one constrained group per residue, 64 groups, 623
   residue-conformers, + individual=water). phenix's automatic groups in our runs are the same 623 residue-conformer
   groups; re-running with the explicit .eff gives 0.1061 vs 0.1060 (example map) and 0.1247 vs 0.1239 (w1 map).
+- **The high-weight maps through water building** (2026-11-05, octamus1, `hurry/highk_chain.sh`: example model from
+  two jiggled starts, then three altconf rounds; R-free, mean of the two starts):
+
+  | map | protein restraint | none | r1 | r2 | r3 |
+  |---|---|---|---|---|---|
+  | w1 | 1 x rho, mean 5 | 0.1242 | 0.1137 | 0.1109 | 0.1108 |
+  | w3 | 3 x rho (cap 30), mean 15 | 0.1243 | 0.1124 | 0.1092 | 0.1094 |
+  | w10 | 10 x rho (cap 99), mean 51 | 0.1263 | 0.1132 | 0.1105 | 0.1106 |
+  | flat10 | 10 on every heavy atom | 0.1268 | 0.1145 | 0.1113 | 0.1090 |
+  | n1 (w1, true pressure) | 1 x rho | 0.1250 | 0.1142 | 0.1099 | 0.1095 |
+
+  The stiff maps' deficit before building (0.002-0.003) is gone after the rounds: all finish within ~0.002, the size
+  of the water-pick noise. Very large protein k does not make these 2-ns, water-unrestrained maps approach the long
+  restrained runs (0.1067-0.1076) or the 2019 map (0.1030).
 
 ## Waters next to split side chains, pressure, and 100 ns (2026-11-01)
 
@@ -608,6 +622,17 @@ over the protein atoms with reference density >= 1 (the mask and all 25 translat
   align logs). loca and ff19_opc stray most and make the two worst maps. The solvent organises around a protein
   surface that is not the crystal's, and translating the lattice back cannot fix that. Among the restrained runs,
   protein rmsd does not predict the map: k1B holds the protein closest (0.27 A) and makes the worst restrained map.
+- **The blurred edge, raw -> aligned** (density by distance from the example model's protein, mean/sd, e/A^3 without
+  F000; `bulk_flatness.py` with bins 0-1.5 / 1.5-2.5 / 2.5-3.5 / 3.5-5 A):
+
+  | map | inside, 0-1.5 A mean | 1.5-2.5 A sd | first shell 2.5-3.5 A mean / sd |
+  |---|---|---|---|
+  | CA-only (4 maps) | -0.079..-0.083 -> -0.080..-0.084 | 0.18-0.20 -> 0.19-0.21 | 0.224-0.234 / 0.14-0.16 -> 0.229-0.239 / 0.16-0.19 |
+  | b5sd1, af_std | unchanged | unchanged | unchanged |
+  | b5sd1 / af_std / longcalm / 2019 | -0.092..-0.098 | 0.27-0.30 | 0.256-0.281 / 0.26-0.32 |
+
+  Alignment sharpens the CA-only edge a little, closing 15-25% of the first-shell sd gap to the restrained maps and
+  ~20% of the mean gap. Most of the blur stays: it comes from the protein's own 0.9-1.1 A departure.
 
 ## 7KR0, PRISM's six-conformer ensemble (2026-11-04/05, octamus1)
 
@@ -634,6 +659,85 @@ conformers at 1/6 each, R-free 0.0725.
     0.1103. 388-436 waters built (occupancy sum 324-349, PRISM 545).
   - So MD and flat finish within 0.002 of each other, with mixed sign. The dry-model MD lead was water the rebuild had
     not yet placed.
+
+## Overnight water-building queue from /scratch (2026-11-05)
+
+`water_models/waterbuild/unbuilt_maps.txt` lists the 93 maps never water-built on octamus1 (every `hl_*` map, w1, n1,
+the 2019 map and now w3/w10/flat10 are done). They run in seven priority batches from
+`/scratch/jamesh/projects/amber/waterbuild` (`queue.sh`; `touch stop` there halts it before the next batch;
+`results.txt`, mirrored to `/petabyte/jamesh/waterbuild/`), because /home, and with it `/programs`, was due to go down
+that night.
+
+- `setup_scratch.sh` makes the scratch test from the bench's scripts by sed (paths only). phenix-2.2-6143 is a copy of
+  the /home install (the `/petabyte/home/programs` copy predated its Aug 26 changes); ccp4 is a 42 MB subset (the
+  seven programs add_waters.com and pick.com call, their libraries, `lib/data`).
+- What it took to keep everything off /home: the copy's `phenix_bin` links pointed at `/programs/.../bin` (relinked
+  relative), `phenix_env` named `/programs` (rewritten), libtbx's environment pickle stored the build path (rewritten
+  in the copy, original kept), and OpenSSL reads its compiled-in config (`OPENSSL_CONF` set).
+- `CCP4_SCR` must stay `/tmp/jamesh`: with a longer scratch path pick.com found 79 "unique" peaks instead of 51 and
+  add_waters.com placed the same waters in a different order. With `/tmp/jamesh` it reproduces an earlier round's
+  `new.pdb` byte for byte, and strace shows no file access outside /scratch and the system.
+- **Control:** batch 1 carries `ctl_afstd`, the hl_afstd map again. It reproduced the /home install exactly, per
+  start, at every stage: 0.1205 / 0.1089 / 0.1066 / 0.1067.
+- **Run:** the power was to go off that night, before one batch an hour could get past batch 3.
+  - At 20:53 batches 2-7 (78 maps, 156 refinements) started at once with `queue_rest.sh`, one `hurry_chain.csh` per
+    batch. `queue.sh` finished batch 1 at 21:19 and stopped (stop file).
+  - octamus1 has 224 cores (448 threads); a refinement takes ~2.2 GB. Under that load a refinement took 18-21 min
+    instead of 15.
+  - All 93 maps finished round 3 at 22:13.
+  - To redo an interrupted map: `rm stop; bash queue.sh`, which redoes from the start every map without both
+    round-3 refinements.
+- **Duplicates:** 17 tags are the same map under two names (identical FPART/PHIPART, different MTZ headers):
+  - each water model's `bulk_solvent.mtz` is its 10 ns map;
+  - each `_r2` replicate's `bulk_solvent.mtz` is its 2 ns map;
+  - `o_opc_r2` is `wm_opc_r2_2ns`, and `w1_100ns` is `o_win1_100`.
+
+  Every pair ran at the same time in different chains and gave identical R-free per start at every stage. That
+  leaves 76 distinct maps.
+
+### Results (`water_models/waterbuild/results.txt`)
+
+R-free after round 3, mean of 2 starts:
+
+| group | R-free after round 3 |
+|---|---|
+| w1 100 ns run, from the start: 0-1 / 0-4 / 0-8 / 0-16 ns (0-2 = w1, 0.1108) | 0.1116 / 0.1109 / 0.1104 / 0.1099 |
+| w1 100 ns run, from the start: 0-32 / 0-64 / 0-100 ns; 50-100 ns | 0.1077 / 0.1096 / 0.1082; 0.1089 |
+| w1 100 ns run, 2 ns windows at 10 / 30 / 50 / 70 / 90 ns | 0.1104 / 0.1092 / 0.1105 / 0.1108 / 0.1124 |
+| water models, 10 ns (spce, opc, tip4pew, fb4, opc3, tip4pd, tip3p, fb3) | 0.1089, 0.1089, 0.1092, 0.1104, 0.1104, 0.1106, 0.1109, 0.1118 |
+| water models, second run 2 ns (`_r2`: spce, tip4pd, opc3, tip4pew, opc, fb3, fb4, tip3p) | 0.1084, 0.1095, 0.1099, 0.1103, 0.1111, 0.1115, 0.1118, 0.1124 |
+| water models, first 2 ns / last 1 ns of the 10 ns runs (8 each) | 0.1099-0.1132 (mean 0.1111) / 0.1098-0.1128 (mean 0.1112) |
+| pressure (w1 settings): +500 / +1500 / +1500 replicate / +3000 bar | 0.1079 / 0.1081 / 0.1091 / 0.1089 |
+| pressure: -500 bar (698 waters) | 0.1136 |
+| w1 variants: w01, w03, w1_r2, ac0, ac0_r2, n1_r2 | 0.1091, 0.1086, 0.1086, 0.1106, 0.1088, 0.1103 |
+| n1 frames, uniform B 2 / 5 / 30 (B 10 = n1, 0.1095) | 0.1101 / 0.1109 / 0.1114 |
+| n1 frames, `rmsd2B` B: field 2-10 / field 10-50 / field 2-100 / per atom 2-100 | 0.1118 / 0.1167 / 0.1191 / 0.1198 |
+| first `bulk_solvent_runme.com` tests: test_1aho, _b, _c, test_altcopies | 0.1134, 0.1108, 0.1103, 0.1118 |
+| test_1aho_long (20 x 1 ns): 0-2 / 0-5 / 0-10 / 0-20 ns; ns 9-10 / 11-20 / 19-20 | 0.1099 / 0.1108 / 0.1104 / 0.1091; 0.1108 / 0.1089 / 0.1084 |
+| example map (from the 2019 map) | 0.1035 |
+
+- **Nothing beats the front-runners.** None of the 76 maps beats this year's best maps (hl_lcb5 0.1052, hl_lcbf
+  0.1056, af_std 0.1067) or the 2019 map (0.1030).
+  - The `bulk_solvent_runme.com` maps land at 0.1077-0.1136, whatever the water model, pressure, averaging window or
+    uniform B.
+  - Replicate MD runs differ by 0.001-0.002 (w1 / w1_r2 0.0022, ac0 / ac0_r2 0.0018, pp1500 / its replicate 0.0010,
+    n1 / n1_r2 0.0008), and single maps move up to 0.003 between rounds 2 and 3. Differences under ~0.002 are noise.
+- **Averaging length:** longer averages help a little.
+  - w1 averages of 32 ns or more give 0.1077-0.1096 (mean 0.1086). Averages of 16 ns or less from the start give
+    0.1099-0.1116 (mean 0.1107), and the later 2 ns windows give 0.1092-0.1124 (mean 0.1107).
+  - Before building, the from-the-start maps won (0.1240-0.1248 against 0.1256-0.1286 for later windows). After
+    building, 50-100 ns (0.1089) is as good as 0-100 ns (0.1082).
+  - The 10 ns water-model maps average 0.1101, against 0.1111 for their first 2 ns or last 1 ns.
+  - test_1aho_long agrees: after building, its late windows (0.1084-0.1089) beat the early ones (0.1099-0.1108).
+    Without building it was the other way round.
+- **Water model:** worth at most ~0.002 after building.
+  - SPC/E is best or tied best in both of its runs (10 ns 0.1089, `_r2` 0.1084).
+  - OPC ties at 10 ns, but its 2 ns replicate gives 0.1111.
+  - The 0.001 OPC lead seen before building does not survive.
+- **Pressure:** positive targets average 0.1085 against 0.1097 for the two 2 ns w1 maps: the ~0.001 bl831 showed,
+  within noise. Only the under-filled -500 bar map is worse (0.1136).
+- **B factors:** uniform B 2-30 is within noise of the default 10 after building. B from MD motion (`rmsd2B`) stays
+  0.002-0.010 worse even after the waters are built (0.013-0.016 before).
 
 ## How our `bulk_solvent_runme.com` maps differ
 
