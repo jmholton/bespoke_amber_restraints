@@ -1,0 +1,87 @@
+map_1_1.mtz  every 1th frame
+[1] 943857
+[2] 943858
+Bad : modifier in $ ' '.
+map_1_4.mtz  every 1th frame
+[1] 945797
+[2] 945798
+win1_4: refining
+map_1_8.mtz  every 1th frame
+[3] 948867
+[4] 948868
+win1_8: refining
+map_1_10.mtz  every 1th frame
+map_11_12.mtz  every 1th frame
+[1]    Done                          ./run_exocc.csh starthere scan_win1_4_map.mtz scan_win1_4 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[2]    Done                          ./run_exocc.csh starthere scan_win1_4_map.mtz scan_win1_4 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[4]  - Done                          ./run_exocc.csh starthere scan_win1_8_map.mtz scan_win1_8 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_exocc.csh starthere scan_win1_8_map.mtz scan_win1_8 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[1] 1086932
+[2] 1086933
+win11_12: refining
+map_1_16.mtz  every 2th frame
+[3] 1089011
+[4] 1089012
+win1_16: refining
+map_11_20.mtz  every 1th frame
+map_21_30.mtz  every 1th frame
+map_31_32.mtz  every 1th frame
+[2]    Done                          ./run_exocc.csh starthere scan_win11_12_map.mtz scan_win11_12 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]    Done                          ./run_exocc.csh starthere scan_win11_12_map.mtz scan_win11_12 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[4]  - Done                          ./run_exocc.csh starthere scan_win1_16_map.mtz scan_win1_16 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_exocc.csh starthere scan_win1_16_map.mtz scan_win1_16 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[1] 1202693
+[2] 1202694
+win31_32: refining
+map_1_32.mtz  every 4th frame
+[3] 1203771
+[4] 1203772
+win1_32: refining
+map_31_40.mtz  every 1th frame
+[2]    Done                          ./run_exocc.csh starthere scan_win31_32_map.mtz scan_win31_32 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]    Done                          ./run_exocc.csh starthere scan_win31_32_map.mtz scan_win31_32 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[4]  - Done                          ./run_exocc.csh starthere scan_win1_32_map.mtz scan_win1_32 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_exocc.csh starthere scan_win1_32_map.mtz scan_win1_32 1 >& exocc_starthere_scan_${tag}_j${j}.out
+map_41_50.mtz  every 1th frame
+map_51_52.mtz  every 1th frame
+[1] 1346583
+[2] 1346584
+win51_52: refining
+[1]  - Done                          ./run_exocc.csh starthere scan_win51_52_map.mtz scan_win51_52 1 >& exocc_starthere_scan_${tag}_j${j}.out
+map_51_60.mtz  every 1th frame
+[2]  + Done                          ./run_exocc.csh starthere scan_win51_52_map.mtz scan_win51_52 2 >& exocc_starthere_scan_${tag}_j${j}.out
+map_61_70.mtz  every 1th frame
+map_1_64.mtz  every 7th frame
+[1] 1657763
+[2] 1657764
+win1_64: refining
+map_71_72.mtz  every 1th frame
+[2]  - Done                          ./run_exocc.csh starthere scan_win1_64_map.mtz scan_win1_64 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_win1_64_map.mtz scan_win1_64 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[1] 1866484
+[2] 1866486
+win71_72: refining
+map_71_80.mtz  every 1th frame
+map_81_90.mtz  every 1th frame
+map_91_92.mtz  every 1th frame
+[3] 1874982
+[4] 1874983
+win91_92: refining
+map_91_100.mtz  every 1th frame
+map_1_100.mtz  every 10th frame
+[5] 1875972
+[6] 1875973
+win1_100: refining
+map_51_100.mtz  every 5th frame
+[2]    Done                          ./run_exocc.csh starthere scan_win71_72_map.mtz scan_win71_72 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]    Done                          ./run_exocc.csh starthere scan_win71_72_map.mtz scan_win71_72 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[7] 1957226
+[8] 1957227
+win51_100: refining
+[8]    Done                          ./run_exocc.csh starthere scan_win51_100_map.mtz scan_win51_100 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[7]  - Done                          ./run_exocc.csh starthere scan_win51_100_map.mtz scan_win51_100 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[6]  + Done                          ./run_exocc.csh starthere scan_win1_100_map.mtz scan_win1_100 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[5]  + Done                          ./run_exocc.csh starthere scan_win1_100_map.mtz scan_win1_100 1 >& exocc_starthere_scan_${tag}_j${j}.out
+[4]  + Done                          ./run_exocc.csh starthere scan_win91_92_map.mtz scan_win91_92 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_exocc.csh starthere scan_win91_92_map.mtz scan_win91_92 1 >& exocc_starthere_scan_${tag}_j${j}.out
+Unmatched '`'.

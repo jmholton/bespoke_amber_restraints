@@ -1,0 +1,4 @@
+[1] 2725188
+[2] 2725189
+[2]  + Done                          phenix.refine nowater.pdb refme_small.mtz refinement.main.number_of_macro_cycles=3 refinement.refine.strategy=individual_sites+individual_adp --overwrite output.prefix=nowater_flat >& ${model}_flat.log
+[1]  + Done                          phenix.refine withwater.pdb refme_small.mtz refinement.main.number_of_macro_cycles=3 refinement.refine.strategy=individual_sites+individual_adp --overwrite output.prefix=withwater_flat >& ${model}_flat.log

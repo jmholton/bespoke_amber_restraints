@@ -1,0 +1,26 @@
+flat round 5: added 13 waters
+example round 5: added 4 waters
+md2019 round 5: added 2 waters
+opc_10ns round 5: added 18 waters
+spce_10ns round 5: added 8 waters
+[1] 53779
+[2] 53780
+[3] 53781
+[4] 53782
+[5] 53783
+[6] 53784
+[7] 53785
+[8] 53786
+[9] 53788
+[10] 53790
+[10] + Done                          ./run_exocc.csh aw5_spce_10ns spce_10ns_map.mtz spce_10ns 2 >& exocc_aw${n}_${m}_j${j}.out
+[9]  + Done                          ./run_exocc.csh aw5_opc_10ns opc_10ns_map.mtz opc_10ns 2 >& exocc_aw${n}_${m}_j${j}.out
+[8]  + Done                          ./run_exocc.csh aw5_md2019 md2019_map.mtz md2019 2 >& exocc_aw${n}_${m}_j${j}.out
+[7]  + Done                          ./run_exocc.csh aw5_example example_FPART.mtz example 2 >& exocc_aw${n}_example_j${j}.out
+[6]  + Done                          ./run_exocc.csh aw5_flat flat flat 2 >& exocc_aw${n}_flat_j${j}.out
+[5]  + Done                          ./run_exocc.csh aw5_spce_10ns spce_10ns_map.mtz spce_10ns 1 >& exocc_aw${n}_${m}_j${j}.out
+[4]  + Done                          ./run_exocc.csh aw5_opc_10ns opc_10ns_map.mtz opc_10ns 1 >& exocc_aw${n}_${m}_j${j}.out
+[3]  + Done                          ./run_exocc.csh aw5_md2019 md2019_map.mtz md2019 1 >& exocc_aw${n}_${m}_j${j}.out
+[2]  + Done                          ./run_exocc.csh aw5_example example_FPART.mtz example 1 >& exocc_aw${n}_example_j${j}.out
+[1]  + Done                          ./run_exocc.csh aw5_flat flat flat 1 >& exocc_aw${n}_flat_j${j}.out
+round 5 done

@@ -1,0 +1,5 @@
+source leaprc.water.opc
+x = loadpdb /home2/jamesh/projects/amber/bulk_solvent/water_models/scan/w1_100ns/opc.pdb
+solvatebox x OPCBOX 20.0
+saveamberparm x water.prmtop water.rst7
+quit

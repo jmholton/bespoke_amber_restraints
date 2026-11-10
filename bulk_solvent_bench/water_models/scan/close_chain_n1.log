@@ -1,0 +1,23 @@
+[1] 473444
+[2] 473445
+[2]    Done                          ./run_exocc.csh starthere scan_n1_map.mtz scan_n1 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_n1_map.mtz scan_n1 1 >& exocc_starthere_scan_${tag}_j${j}.out
+n1 round 1: altconf: kept 46 of 51 peaks, conformers: A40 B4 C1 D1
+[1] 525796
+[2] 525797
+[2]  + Done                          ./run_exocc.csh cw1_n1 scan_n1_map.mtz scan_n1 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw1_n1 scan_n1_map.mtz scan_n1 1 >& exocc_cw${n}_${t}_j${j}.out
+round 1 done
+n1 round 2: altconf: kept 25 of 33 peaks, conformers: A19 B5 C1
+[1] 594086
+[2] 594087
+[2]    Done                          ./run_exocc.csh cw2_n1 scan_n1_map.mtz scan_n1 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw2_n1 scan_n1_map.mtz scan_n1 1 >& exocc_cw${n}_${t}_j${j}.out
+round 2 done
+n1 round 3: altconf: kept 17 of 25 peaks, conformers: A8 B7 C2
+[1] 657966
+[2] 657968
+[2]    Done                          ./run_exocc.csh cw3_n1 scan_n1_map.mtz scan_n1 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw3_n1 scan_n1_map.mtz scan_n1 1 >& exocc_cw${n}_${t}_j${j}.out
+round 3 done
+n1 done

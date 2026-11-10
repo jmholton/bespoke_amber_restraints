@@ -1,0 +1,13 @@
+[1] 3296881
+[2] 3296882
+[3] 3296883
+[4] 3296884
+[5] 3296885
+[6] 3296886
+[6]  + Done                          ./run_jig.csh scan_w01_map.mtz scan_w01 4 >& jig_scan_${tag}_j${j}.out
+[5]  + Done                          ./run_jig.csh scan_w01_map.mtz scan_w01 3 >& jig_scan_${tag}_j${j}.out
+[4]  + Done                          ./run_jig.csh scan_w01_map.mtz scan_w01 2 >& jig_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_jig.csh scan_w01_map.mtz scan_w01 1 >& jig_scan_${tag}_j${j}.out
+[2]  + Done                          ./run_exocc.csh starthere scan_w01_map.mtz scan_w01 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_w01_map.mtz scan_w01 1 >& exocc_starthere_scan_${tag}_j${j}.out
+w01 done

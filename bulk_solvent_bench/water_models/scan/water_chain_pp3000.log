@@ -1,0 +1,23 @@
+[1] 1262744
+[2] 1262745
+[2]    Done                          ./run_exocc.csh starthere scan_pp3000_map.mtz scan_pp3000 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_pp3000_map.mtz scan_pp3000 1 >& exocc_starthere_scan_${tag}_j${j}.out
+pp3000 round 1: added 32 waters
+[1] 1332428
+[2] 1332429
+[2]  + Done                          ./run_exocc.csh sw1_pp3000 scan_pp3000_map.mtz scan_pp3000 2 >& exocc_sw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh sw1_pp3000 scan_pp3000_map.mtz scan_pp3000 1 >& exocc_sw${n}_${t}_j${j}.out
+round 1 done
+pp3000 round 2: added 18 waters
+[1] 1410806
+[2] 1410807
+[2]  + Done                          ./run_exocc.csh sw2_pp3000 scan_pp3000_map.mtz scan_pp3000 2 >& exocc_sw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh sw2_pp3000 scan_pp3000_map.mtz scan_pp3000 1 >& exocc_sw${n}_${t}_j${j}.out
+round 2 done
+pp3000 round 3: added 6 waters
+[1] 1518649
+[2] 1518650
+[2]  + Done                          ./run_exocc.csh sw3_pp3000 scan_pp3000_map.mtz scan_pp3000 2 >& exocc_sw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh sw3_pp3000 scan_pp3000_map.mtz scan_pp3000 1 >& exocc_sw${n}_${t}_j${j}.out
+round 3 done
+pp3000 done

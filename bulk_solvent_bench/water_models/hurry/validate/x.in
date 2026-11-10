@@ -1,0 +1,5 @@
+parm /home2/jamesh/projects/amber/bulk_solvent/water_models/scan/n1/solvent.parm7
+trajin /home2/jamesh/projects/amber/bulk_solvent/water_models/scan/n1/solvent.nc
+strip :WAT,HOH@Y1,EPW
+trajout frames/n1.pdb pdb multi pdbv3 keepext sg "P 1"
+go

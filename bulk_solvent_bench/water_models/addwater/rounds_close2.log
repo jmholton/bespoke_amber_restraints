@@ -1,0 +1,33 @@
+pp1500_r2 round 1: altconf: kept 50 of 54 peaks, conformers: A41 B7 C1 D1
+pp3000 round 1: altconf: kept 45 of 48 peaks, conformers: A38 B5 C1 D1
+[1] 1874679
+[2] 1874680
+[3] 1874681
+[4] 1874682
+[4]    Done                          ./run_exocc.csh cw1_pp3000 scan_pp3000_map.mtz scan_pp3000 2 >& exocc_cw${n}_${t}_j${j}.out
+[3]  - Done                          ./run_exocc.csh cw1_pp3000 scan_pp3000_map.mtz scan_pp3000 1 >& exocc_cw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh cw1_pp1500_r2 scan_pp1500_r2_map.mtz scan_pp1500_r2 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw1_pp1500_r2 scan_pp1500_r2_map.mtz scan_pp1500_r2 1 >& exocc_cw${n}_${t}_j${j}.out
+round 1 done
+pp1500_r2 round 2: altconf: kept 20 of 29 peaks, conformers: A16 B3 C1
+pp3000 round 2: altconf: kept 28 of 37 peaks, conformers: A21 B6 C1
+[1] 1963060
+[2] 1963061
+[3] 1963062
+[4] 1963063
+[4]  - Done                          ./run_exocc.csh cw2_pp3000 scan_pp3000_map.mtz scan_pp3000 2 >& exocc_cw${n}_${t}_j${j}.out
+[3]  - Done                          ./run_exocc.csh cw2_pp3000 scan_pp3000_map.mtz scan_pp3000 1 >& exocc_cw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh cw2_pp1500_r2 scan_pp1500_r2_map.mtz scan_pp1500_r2 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw2_pp1500_r2 scan_pp1500_r2_map.mtz scan_pp1500_r2 1 >& exocc_cw${n}_${t}_j${j}.out
+round 2 done
+pp1500_r2 round 3: altconf: kept 10 of 22 peaks, conformers: A6 B3 C1
+pp3000 round 3: altconf: kept 12 of 23 peaks, conformers: A6 B5 C1
+[1] 2035847
+[2] 2035848
+[3] 2035849
+[4] 2035850
+[4]    Done                          ./run_exocc.csh cw3_pp3000 scan_pp3000_map.mtz scan_pp3000 2 >& exocc_cw${n}_${t}_j${j}.out
+[3]  + Done                          ./run_exocc.csh cw3_pp3000 scan_pp3000_map.mtz scan_pp3000 1 >& exocc_cw${n}_${t}_j${j}.out
+[2]  + Done                          ./run_exocc.csh cw3_pp1500_r2 scan_pp1500_r2_map.mtz scan_pp1500_r2 2 >& exocc_cw${n}_${t}_j${j}.out
+[1]  + Done                          ./run_exocc.csh cw3_pp1500_r2 scan_pp1500_r2_map.mtz scan_pp1500_r2 1 >& exocc_cw${n}_${t}_j${j}.out
+round 3 done

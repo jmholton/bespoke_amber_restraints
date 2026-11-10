@@ -1,0 +1,14 @@
+[1] 3278077
+[2] 3278078
+[3] 3278079
+[4] 3278080
+[5] 3278081
+[6] 3278082
+[6]  + Done                          ./run_jig.csh scan_opc_r2_map.mtz scan_opc_r2 4 >& jig_scan_${tag}_j${j}.out
+[5]  + Done                          ./run_jig.csh scan_opc_r2_map.mtz scan_opc_r2 3 >& jig_scan_${tag}_j${j}.out
+[4]  + Done                          ./run_jig.csh scan_opc_r2_map.mtz scan_opc_r2 2 >& jig_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_jig.csh scan_opc_r2_map.mtz scan_opc_r2 1 >& jig_scan_${tag}_j${j}.out
+[2]  + Done                          ./run_exocc.csh starthere scan_opc_r2_map.mtz scan_opc_r2 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_opc_r2_map.mtz scan_opc_r2 1 >& exocc_starthere_scan_${tag}_j${j}.out
+opc_r2 done
+opc_r2 done

@@ -1,0 +1,13 @@
+[1] 3406936
+[2] 3406937
+[3] 3406938
+[4] 3406939
+[5] 3406941
+[6] 3406942
+[6]  + Done                          ./run_jig.csh scan_pp500_map.mtz scan_pp500 4 >& jig_scan_${tag}_j${j}.out
+[5]  + Done                          ./run_jig.csh scan_pp500_map.mtz scan_pp500 3 >& jig_scan_${tag}_j${j}.out
+[4]  + Done                          ./run_jig.csh scan_pp500_map.mtz scan_pp500 2 >& jig_scan_${tag}_j${j}.out
+[3]  + Done                          ./run_jig.csh scan_pp500_map.mtz scan_pp500 1 >& jig_scan_${tag}_j${j}.out
+[2]  + Done                          ./run_exocc.csh starthere scan_pp500_map.mtz scan_pp500 2 >& exocc_starthere_scan_${tag}_j${j}.out
+[1]  + Done                          ./run_exocc.csh starthere scan_pp500_map.mtz scan_pp500 1 >& exocc_starthere_scan_${tag}_j${j}.out
+pp500 done
