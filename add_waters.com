@@ -10,11 +10,17 @@ set tempfile = tempfile
 
 set sigma = 4
 set dist  = 1.8A
+# altconf: nearer than this to any atom, a peak is that atom's density, not a water
+set mindist = 1.0
 
 set pdbfile = refmacout.pdb
 set mtzfile = refmacout.mtz
 set mapfile = ""
 set maskfile = ""
+# nofree: free-flag value to leave out of the FFT (fft's FREERFLAG, default 0)
+set freeval = 0
+set FREE = ""
+set FREERFLAG = ""
 
 set top
 set rmsrho
@@ -25,6 +31,24 @@ foreach arg ( $* )
     endif
     if("$arg" =~ chain=*) then
         set user_chain = `echo $arg | awk -F "=" '{print $NF}'`
+        continue
+    endif
+    if("$arg" == "heavy") then
+        # distances from heavy atoms only: riding H on donors would hide every H-bonded water peak
+        set heavyonly
+        continue
+    endif
+    if("$arg" == "altconf") then
+        # waters may sit closer than dist to atoms with alternate conformers, in a conformer of their own
+        set altconf
+        continue
+    endif
+    if("$arg" =~ mindist=*) then
+        set mindist = `echo $arg | awk -F "=" '{print $NF+0}'`
+        continue
+    endif
+    if("$arg" =~ conf=*) then
+        set user_conf = `echo $arg | awk -F "=" '{print $NF}'`
         continue
     endif
     if("$arg" =~ occ=*) then
@@ -44,6 +68,21 @@ foreach arg ( $* )
        set mapfile = `echo $arg | awk -F "=" '{print $NF}'`
        if(! -e "$mapfile") echo "WARNING: $mapfile does not exist! "
        continue
+    endif
+    if("$arg" == "nofree") then
+        # leave the free-set reflections out of the map that waters are picked from
+        set nofree
+        continue
+    endif
+    if("$arg" =~ free=*) then
+        # free-flag column label, for an mtz that does not use a standard one (implies nofree)
+        set nofree
+        set freelabel = `echo $arg | awk -F "=" '{print $NF}'`
+        continue
+    endif
+    if("$arg" =~ freeval=*) then
+        set freeval = `echo $arg | awk -F "=" '{print $NF+0}'`
+        continue
     endif
     if("$arg" =~ "-top"*) then
         set top = $arg
@@ -88,6 +127,37 @@ echo "pdb: $pdbfile"
 if(-e "$mtzfile") echo "mtz: $mtzfile"
 if(-e "$mapfile") echo "map: $mapfile"
 
+if($?nofree) then
+    # free-flag column: the one given with free=, else the first standard name present; stop if there is none
+    if(-e "$mapfile" || ! -e "$mtzfile") then
+        echo "ERROR: told to leave out free reflections, but they can only be left out of an mtz, not a map"
+        exit 9
+    endif
+    set labels = `echo head | mtzdump hklin $mtzfile | awk '/Column Labels/{getline;getline;print;exit}'`
+    if(! $?freelabel) then
+        foreach try ( FreeR_flag R-free-flags FREE FreeRflag FREER R_FREE_FLAGS )
+            if(" $labels " =~ "* $try *") then
+                set freelabel = $try
+                break
+            endif
+        end
+    endif
+    if(! $?freelabel) then
+        echo "ERROR: told to leave out free reflections, but $mtzfile has no standard free-flag column; name it with free=LABEL"
+        echo "columns: $labels"
+        exit 9
+    endif
+    if(" $labels " !~ "* $freelabel *") then
+        echo "ERROR: free-flag column $freelabel is not in $mtzfile"
+        echo "columns: $labels"
+        exit 9
+    endif
+    echo "leaving out reflections with $freelabel = $freeval"
+    set FREE = "FREE=$freelabel"
+    set FREERFLAG = "FREERFLAG $freeval"
+    rm -f ${tempfile}ffted.map
+endif
+
 set waterchain = `awk '/^ATOM|^HETAT/ && /HOH/{print substr($0,22,1)}' $pdbfile | tail -1`
 if("$waterchain" == "") then
     # is there a non-water "S" chain?
@@ -123,6 +193,17 @@ if($?user_conf) then
 endif
 
 egrep -v "HOH" $pdbfile >! ${tempfile}protein.pdb
+if($?heavyonly) then
+    awk '! /^ATOM|^HETAT/ || ($NF != "H" && $NF != "D")' ${tempfile}protein.pdb >! ${tempfile}heavy.pdb
+    mv ${tempfile}heavy.pdb ${tempfile}protein.pdb
+endif
+if($?altconf) then
+    # only single-conformer atoms keep new waters dist away; waterconf.awk below needs a letter to start from
+    cp ${tempfile}protein.pdb ${tempfile}context.pdb
+    awk '! /^ATOM|^HETAT/ || substr($0,17,1)==" "' ${tempfile}context.pdb >! ${tempfile}protein.pdb
+    if(! $?user_conf) set conf = A
+    if("$conf" == "_" || "$conf" == " ") set conf = A
+endif
 if("$dist" == "0A") then
     echo "" >! ${tempfile}protein.pdb
 endif
@@ -144,13 +225,19 @@ endif
 if(-e "$mtzfile" && ! -e "$mapfile") then
     # make the fofc map
      fft hklin $mtzfile mapout ${tempfile}ffted.map << EOF >& /dev/null
-    labin F1=FOFCWT PHI=PHFOFCWT
+    labin F1=FOFCWT PHI=PHFOFCWT $FREE
+    $FREERFLAG
     $GRID
 EOF
      fft hklin $mtzfile mapout ${tempfile}ffted.map << EOF >& /dev/null
-    labin F1=DELFWT PHI=PHDELWT
+    labin F1=DELFWT PHI=PHDELWT $FREE
+    $FREERFLAG
     $GRID
 EOF
+    if($?nofree && ! -e ${tempfile}ffted.map) then
+        echo "ERROR: fft with $FREE failed on $mtzfile"
+        exit 9
+    endif
     mapmask mapin ${tempfile}ffted.map mapout ${tempfile}fofc.map << EOF > /dev/null
     $AXIS
     xyzlim asu
@@ -203,6 +290,28 @@ while ( $found == 0 && $finding < 1000 )
     endif
 end
 
+if($?altconf && "$found" != "0") then
+    # each new water goes to its symmetry image nearest the model and is dropped within mindist of any atom; then
+    # waterconf.awk gives it the first letter (from conf) that no atom within dist has, symmetry mates included,
+    # so it never clashes with a conformer it cannot coexist with.  Old waters are context, renamed WAT
+    awk '/^CRYST1/ || /^ATOM|^HETAT/' $pdbfile |\
+    awk '/^ATOM|^HETAT/ && substr($0,18,3)=="HOH"{$0=substr($0,1,17) "WAT" substr($0,21)} {print}' |\
+    awk -v h=$?heavyonly '! /^ATOM|^HETAT/ || ! h || ($NF != "H" && $NF != "D")' >! ${tempfile}context.pdb
+    set clashdist = `echo $dist | awk '{print $1+0}'`
+    # close_waters.py and waterconf.awk live next to this script (refmac_tools_jmh), else in bespoke_amber_restraints
+    set PY = /programs/phenix-2.2-6143/bin/phenix.python
+    if(! -x $PY) set PY = phenix.python
+    set waterconf = `dirname $0`/waterconf.awk
+    if(! -e $waterconf) set waterconf = ~/projects/git/bespoke_amber_restraints/waterconf.awk
+    $PY `dirname $0`/close_waters.py ${tempfile}context.pdb new_water.pdb \
+      $mindist $clashdist >! ${tempfile}conf_in.pdb
+    awk -v clashdist=$clashdist -f $waterconf ${tempfile}conf_in.pdb >! ${tempfile}conf_out.pdb
+    grep "^REMARK: " ${tempfile}conf_out.pdb >! waterconf.log
+    awk '/^ATOM|^HETAT/ && substr($0,18,3)=="HOH"' ${tempfile}conf_out.pdb >! new_water.pdb
+    echo "altconf: kept `cat new_water.pdb | wc -l` of $found peaks, conformers:" \
+      `awk '{print substr($0,17,1)}' new_water.pdb | sort | uniq -c | awk '{printf("%s%s ",$2,$1)}'`
+    rm -f ${tempfile}context.pdb ${tempfile}conf_in.pdb ${tempfile}conf_out.pdb
+endif
 
 egrep -v "^END|^TER" $pdbfile |\
 awk '/^ATOM|^HETAT/ && substr($0,55,6)+0<=0 && /HOH/{\
