@@ -14,7 +14,8 @@
 #  its rms over the cell (as phenix.map_value_at_point scale=sigma); scale=auto is sigma for an mtz, as-is for a map.
 #
 
-set MAPMAN =  /programs/rave/lx_mapman
+# mapman: $MAPMAN from the environment if set, else the site copy, else the PATH
+if(! $?MAPMAN) set MAPMAN = /programs/rave/lx_mapman
 if(! -e "$MAPMAN") set MAPMAN = mapman
 
 set pdbfile = ""
