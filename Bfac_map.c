@@ -1356,7 +1356,7 @@ static void usage(void)
 "  Bfac_map probe pdb=frame.pdb map=Bfac.map [outpdb=-] [options]\n"
 "  Bfac_map update map=Bfac.map fofc=fofc_sigma.map halfrho_pos=h halfrho_neg=h \\\n"
 "                  [max_mod=2 mod_mode=add|mult negative_scale=0.9 offset=0] \\\n"
-"                  [minB=2 maxB=999.99] [mask=frames.pdb|- selresn=HOH mask_pad=0] [outmap=<map>]\n"
+"                  [minB=0 maxB=999.99] [mask=frames.pdb|- selresn=HOH mask_pad=0] [outmap=<map>]\n"
 "  Bfac_map peek pdb=atoms.pdb|- map=any.map [interp=cubic]\n"
 "  Bfac_map stats map=Bfac.map\n"
 "\n"
@@ -1605,7 +1605,7 @@ int main(int argc, char **argv)
     }
     if (!strcmp(mode, "update")) {
         if (!mapf) { fprintf(stderr, "ERROR: update needs map=<file>\n"); return 9; }
-        if (!minB_set) minB = 2.0;
+        if (!minB_set) minB = 0.0;
         if (maxB <= 0) maxB = 999.99;
         /* default: overwrite the input, the field is the state being refined */
         if (!outmap) outmap = mapf;

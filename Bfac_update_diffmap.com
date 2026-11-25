@@ -38,7 +38,7 @@ set halfrho_neg = auto
 set max_mod = 2.0
 set mod_mode = add
 set max_Bfac = 999.99
-set min_Bfac = 2
+set min_Bfac = 0
 
 set ambig_same_Bfac = 1
 

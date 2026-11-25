@@ -38,7 +38,7 @@ set outfile = avg.mtz
 set Bscale = 1
 set Boffset = 0
 set maxB = 100
-set minB = 2
+set minB = 0
 
 set wrap = 0
 set keeptraj = 0

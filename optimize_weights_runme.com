@@ -55,8 +55,11 @@ endif
 set render_reso = mtz
 set render_B = 10
 # iterative adjustment of overall B factor
-set render_B_min = 2
+set render_B_min = 0
 set render_B_adjust = 0.05
+# lowest B anywhere: the render, the overall B shift, the per-atom and B-field updates.  0: the MD ensemble already
+# supplies the motion, and gemmi and the GPU sfcalc both render B = 0 exactly (gemmi --test R 0.002% with every atom at 0)
+set Bfac_min = 0
 # for gemmi
 set render_rate = 1.5
 # file for storing all atomic B factors
@@ -1206,7 +1209,7 @@ if( ! -e trajectory/md.1.pdb && $adjust_itr != 0 ) set needtraj = 1
 if( ! -e trajectory/md.1.pdb && $Badjust_itr != 0 ) set needtraj = 1
 
 if(-e "$trajectory" && $needtraj ) then
-  set minB = 1
+  set minB = $Bfac_min
   set maxB = 999.99
   if( "$Bfac_file" == "rmsd2B" ) then
     set minB = `echo $rmsd2B_range | awk -F "-" '{print $1}'`
@@ -1338,7 +1341,7 @@ if( "$render_B_adjust" != "0" ) then
   endif
   set deltaB = `echo $stats $render_B_adjust | awk '{print $3*$NF}'`
   if(-e "$Bfac_file") then
-     echo "$deltaB 2 999.99" |\
+     echo "$deltaB $Bfac_min 999.99" |\
      cat - "$Bfac_file" |\
      awk 'NR==1{deltaB=$1;minB=$2;maxB=$3;next}\
       ! /^ATOM|^HETAT/{print;next}\
@@ -1350,7 +1353,7 @@ if( "$render_B_adjust" != "0" ) then
      cat >! newB.pdb
      set head = `cat this.pdb | wc -l`
      head -n $head newB.pdb >! ${t}newB.pdb
-     set pegmin = `awk '/^ATOM|^HETAT/ && substr($0,61,6)+0<=2' ${t}newB.pdb | wc -l`
+     set pegmin = `awk -v m=$Bfac_min '/^ATOM|^HETAT/ && substr($0,61,6)+0<=m' ${t}newB.pdb | wc -l`
      set pegmax = `awk '/^ATOM|^HETAT/ && substr($0,61,6)+0>=999.99' ${t}newB.pdb | wc -l`
      echo "adding $deltaB to all B factors in $Bfac_file ($pegmin at min, $pegmax at max)"
      cp ${Bfac_file} Bfac_preadjust_${itr}.pdb
@@ -1359,7 +1362,7 @@ if( "$render_B_adjust" != "0" ) then
   # the field gets the same shift, with or without a per-atom B file
   if( "$Bfac_map" == "refine" && -e Bfac.map ) then
      echo "adding $deltaB to the B-factor field Bfac.map"
-     Bfac_map update map=Bfac.map offset=$deltaB minB=2 maxB=999.99 outmap=${t}newB.map
+     Bfac_map update map=Bfac.map offset=$deltaB minB=$Bfac_min maxB=999.99 outmap=${t}newB.map
      if( $status || ! -e ${t}newB.map ) then
        set BAD = "Bfac.map overall B adjustment failed"
        goto exit
@@ -1498,7 +1501,7 @@ if( "$Bfac_map" == "refine" ) then
 endif
 rm -f new_Bfac.pdb new_Bfac.map
 Bfac_update_diffmap.com Bfac.pdb modulo=$modulo mtzfile=cootme.mtz \
-  max_mod=$Bfac_maxmod mod_mode=$Bfac_modmode fft_B=$Bfac_fft_B $Bmapopt \
+  max_mod=$Bfac_maxmod mod_mode=$Bfac_modmode fft_B=$Bfac_fft_B min_Bfac=$Bfac_min $Bmapopt \
   tempfile=${scratch}/Bud_ >&! Bfac_update_${itr}.log
 if( $status || ! -e new_Bfac.pdb) then
   set BAD = "Bfac update diffmap failed"
