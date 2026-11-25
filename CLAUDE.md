@@ -6,6 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `bespoke_amber_restraints` is a collection of command-line tools for using X-ray crystallography data to iteratively optimize harmonic restraints in AMBER molecular dynamics simulations. The goal is to find the minimum restraint weights needed to keep a structure consistent with its electron density.
 
+## Findings to know before building or analysing (November 2026)
+
+Details and numbers: `WEIGHTS_AND_B.md` (restraint weights, B factors, map probes, 1aho chemistry),
+`PRESSURE.md` (what pmemd's PRESS means here), and `bulk_solvent_bench/MD_BULK_SOLVENT_JOINT.md`: which MD
+strategies agree best with the 1aho data by both sessions' measures (pipeline R and the bulk-solvent map's R-free),
+and the restraint-class tests that follow from it.
+- **The recommended 1aho MD**: density-weighted restraints on all protein heavy atoms plus density-picked waters,
+  held without decay; CA-only (k decayed to 0.02) and uniform k 1 are the worst by both measures.
+- **1aho's His64 is a C-terminal amide**, not the carboxylate `1aho.pdb` draws: each copy is one unit more positive
+  than in every topology built before 2026-11-05, so the cell needs different salt (amide build: ACY x8, no NH4).
+  tleap snippet: `1aho_starter_kit/his64_amide.tleap`.  The amide fits better in every test.
+- **New waters take B 50**, not 999 (`leap2amber.com padwater_B`); B 999 renders as an ~8 A blob, not as nothing.
+- **B may go to 0** (`optimize_weights Bfac_min`, default 0); gemmi and the GPU sfcalc both render B = 0 exactly.
+- **Map probes go through `check_map_sites.com`** (mapman, else `Bfac_map peek` cubic, else phenix), one value per
+  atom in atom order.  Do not count `phenix.map_value_at_point` output lines (it reorders atoms within a residue),
+  and do not trust its 0.5 A default grid at high resolution (27% low at 0.965 A).  Since 1ec6916 rholabel, and so
+  `bulk_solvent_runme.com`'s density-derived restraint weights, read about 1.2x higher at 1aho resolution.
+- Only restraints with k >= `cutoff_weight` reach the MD (409 of 2258 at the end of a 1aho weight convergence).
+
 ## Compiling the C Programs
 
 Three C programs are included and must be compiled before use:
@@ -28,6 +47,9 @@ themselves if it is missing.)
 - Configuration is read from `sourceme` files (e.g., `xtal_properties.sourceme`, `settings.sourceme`) via tcsh `source`
 - Intermediate files use a `$tempfile` prefix (often `/dev/shm/${USER}/temp_<script>_$$_`) and are cleaned up on exit
 - Error handling uses a `$?BAD` pattern: set `BAD = "message"` and `goto exit`; the exit label checks `$?BAD` and exits with status 9
+- tcsh traps: a one-line `if ( cond ) cmd` expands every variable and performs any redirect even when cond is false
+  (use if/then/endif); `$var:` followed by a space is a modifier error (write `${var}:`); ``set v = `cmd` `` collapses
+  runs of spaces; tcsh reads a running script by byte offset, so never edit one in place (write a new file, `mv` it)
 
 ## Architecture
 
@@ -52,7 +74,10 @@ set modulo = 64         # number of residues in one protein chain
 
 - **AMBER** (18+): `pmemd.cuda_SPFP`, `cpptraj`, `tleap`, `AddToBox` — sourced from `/programs/amber22/amber.csh`
 - **CCP4 Suite**: `mtzdmp`, `cad`, `mapmask`, `sfall`
-- **Phenix Suite**: `phenix.refine`, `phenix.fetch_pdb`
+- **Phenix Suite**: `phenix.refine`, `phenix.fetch_pdb`; map probing needs it only as the last resort of
+  `check_map_sites.com` (mapman, `/programs/rave/lx_mapman` or `$MAPMAN`, is used first when present)
+- **cpptraj 7 or later** for topology strips (`parmstrip_runme.com`, `cpptraj_strip` in the site
+  `compute_settings.sourceme`): Amber22's cpptraj V6 drops every ff19SB CMAP term on a strip
 - **gemmi**: for MTZ/map operations (`nc2mtz_gemmi.com`)
 
 ### Key Input Files
@@ -134,6 +159,11 @@ skip when their output exists.  Design points:
   example drivers, example_setup_notes.com and add_salt_runme.com on 2026-10-30.
 - Solvent = `WAT HOH` + salt residue names; cpptraj masks treat `+`/`-` as operators,
   so ion names go in as `Na=`/`Cl=` wildcards.
+- Section 4's restraint weights come from `rholabel_runme.com`, which probes through
+  `check_map_sites.com` since 1ec6916: at 1aho's 0.965 A its densities read about 1.2x
+  higher than the old phenix 0.5 A probe, so the fixed restraints are stronger than in
+  earlier runs.  A water-letter count that does not match the water atoms
+  (`altloc_waters`) now switches off only the water filtering (660bced).
 
 ### leap2amber / tleap: connectivity and solvation gotchas
 
@@ -151,7 +181,8 @@ skip when their output exists.  Design points:
   unmasked.  All three `add_salt_runme.com` calls (cations, anions, waters) pass it.
 - `leap2amber.com` pre-sizes `padded.parm7` with `padwater` placeholder waters at
   the origin, then strips them (the last `padwater` residues) to make `xtal.prmtop`;
-  the MD runs on the stripped topology.
+  the MD runs on the stripped topology.  Their B is `padwater_B` (default 50; 999 before
+  2026-11-24), and every water hydration adds later inherits it.
 
 ### Script Categories
 
@@ -179,7 +210,12 @@ diffuse, and nothing has to be kept in step with atom order.
 Bfac_map build pdb=Bfac.pdb outmap=Bfac.map [sigma=0.5] [grid=0.5] [farB=999] [fardist=4.5] [sg=P1]
 Bfac_map probe pdb=frame.pdb map=Bfac.map [outpdb=-] [minB=] [maxB=]
 Bfac_map stats map=Bfac.map
+Bfac_map update map=Bfac.map fofc=fofc_sigma.map halfrho=h [max_mod= mod_mode=] [mask=frames.pdb|- selresn=HOH]
+Bfac_map peek pdb=atoms.pdb map=any.map [interp=cubic]
 ```
+`update` refines the field by location (`optimize_weights Bfac_map=refine`), moving only the voxels the
+selected atoms read in the frames (`mask=`); `peek` prints a map's value at each atom in file order with
+mapman's cubic spline, and is `check_map_sites.com`'s second sampler.
 
 - The field is `B(x) = (SUM_i w_i B_i + w0 farB) / (SUM_i w_i + w0)` with
   `w_i = exp(-r^2/2 sigma^2)` and `w0 = exp(-fardist^2/2 sigma^2)`: the local
@@ -256,6 +292,8 @@ Two crystal systems are used for development and demonstration:
 ### 1aho — scorpion toxin (reference demo)
 64 residues, P212121, 0.965 Å resolution, super_mult=1,1,1 (single unit cell).
 No protein ligand; salt = NH4 + ACY at 0.68 M.  All data is public (PDB deposit).
+His64 is C-terminally amidated (UniProt P01484), although `1aho.pdb` draws a carboxylate:
+see `WEIGHTS_AND_B.md` and `1aho_starter_kit/his64_amide.tleap`.  Crystallized at pH 6.8.
 MTZ labels are already FP/SIGFP/FreeR_flag — no cad renaming needed.
 
 Starter kit: `1aho_starter_kit/` in this repo.

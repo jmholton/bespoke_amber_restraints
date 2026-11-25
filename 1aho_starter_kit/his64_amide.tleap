@@ -1,0 +1,26 @@
+# CHIE redefined as the C-terminal histidine AMIDE (AaH II His64-NH2, UniProt P01484), tleap maps a chain-final HIE to CHIE, so every His64 gets it.
+# Internal ff19SB HIE (amino19.lib: atoms, types, charges) + the NHE cap (aminoct12.lib: N -0.4630, HN1/HN2 +0.2315);
+# total charge 0.  Names follow the deposited 1aho model, which drew it as a carboxylate: the atom deposited as "O"
+# (3.04 A from the mate's Thr57 O=C) is the amide N, and "OXT" is the carbonyl O.
+CHIE = copy HIE
+set CHIE.1.O name "OXT"
+hinN = createAtom O N -0.4630
+set hinN element N
+set hinN position { 6.2522 3.7981 -0.0000 }
+add CHIE.1 hinN
+bond CHIE.1.C hinN
+hinH1 = createAtom HN1 H 0.2315
+set hinH1 element H
+set hinH1 position { 7.2583 3.7092 -0.0000 }
+add CHIE.1 hinH1
+bond hinN hinH1
+hinH2 = createAtom HN2 H 0.2315
+set hinH2 element H
+set hinH2 position { 5.8262 4.7138 -0.0000 }
+add CHIE.1 hinH2
+bond hinN hinH2
+set CHIE tail null
+set CHIE.1 connect1 null
+set CHIE.1 name "HIE"
+# the leaprc maps a chain-final HIS to CHIS, an alias it made of the library CHIE: point it at this one
+CHIS = CHIE
