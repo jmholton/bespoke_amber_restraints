@@ -1,0 +1,45 @@
+# programs.sourceme: amber22, phenix 2.2 and ccp4 9 for this bench's scripts, all from one programs tree, then the site
+# compute settings (MD engines, srun).  A drop-in for compute_settings.sourceme.  programs.sh is the bash version.
+#
+# The tree is $PROGRAMS, default /data/home/programs: the complete pre-2026-11 /home tree.  Since the 2026-11 power
+# work /home (and /programs -> /home/programs) is the petabyte copy, still being synced (2026-11-24); octamus1, voltron
+# and bl831 all mount /data.  setenv PROGRAMS /programs to go back.
+#   phenix: its bin/ dispatchers find the install from their own real path, so they run from any tree (checked: code,
+#     modules and chem_data all resolve under /data).  phenix_bin/ links and phenix_env.csh name /programs, so PATH
+#     gets programs_bin/<tree>/phenix-2.2-6143 instead: links to the dispatchers of $PROGRAMS (made once, here).
+#   ccp4: ccp4.setup-csh with its /programs prefix replaced (the binaries find their libraries via $ORIGIN).
+#   amber: amber.csh from its own directory, which sets AMBERHOME there.  The binaries keep RPATH /programs/amber22/lib;
+#     that lib is the same in both trees (names and sizes, 2026-11-24).
+#   The site file then skips its own /programs setups (AMBERHOME, PHENIX and CCP4 are set) and gives pmemd, sander,
+#   sruncpu; cpptraj_strip comes from the same tree.
+if ( ! $?PROGRAMS ) then
+  setenv PROGRAMS /data/home/programs
+endif
+set programs_bench = /home2/jamesh/projects/amber/bulk_solvent
+
+# amber.csh takes AMBERHOME from $_, which is empty in a non-interactive tcsh script, so source it from its own dir
+set programs_here = "$cwd"
+cd $PROGRAMS/amber22 && source amber.csh
+cd "$programs_here"
+
+setenv PHENIX $PROGRAMS/phenix-2.2-6143
+setenv PHENIX_PREFIX $PHENIX
+setenv PHENIX_VERSION 2.2-6143
+set programs_pbin = $programs_bench/programs_bin/`echo $PROGRAMS | sed 's#^/##; s#/#_#g'`/phenix-2.2-6143
+if ( ! -d $programs_pbin ) then
+  mkdir -p $programs_pbin
+  foreach f ( `ls $PHENIX/phenix_bin` )
+    ln -sf $PHENIX/bin/$f $programs_pbin/$f
+  end
+endif
+setenv PATH ${programs_pbin}:$PATH
+
+set programs_ccp4 = /tmp/programs_ccp4_$$.csh
+sed -e 's#"/programs"#"'$PROGRAMS'"#' -e "s#'/programs/#'$PROGRAMS/#" $PROGRAMS/ccp4-9/bin/ccp4.setup-csh >! $programs_ccp4
+source $programs_ccp4
+rm -f $programs_ccp4
+
+source $programs_bench/compute_settings.sourceme
+if ( -x $PROGRAMS/cpptraj/7.12.6/bin/cpptraj ) then
+  set cpptraj_strip = $PROGRAMS/cpptraj/7.12.6/bin/cpptraj
+endif

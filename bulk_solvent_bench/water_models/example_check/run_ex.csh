@@ -10,7 +10,7 @@ if( $#argv > 4 ) then
   set fl = $4
   set pl = $5
 endif
-source /programs/phenix-2.2-6143/phenix_env.csh
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 set opts = ( refme.mtz refinement.main.number_of_macro_cycles=3 \
   refinement.refine.strategy=individual_sites+individual_adp --overwrite )
 if( "$sol" != "flat" ) set opts = ( $opts refinement.input.bulk_solvent_map.file_name=$sol \

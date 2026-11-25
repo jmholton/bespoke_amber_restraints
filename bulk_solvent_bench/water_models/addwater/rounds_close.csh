@@ -6,6 +6,7 @@
 # from 2 jiggled starts -> example_check/exocc_cw<N>_<tag>_<maptag>_j*
 set A = /home2/jamesh/projects/amber/bulk_solvent/water_models/addwater
 set X = /home2/jamesh/projects/amber/bulk_solvent/water_models/example_check
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 set path = ( /home/jamesh/Develop $path )
 set tags = ( $argv )
 foreach n ( 1 2 3 )

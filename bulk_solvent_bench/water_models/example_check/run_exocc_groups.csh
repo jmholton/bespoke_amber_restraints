@@ -5,7 +5,7 @@ set model = $1
 set sol = $2
 set tag = $3
 set j = $4
-source /programs/phenix-2.2-6143/phenix_env.csh
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 set opts = ( refme.mtz starthere_occ_groups.eff refinement.main.number_of_macro_cycles=3 \
   refinement.refine.strategy=individual_sites+individual_adp+occupancies --overwrite )
 if( "$sol" != "flat" ) set opts = ( $opts refinement.input.bulk_solvent_map.file_name=$sol \

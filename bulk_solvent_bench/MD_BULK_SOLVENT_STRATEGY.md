@@ -2,7 +2,8 @@
 
 How to make an MD bulk-solvent map (FPART/PHIPART for phenix's `refinement.input.bulk_solvent_map`) that refines as
 well as the phenix_user_solvent example map, tested on 1aho. It starts with where the example map came from, then
-records each test in date order. Scripts and runs are under `water_models/` (here).
+records each test in date order. Scripts and runs are under `water_models/` (here). The findings, summarised:
+`MD_BULK_SOLVENT_FINDINGS.md`; side by side with the weights/B session's pipeline R: `MD_BULK_SOLVENT_JOINT.md`.
 
 ## Lineage of the phenix_user_solvent example bulk-solvent map
 

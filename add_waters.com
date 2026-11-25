@@ -300,6 +300,10 @@ if($?altconf && "$found" != "0") then
     set clashdist = `echo $dist | awk '{print $1+0}'`
     # close_waters.py and waterconf.awk live next to this script (refmac_tools_jmh), else in bespoke_amber_restraints
     set PY = /programs/phenix-2.2-6143/bin/phenix.python
+    # the programs tree of programs.sourceme, if the caller sourced it
+    if( $?PROGRAMS ) then
+      set PY = $PROGRAMS/phenix-2.2-6143/bin/phenix.python
+    endif
     if(! -x $PY) set PY = phenix.python
     set waterconf = `dirname $0`/waterconf.awk
     if(! -e $waterconf) set waterconf = ~/projects/git/bespoke_amber_restraints/waterconf.awk

@@ -3,6 +3,7 @@
 # (extract_frames.csh per run, render_frames.py at uniform B, 10 unless the line has B=<value>; frames translated onto
 # the run's alignment reference first if the line has align); the frame PDBs are removed afterwards
 set D = /home2/jamesh/projects/amber/bulk_solvent/water_models/hurry
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 set tag = $1
 set specs = `awk -v t=$tag '$1==t{for(i=2;i<=NF;++i)if($i!~/^B=/&&$i!="align")print $i}' $D/sets.txt`
 set B = `awk -v t=$tag '$1==t{for(i=2;i<=NF;++i)if($i~/^B=/)print substr($i,3)}' $D/sets.txt`
@@ -20,5 +21,5 @@ end
 wait
 cat $D/$tag/extract_*.log
 ls $D/$tag/frames/*.pdb >! $D/$tag/frames.txt
-/programs/phenix-2.2-6143/bin/phenix.python $D/render_frames.py $D/map_${tag}.mtz $D/$tag/frames.txt B=$B nproc=48
+phenix.python $D/render_frames.py $D/map_${tag}.mtz $D/$tag/frames.txt B=$B nproc=48
 if( -e $D/map_${tag}.mtz ) rm -f $D/$tag/frames/*.pdb

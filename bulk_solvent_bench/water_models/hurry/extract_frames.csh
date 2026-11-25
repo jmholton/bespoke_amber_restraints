@@ -15,14 +15,14 @@ set step = $4
 set fstride = $5
 set outdir = $6
 set align = "$7"
-source /home2/jamesh/projects/amber/bulk_solvent/compute_settings.sourceme >& /dev/null
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 mkdir -p $outdir
 set ncs = ()
 foreach i ( `seq $first $step $last` )
   if( -e $H/$run/amber_${i}.nc ) set ncs = ( $ncs $H/$run/amber_${i}.nc )
 end
 # atom count of every nc at once
-/programs/phenix-2.2-6143/bin/phenix.python `dirname $0`/natoms.py $ncs >! $outdir/natoms_$run.txt
+phenix.python `dirname $0`/natoms.py $ncs >! $outdir/natoms_$run.txt
 if( `cat $outdir/natoms_$run.txt | wc -l` != $#ncs ) then
   echo "could not read atom counts for $run"
   exit 9

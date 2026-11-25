@@ -3,7 +3,8 @@
 import sys, os, subprocess
 import numpy as np
 import gemmi
-GEMMI = "/programs/ccp4-9/bin/gemmi"
+# ccp4 from the environment (programs.sourceme), else the /programs install
+GEMMI = os.path.join(os.environ.get("CBIN", "/programs/ccp4-9/bin"), "gemmi")
 out = sys.argv[1]
 dirs = [a for a in sys.argv[2:] if "=" not in a]
 opts = dict(a.split("=") for a in sys.argv[2:] if "=" in a)

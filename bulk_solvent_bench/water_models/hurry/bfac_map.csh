@@ -3,6 +3,7 @@
 # nc2mtz_gemmi.com with the run's own per-atom B (bfac_iter.csh), averaged over frames -> hurry/map_<tag>.mtz.
 # Iterations without a B sidecar (the run's last) are skipped and listed.
 set D = /home2/jamesh/projects/amber/bulk_solvent/water_models/hurry
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 set tag = $1
 set specs = `awk -v t=$tag '$1==t{$1="";print}' $D/sets.txt`
 if( "$specs" == "" ) then
@@ -23,4 +24,4 @@ wait
 cat $D/$tag/iter_*.log | grep -v "sidecar ok"
 set dirs = `ls $D/$tag/*/nframes | xargs -n1 dirname`
 echo "${tag}: $#dirs iterations rendered"
-/programs/phenix-2.2-6143/bin/phenix.python $D/avg_maps.py $D/map_${tag}.mtz $dirs
+phenix.python $D/avg_maps.py $D/map_${tag}.mtz $dirs

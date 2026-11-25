@@ -20,3 +20,5 @@ temp_*
 !water_models/scan/*.log
 # own clone of bespoke_amber_restraints (its own git repo)
 bespoke_amber_restraints/
+# phenix dispatcher links made by programs.sourceme / programs.sh
+programs_bin/

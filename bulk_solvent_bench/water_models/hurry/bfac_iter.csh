@@ -10,7 +10,7 @@ set N = /home2/jamesh/projects/amber/bulk_solvent/bespoke_amber_restraints
 set run = $1
 set itr = $2
 set outdir = $3
-source /home2/jamesh/projects/amber/bulk_solvent/compute_settings.sourceme >& /dev/null
+source /home2/jamesh/projects/amber/bulk_solvent/programs.sourceme >& /dev/null
 set nc = $H/$run/amber_${itr}.nc
 set Bfile = $H/$run/premod_Bfac_`expr $itr + 1`.pdb
 if( ! -e $nc || ! -e $Bfile ) then
@@ -21,7 +21,7 @@ set w = $outdir/${run}_${itr}
 rm -rf $w
 mkdir -p $w
 cd $w
-set n = `/programs/phenix-2.2-6143/bin/phenix.python $N/../water_models/hurry/natoms.py $nc | awk '{print $2}'`
+set n = `phenix.python $N/../water_models/hurry/natoms.py $nc | awk '{print $2}'`
 cat << EOF >! strip.in
 parm $H/$run/padded.parm7
 parmstrip @`expr $n + 1`-9999999

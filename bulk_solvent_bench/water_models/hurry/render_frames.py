@@ -8,7 +8,8 @@ import numpy as np
 import gemmi
 CELL = "CRYST1   45.900   40.700   30.100  90.00  90.00  90.00 P 21 21 21"
 NSYM = 4
-GEMMI = "/programs/ccp4-9/bin/gemmi"
+# ccp4 from the environment (programs.sourceme), else the /programs install
+GEMMI = os.path.join(os.environ.get("CBIN", "/programs/ccp4-9/bin"), "gemmi")
 out, listfile = sys.argv[1], sys.argv[2]
 opts = dict(a.split("=") for a in sys.argv[3:])
 B = float(opts.get("B", 10))
