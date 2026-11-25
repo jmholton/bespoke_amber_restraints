@@ -3210,7 +3210,8 @@ foreach substage ( settle equi )
   if( "$equi_ns" == "0" ) continue
 
   touch drift_byframe_${substage}.txt 
-  touch ${Stage}_${substage}.out 
+  # empty on every attempt: a retry must not inherit the last attempt's output
+  echo -n "" >! ${Stage}_${substage}.out
   echo -n "" >! ${t}trajin.txt
   set nstlim0 = `echo $equi_ns $equi_dt | awk '{print int($1/$2*1000)}'`
   set subruns = `echo $nstlim0 $align_nstlim | awk '$2>0{print int($1/$2)}'`
@@ -3238,7 +3239,7 @@ foreach substage ( settle equi )
 
     grep NaN ${ss}.out
     if(! $status) break
-    egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${ss}.out | grep '\*\*\*\*\*'
+    egrep -v 'Mask|NSTEP2=|taup|ns/day|seconds/ns|^\*\*\*\*\*\*' ${ss}.out | grep '\*\*\*\*\*'
     if(! $status) break
 
     echo -n "re-aligning "
@@ -3277,13 +3278,14 @@ end
 if(-e ${Stage}_${substage}.out) then
   grep NaN ${Stage}_${substage}.out
   if(! $status) break
-  egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${Stage}_${substage}.out | grep '\*\*\*\*\*' 
+  egrep -v 'Mask|NSTEP2=|taup|ns/day|seconds/ns|^\*\*\*\*\*\*' ${Stage}_${substage}.out | grep '\*\*\*\*\*' 
   if(! $status) break
 endif
 
 cp ${laStage}.rst7 start_${itr}.rst7
 rm -f ${Stage}.rst7
-touch ${Stage}.out 
+# empty on every attempt: a retry must not inherit the last attempt's output
+echo -n "" >! ${Stage}.out
 set nstlim0 = `echo $prod_ns $dt | awk '{print int($1/$2*1000)}'`
 set subruns = `echo $nstlim0 $align_nstlim | awk '$2>0{print int($1/$2)}'`
 if( "$subruns" == "" || "$subruns" == "0" ) set subruns = 1
@@ -3311,7 +3313,7 @@ foreach i ( `seq 1 $subruns` )
 
     grep NaN ${Stage}_${i}.out
     if(! $status) break
-    egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${Stage}_${i}.out | grep '\*\*\*\*\*'
+    egrep -v 'Mask|NSTEP2=|taup|ns/day|seconds/ns|^\*\*\*\*\*\*' ${Stage}_${i}.out | grep '\*\*\*\*\*'
     if(! $status) break
 
     cpptraj -p xtal.prmtop -y ${Stage}_${i}.rst7 -c align_ref.crd << EOF >! align.log
@@ -3341,7 +3343,7 @@ EOF
   # check for errors
   grep NaN ${Stage}.out
   if(! $status) break
-  egrep -v 'Mask|NSTEP2=|taup|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
+  egrep -v 'Mask|NSTEP2=|taup|ns/day|seconds/ns|^\*\*\*\*\*\*' ${Stage}.out | grep '\*\*\*\*\*'
   if(! $status) break
 
   cp ${Stage}_${i}.rst7 ${Stage}.rst7
