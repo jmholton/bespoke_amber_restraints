@@ -90,6 +90,9 @@ set equi_slowdown = 2
 
 # add and then delete dummy waters
 set padwater = 0
+# B factor of the padding waters, which every water hydration adds later inherits (it was 999, which still renders as
+# a broad ~8 A blob rather than nothing)
+set padwater_B = 50
 
 # use reduced charges - not supported anymore?
 set redq = 0
@@ -431,11 +434,11 @@ egrep -v "^END" ${t}renumbered_orig.pdb |\
 ter_at_breaks.awk >! ${t}tleapme.pdb
 if( $padwater > 0 ) then
 
-  echo "padding with $padwater extra waters"
-  echo $padwater |\
+  echo "padding with $padwater extra waters at B $padwater_B"
+  echo $padwater $padwater_B |\
   awk '{for(i=1;i<=$1;++i){\
     j=i%10000;\
-    printf("ATOM      1  O   WAT z%4d       0.000   0.000   0.000  1.00999.00\n",j);;\
+    printf("ATOM      1  O   WAT z%4d       0.000   0.000   0.000  1.00%6.2f\n",j,$2);;\
     print "TER";\
     }}' >> ${t}tleapme.pdb
 
@@ -447,11 +450,12 @@ if( $padwater > 0 ) then
    cat >! ${t}water_autonames.pdb
 
    set lastwater = `tail ${t}oldwater.pdb | awk '/^ATOM|^HETAT/{print $NF}' | tail -n 1`
-   grep "     0.000   0.000   0.000  1.00999.00" ${t}water_autonames.pdb >! ${t}pad_waters.pdb
+   # padding waters: at the origin, occupancy 1, B padwater_B
+   awk -v B=$padwater_B '/^ATOM|^HETAT/ && substr($0,31,8)+0==0 && substr($0,39,8)+0==0 && substr($0,47,8)+0==0 && substr($0,55,6)+0==1 && substr($0,61,6)+0==B' ${t}water_autonames.pdb >! ${t}pad_waters.pdb
 
    cat ${t}oldwater.pdb ${t}pad_waters.pdb |\
    convert_pdb.awk -v dedupe=1 |\
-   grep "     0.000   0.000   0.000  1.00999.00" |\
+   awk -v B=$padwater_B '/^ATOM|^HETAT/ && substr($0,31,8)+0==0 && substr($0,39,8)+0==0 && substr($0,47,8)+0==0 && substr($0,55,6)+0==1 && substr($0,61,6)+0==B' |\
    awk -v oresnum=$lastwater '{print $0,"       ",++oresnum}' >! ${t}new_waters.pdb
 
 #   awk '/^ATOM|^HETAT/{print substr($0,1,80)}' ${t}water_autonames.pdb >! one.pdb
