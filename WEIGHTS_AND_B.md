@@ -97,7 +97,7 @@ maps came in: `DD` (HID54 / HID64, +8) and `MD` (His54 HIP in copies 1 and 3, HI
 The extra counter-acetates sit on the placed waters farthest from protein and other salt (nested: `EE`'s 4 are `PD`'s
 first 4). For His64 as HID, `tleap_stub.in` redefines CHID as the amide the same way as CHIE (HID and HIE share their
 C and O template coordinates). Scripts: `amide/salt068_base.csh`, `setup_s68_builds.sh`, `build_s68.csh`,
-`launch_s68_tests.sh` next to `1aho_hurry_test`. Because the MD maps include hydrogens, Fo-Fc at the modelled ring N-H
+`launch_s68_tests.sh` next to `1aho_hurry_test` (copies in `bulk_solvent_bench/amide/`). Because the MD maps include hydrogens, Fo-Fc at the modelled ring N-H
 (negative where an H is wrong) is a direct check alongside R and the restraint weights.
 
 ## B factors
@@ -113,11 +113,24 @@ C and O template coordinates). Scripts: `amide/salt068_base.csh`, `setup_s68_bui
   their targets and +5 sigma at the atom itself: the residual of a heavy, sharp atom drawn blurry, not a misplaced
   one. Their restraint weights climbed to the cap, but a restraint cannot sharpen an atom. With free B the residual
   at the atom dropped to about +1 sigma.
-- **Both renderers handle B = 0.** `gemmi sfcalc --test` on a 1aho frame (d 0.965, rate 1.5) gives FFT vs exact
-  R = 0.002% with the sulfurs, or every atom, at B 0. `sfcalc_gpu_collapse` adds its auto-blur ((d x rate)^2 /
-  pi^2, about 0.6 A^2 here) to every atom before spreading and removes it in reciprocal space.
+- **The default render is blurrier than its B factors; the GPU render is not** (tested 2026-11-25). gemmi's
+  structure factors handle B = 0 (`gemmi sfcalc --test` on a 1aho frame, d 0.965, rate 1.5: FFT vs exact R 0.002%
+  with every atom at B 0). But `nc2mtz_gemmi.com` sums gemmi's `--write-map` maps, and those keep gemmi's
+  anti-aliasing blur: every atom gets max(0, 7.43 - lowest B) A^2 more at these settings (gemmi reports `B_add`:
+  2.43 at uniform B 5, 7.43 once any atom reaches B 0, 0 at uniform B 10). So every uniform-B-5 run here was
+  rendered at B 7.4, and the B floor of 0 renders at 7.4. `nc2mtz_gpu.com` (`sfcalc_gpu_collapse`, which removes
+  its own blur in reciprocal space) has none. On rc_dw_w's itr-199 frames (25, uniform B 5), the GPU average matched
+  the mean of gemmi's own de-blurred per-frame F to R 0.005% (phases 0.002 deg), and matched the gemmi render to R
+  0.004% once blurred by 2.43 A^2. Against Fobs both give R 26.83%, with fitted overall B -2.3 A^2 (gemmi render)
+  and +0.2 (GPU). A fitted overall B absorbs a uniform blur, so pipeline R does not change; what is off is the
+  meaning of the B in the file, and the blur shifts whenever the lowest B does. Renders at uniform B 10, such as
+  the solvent session's R-free test, carry none. The GPU render is now `optimize_weights render_engine=gpu`
+  (draft option, default gemmi). Tested end to end on build_s68_PD (3 itr, 2026-11-25): on the same itr-0 frames
+  R 49.89% (GPU) vs 50.03% (gemmi), fitted B -1.98 vs -4.54; itr 1-2 (different MD from there) 43.98 / 37.79% vs
+  43.46 / 37.11%. The 25 GPU frames took 14 s per render (36 s on the first, cold).
 - **Overall scale B** (scaleit's correction to F; negative = model too blurry): about -1.3 A^2 for uniform B 5
-  runs, -5 to -6 for runs with per-atom B starting from the 999 fill waters.
+  runs (most of it gemmi's 2.4 A^2 blur, above), -5 to -6 for runs with per-atom B starting from the 999 fill
+  waters.
 - **B by location (`Bfac_map=refine`):** before 660bced its field update moved every voxel, so a water-only field
   was driven to the floor inside the protein (64-89% of voxels below B 5 by itr 199) and never beat per-atom B. The
   update is now masked to where the selected atoms went in the frames (5-13% of voxels); not retested since.
@@ -152,6 +165,11 @@ C and O template coordinates). Scripts: `amide/salt068_base.csh`, `setup_s68_bui
   four copies (Trp38 O, Ala45 CB, Lys58 CG, Pro52 O, Val55 N, Lys2 NZ, Lys50 O, Ser33 N): each drifted 0.05-0.15 A
   further off its target and Fo-Fc at the target rose 1-4 sigma, while R stayed within noise (sd 0.43) for all
   but Lys2 NZ (+1.4), which the amide explains.
+- **Backbone-only restraints fit best by pipeline R** (restraint-class arms, 2026-11-25; no-salt amide build,
+  HIE54/HIE64, uniform B 5, one run each, itr 101-200; table in the joint summary,
+  `bulk_solvent_bench/MD_BULK_SOLVENT_JOINT.md`): backbone N/CA/C/O + waters 31.44%, every heavy atom 32.41%
+  without waters and 32.66% with them, CA only at k 1 34.85%, everything at fixed k 10 40.27%. Free side chains fit
+  better than restrained ones; restrained waters change nothing within noise.
 - **Weights swing a lot between iterations** under decay 0.9: Ser40 O averaged k 2.4 over itr 191-200 but was 0.1
   at itr 200.
 - **What it takes to hold a weight.** New weight = old x `weight_scaledown` x `max_mult`^signif, signif =

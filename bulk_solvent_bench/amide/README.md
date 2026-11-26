@@ -1,0 +1,20 @@
+# 1aho His / C-terminus / salt test scripts (2026-11-24 to 26)
+
+Copies of the scripts in `/scratch/jamesh/projects/amber/amide/` that `WEIGHTS_AND_B.md` and
+`../MD_BULK_SOLVENT_JOINT.md` cite. They hard-code that site's paths (`1aho_hurry_test`, `run_local.csh`, the Amber and
+CCP4 installs) and are kept as the record of how each run was built, launched and scored, not as portable tools.
+
+| script | what |
+|---|---|
+| `launch_restraint_classes.sh` | the five restraint-class arms `ff19_opc_rc_*` |
+| `setup_his_builds.sh`, `build_his.csh` | the no-salt His tautomer builds `build_2s2r_amide_h*` (source of the s68 builds' protonation and tleap stubs) |
+| `salt068_base.csh` | the shared 0.68 M ammonium acetate placement (11 NH4 + 15 ACY per cell) |
+| `setup_s68_builds.sh`, `build_s68.csh` | the six charge-test builds `build_s68_{cEE,EE,ED,DD,MD,PD}` |
+| `launch_s68_tests.sh` | the charge-test runs `ff19_opc_s68_{cEE,EE,ED,PD}` |
+| `setup_s68_flip.sh` | `build_s68_PDp`: PD with His54's ring relabelled to the P orientation (positive control) |
+| `launch_s68_controls.sh` | the controls `ff19_opc_s68_{PDp,DD,PD_r2,ED_r2}` |
+| `his_check.py` | His54/His64 labels, ring H and charges per copy in a build's `xtal.prmtop` |
+| `his_chi.py` | His chi1/chi2 (ring orientation) in PDB files |
+| `his_chi_nc.py` | His chi1/chi2 over a run's saved `amber_N.nc` |
+| `his_fofc.py` | iteration-averaged Fo-Fc at the His ring atoms and ring-H sites, and the local ring Fo-Fc rms (ccp4-python) |
+| `gpu_nc2mtz_test.csh`, `cmp_render.py`, `avg_frames.py` | the gemmi vs GPU render comparison (`WEIGHTS_AND_B.md`, 2026-11-25) |

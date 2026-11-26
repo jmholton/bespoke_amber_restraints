@@ -52,3 +52,10 @@ set cpptraj_strip = ""
 # shared disk).  To use SLURM, e.g.
 #   set sruncpu = "srun"
 set sruncpu = ""
+
+# --- GPU structure factors (nc2mtz_gpu.com, optimize_weights render_engine=gpu) ---
+# All frames run in one job on one GPU.  "auto": "$sruncpu --gres=gpu:1" when sruncpu is in use, else this machine's
+# GPU.  Set it when the partition sruncpu lands in has no usable GPU (sfcalc_gpu_collapse needs compute capability 7.0
+# or later), e.g.
+#   set srungpu = "srun --partition=gpu --gres=gpu:1"
+set srungpu = auto

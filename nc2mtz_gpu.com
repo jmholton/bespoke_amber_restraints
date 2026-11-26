@@ -3,11 +3,21 @@
 # convert an amber nc trajectory to a time-averaged mtz (FCavg/PHICavg), using
 # the GPU structure-factor engine sfcalc_gpu_collapse instead of gemmi sfcalc.
 #
-# Drop-in replacement for nc2mtz_gemmi.com: same arguments, same avg.mtz/avg.map.
+# Replacement for nc2mtz_gemmi.com: same arguments, avg.mtz/avg.map at the same absolute scale.
 # sfcalc_gpu_collapse takes the P1 supercell PDB + super_mult + primitive SG and
 # does the FFT + symmetry collapse + (B>bmax) stripping itself, one GPU per frame.
 # Shines most when the B-factor distribution is bimodal (sharp low-B atoms): its
 # finer grid does not alias the narrow Gaussians the way gemmi/phenix grids do.
+#
+# Not identical to nc2mtz_gemmi.com (tested 2026-11-25 on 25 1aho frames, uniform B 5):
+# - the gemmi path sums gemmi sfcalc's --write-map maps, which keep gemmi's anti-aliasing blur (B_add, 2.43 A^2
+#   with every atom at B 5; larger as the lowest B falls, up to ~7.4 A^2 at B 0).  This path has none: its average
+#   equals the mean of gemmi's own de-blurred per-frame F (--to-mtz) to R 0.005%, phases 0.002 deg.  Against Fobs
+#   the two give the same R once an overall B is fitted; the gemmi path's map is ~B_add blurrier.
+# - Bfac_map_save= and Bfac_map_selresn= are not implemented here (silently ignored): use nc2mtz_gemmi.com for
+#   optimize_weights' Bfac_map modes.
+# - speed: for 1aho (6100 atoms, 1x1x1) ~0.6 s per frame on one TITAN V, serial, vs ~7 s for all 25 frames in
+#   parallel CPU jobs; most of either run is the map sums.  The GPU pays off for large supercells.
 #
 set smallSG = ""
 set reso = 1
@@ -49,6 +59,11 @@ set addmtzs = 0
 
 set debug = 0
 set sruncpu = ""
+# job prefix for the GPU structure factors, normally set in compute_settings.sourceme, e.g.
+# "srun --partition=gpu --gres=gpu:1" (the default partition may hold no usable GPU).  "auto": the CPU prefix plus
+# --gres=gpu:1, or this host when that is local; "local": this host's GPU.  A GPU job on another node needs the
+# tempfile on shared disk (not /dev/shm).
+set srungpu = auto
 
 set tempfile = /dev/shm/${USER}/temp_$$_traj/
 
@@ -282,12 +297,22 @@ egrep "^CRYST1" ${t}dummy.pdb >! ${t}scell.pdb
 set super_mult_csv = `echo $super_mult | awk '{print $1","$2","$3}'`
 # the frame the trajectory coordinates actually live in, for Bfac_map
 set SUPERCELL = `egrep "^CRYST1" ${t}dummy.pdb | head -n 1 | awk '{print $2","$3","$4","$5","$6","$7}'`
-# one frame at a time on the GPU (a single srun --gres=gpu:1)
-if( "$srun" == "" ) then
-  set srungpu = ""
-else
-  set srungpu = "$srun --gres=gpu:1"
+# every frame on one GPU, in one job (one allocation and one CUDA start-up, not one per frame)
+if( "$srungpu" == "auto" ) then
+  if( "$srun" == "" ) then
+    set srungpu = ""
+  else
+    set srungpu = "$srun --gres=gpu:1"
+  endif
 endif
+if( "$srungpu" == "local" ) set srungpu = ""
+if( "$srungpu" != "" ) then
+  set test = `echo $t | awk '{print ( /^\/dev\/shm/ )}'`
+  if( $test ) then
+    echo "WARNING: GPU jobs (${srungpu}) on another node cannot read ${t} - pass tempfile= on shared disk"
+  endif
+endif
+echo "GPU jobs: ${srungpu}"
 
 #setenv MEMSIZE `echo $CELL $reso | awk '{print int($1*$2*$3/($NF**3)*100)}'`
 
@@ -454,8 +479,9 @@ cat << EOF >! ${t}job.csh
 
   set newmap = \${t}/\${n}.map
   set newmtz = \${t}/\${n}.mtz
+  # outI= (empty): no supercell intensity file (the default writes supercell_I.mtz into the working directory)
   $sfcalc_gpu ${outtraj}/pdb\${n}.pdb sg=$smallSG super_mult=$super_mult_csv \\
-     dmin=\$reso rate=\$rate bmax=$maxB $bfacmapopt outmtz=\$newmtz
+     dmin=\$reso rate=\$rate bmax=$maxB $bfacmapopt outmtz=\$newmtz outI=
 
 EOF
 chmod a+x ${t}job.csh
@@ -464,23 +490,37 @@ echo "applying B factors to ${outtraj} as pdb##.pdb"
 if( $domaps ) echo "and rendering maps in $smallSG with cell $CELL"
 set mtzs = ""
 set maps = ""
-# The GPU does one frame at a time, so run sequentially (a single srun --gres=gpu:1)
-# rather than the CPU path's parallel fan-out.  ~a few seconds per frame.
+# The GPU does one frame at a time: run them all in sequence inside ONE job (a per-frame srun pays the queue and the
+# CUDA start-up every frame) rather than the CPU path's parallel fan-out.
+cat << EOF >! ${t}gpu_frames.csh
+#! /bin/tcsh -f
 foreach n ( $ns )
-  set pdb = ${outtraj}/md.${n}.pdb
+  ${t}job.csh \$n >&! ${t}/job.\${n}.log
+end
+EOF
+chmod a+x ${t}gpu_frames.csh
+set gpu0 = `msdate.com | awk '{print $7}'`
+$srungpu ${t}gpu_frames.csh
+set gpudt = `msdate.com $gpu0 | awk '{print $NF}'`
+echo "GPU frames done in $gpudt s"
+# sfcalc_gpu_collapse ignores outmap= (not implemented), so build the per-frame
+# map from its FC/PHIC mtz here on the CPU host (gemmi is on PATH here,
+# not necessarily on the GPU node).  -s $rate matches the sfcalc grid so every
+# frame shares one grid and addup_maps can sum them.
+foreach n ( $ns )
   set newmap = ${t}/${n}.map
   set newmtz = ${t}/${n}.mtz
-  $srungpu ${t}job.csh $n >&! ${t}/job.${n}.log
-  # sfcalc_gpu_collapse ignores outmap= (not implemented), so build the per-frame
-  # map from its now-valid FC/PHIC mtz here on the CPU host (gemmi is on PATH here,
-  # not necessarily on the GPU node).  -s $rate matches the sfcalc grid so every
-  # frame shares one grid and addup_maps can sum them.
   if( -e $newmtz ) then
-    gemmi sf2map -f FC -p PHIC -s $rate $newmtz $newmap >&! ${t}/sf2map.${n}.log
+    gemmi sf2map -f FC -p PHIC -s $rate $newmtz $newmap >&! ${t}/sf2map.${n}.log &
+  else if( $domaps ) then
+    echo "ERROR: no GPU structure factors for frame ${n}"
+    tail -n 3 ${t}/job.${n}.log
+    set BAD = "GPU sfcalc failed at frame $n"
   endif
   set maps = ( $maps $newmap )
   set mtzs = ( $mtzs $newmtz )
 end
+wait
 
 set test = `tail -n 2 ${outtraj}/pdb*.pdb | awk '/^==/{f=$2} /ERROR/{print $0,f;exit}'`
 if( "$test" != "" ) then
@@ -504,12 +544,11 @@ ${pdir}/addup_maps_runme.com $maps tempfile=${t}/addmaps/  outfile=${t}sum.map
 rm -f ${t}sum.mtz >& /dev/null
 gemmi map2sf -v --dmin=$reso ${t}sum.map ${t}sum.mtz Fsum PHIsum
 
-# sfcalc_gpu_collapse already collapsed each frame to the primitive ASU (symmetry
-# and supercell normalization handled internally), so the only averaging factor
-# is 1/nframes.  Downstream scaleB_search absorbs residual scale; validate the
-# absolute scale against nc2mtz_gemmi on a test frame before relying on it.
-echo "scaling factor: 1 / $#ns frames"
-set scale = `echo $#ns | awk '{print 1/$1}'`
+# sfcalc_gpu_collapse's F is the SUM over the symmetry copies and over the supercell's cells, not their mean: 4x
+# nc2mtz_gemmi.com's for 1aho in P212121 at 1x1x1, and doubling again for a 2x1x1 supercell (tested 2026-11-25).
+# So divide by them, exactly as nc2mtz_gemmi.com does, for the same absolute scale.
+echo "scaling factors: $nsymops $#ns $super_mult"
+set scale = `echo $nsymops $#ns $super_mult | awk '{print 1/$1/$2/$3/$4/$5}'`
 echo "scaling by $scale for $outmap"
 echo scale factor $scale |\
 mapmask mapin1 ${t}sum.map mapout $outmap >! ${t}scaledown.log

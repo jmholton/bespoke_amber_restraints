@@ -17,6 +17,11 @@ here) and `WEIGHTS_AND_B.md` (restraint-weight / B-factor session, bespoke_amber
 Pipeline R scores the whole model, protein included, with whatever B the run uses. The R-free test scores only the
 solvent map, on a refined protein. They answer different questions, so agreement between them is informative.
 
+"B in the render" below is the B in the file. Every pipeline render so far (`nc2mtz_gemmi.com`) also carries gemmi's
+anti-aliasing blur, max(0, 7.43 - lowest B) A^2 at 0.965 A: uniform 5 renders at 7.4, and per-atom B reaching 0
+adds 7.4 to every atom. A fitted overall B absorbs it, so pipeline R is unaffected; renders at uniform B 10 (the
+R-free test) carry none. Details and the blur-free GPU render in WEIGHTS_AND_B.md (2026-11-25).
+
 ## Same runs, both measures
 
 | run | what it is | pipeline R (window) | B in the render | R-free none | R-free r3 |
@@ -83,7 +88,26 @@ settings (opt2 options with weight_scaledown 1) unless stated. Run directories `
 | `rc_ca1` | CA only, fixed k 1, no waters | start list of CA at k 1; weights frozen (variant `fixed`) |
 | `rc_k10` | every heavy atom + the density-sited waters, fixed k 10 (the 2019 recipe in 4 copies) | start list at k 10 (capped 9.9999); weights frozen |
 
-Score each by both measures: pipeline R from its `fofc_Rplot.txt`, and the R-free test on itr 101-200. The 8 runs
+Score each by both measures: pipeline R from its `fofc_Rplot.txt`, and the R-free test on itr 101-200.
+
+**All five finished itr 200 (2026-11-25).** Pipeline R and restraint energy, mean over itr 101-200 (sd = iteration
+to iteration; one run per arm, and successive iterations are correlated, so treat 1-point gaps as suggestive):
+
+| arm | restrained | pipeline R | sd | restraint E | R-free none / r3 |
+|---|---|---|---|---|---|
+| `rc_bb_w` | backbone + waters | **31.44%** | 0.29 | 322 | pending |
+| `rc_dw` | all heavy atoms, no waters | 32.41% | 0.53 | 122 | pending |
+| `rc_dw_w` | all heavy atoms + waters (reference) | 32.66% | 0.39 | 132 | pending |
+| `rc_ca1` | CA only, k 1 | 34.85% | 0.42 | 92 | pending |
+| `rc_k10` | everything, fixed k 10 | 40.27% | 0.10 | 867 | pending |
+
+By pipeline R, free side chains fit better than restrained ones (backbone-only beats all-heavy-atom by 1.2 points;
+its restraint energy is higher because many backbone atoms sit at the k 10 cap), restrained waters change nothing
+within noise, and CA-only at k 1 is 2.2 points worse. Fixed k 10 on everything is worst, but at uniform B 5 that is
+largely the B model: held that tightly the protein renders too sharp, which pipeline R cannot separate from the
+solvent. The 2019 map (the same recipe in 48 copies) is still best by R-free, so the R-free test decides `rc_k10`.
+
+The 8 runs
 `ff19_opc_{cooh,amide}_{k1,rel,rel2,b5}` (amide vs carboxylate, salt-confounded) were stopped on 2026-11-25 at itr
 296-344; the 0.68 M charge tests below replace them.
 
@@ -112,3 +136,39 @@ not run once the refined omit maps came in.
 
 Score each by both measures over itr 101-200. Expect R to move little for His54 (one surface residue); the local
 measures (Fo-Fc and restraint weights at the ring atoms, waters at each ring N) and the R-free test are more telling.
+
+**His54's ring orientation is right in every MD build.** The refinement flip test put His54's ring in the M
+orientation (χ2 −79 to −119°) and found best_so_far's χ2 > 0 altlocs mislabelled. Every 2026 MD build starts from the
+1aho model's single conformer, which is M (χ2 −110°), and the ring never flips in the MD (all 4 copies, PD and EE,
+itr 1-107: χ2 −99 to −104° on average, no frame > 0). His64 stays in its one orientation (χ2 about +62°).
+(`amide/his_chi.py`, `amide/his_chi_nc.py`; `amide/` is `/scratch/jamesh/projects/amber/amide`, copied to
+bespoke_amber_restraints `bulk_solvent_bench/amide/`.)
+
+### Controls (launched 2026-11-25 21:43, voltron)
+
+Run exactly as the charge-test arms (rc_dw_w settings, 200 itr); runs `1aho_hurry_test/ff19_opc_s68_<arm>`
+(`amide/launch_s68_controls.sh`):
+
+| arm | what | why |
+|---|---|---|
+| `PDp` | PD with His54's ring relabelled to the P orientation in all 4 copies (`amide/setup_s68_flip.sh`: ND1↔CD2 and CE1↔NE2 trade coordinates) | positive control: known-wrong ring labels. The restraint picker already treats ND1/CD2 and CE1/NE2 as one atom, so only the chemistry differs. Can the MD measures see a ring N/C label at all? |
+| `DD` | HID54, HID64 amide (built 2026-11-25, not run before) | completes HID / HIE / HIP at His54 |
+| `PD_r2` | replicate of PD (same start, new random seeds) | run-to-run scatter of every measure |
+| `ED_r2` | replicate of ED | the same, for the arm that differs from PD only at His54 |
+
+New local measure (`amide/his_fofc.py`): each iteration's Fo-Fc (Fobs vs the render, fitted k and B, model phases)
+averaged over iterations, read at the crystal model's His ring atoms and ring-H sites, plus the rms of Fo-Fc within
+1.0 Å of each ring (lower = better local fit, independent of the labels).
+
+Early look, itr 88-107, one run per arm (block-to-block sd 0.02-0.13), His ring local Fo-Fc rms in units of the map
+rms:
+
+| arm | His54 | His64 |
+|---|---|---|
+| `cEE` | 1.06 | 1.25 |
+| `EE` | 1.30 | 0.91 |
+| `ED` | 1.33 | 1.05 |
+| `PD` | 1.50 | 0.93 |
+
+His64 fits worst as the carboxylate, as expected. His54 fits worst as HIP so far, the opposite of the omit maps. The
+replicates decide whether gaps of this size are real.

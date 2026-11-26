@@ -58,10 +58,21 @@ set render_B = 10
 set render_B_min = 0
 set render_B_adjust = 0.05
 # lowest B anywhere: the render, the overall B shift, the per-atom and B-field updates.  0: the MD ensemble already
-# supplies the motion, and gemmi and the GPU sfcalc both render B = 0 exactly (gemmi --test R 0.002% with every atom at 0)
+# supplies the motion.  The GPU sfcalc renders B = 0 exactly, and so do gemmi's structure factors (--to-mtz; gemmi
+# --test R 0.002% with every atom at 0), but the gemmi render sums gemmi's --write-map maps, which keep its
+# anti-aliasing blur: every atom + max(0, 7.43 - lowest B) A^2 at 0.965 A and rate 1.5 (2026-11-25)
 set Bfac_min = 0
 # for gemmi
 set render_rate = 1.5
+# structure-factor engine for the MD renders (DRAFT option, 2026-11-25):
+#  gemmi = nc2mtz_gemmi.com, gemmi sfcalc in parallel CPU jobs (the default; every run so far)
+#  gpu   = nc2mtz_gpu.com, sfcalc_gpu_collapse on one GPU: the same map without gemmi's blur (above), same absolute
+#          scale (tested on 25 1aho frames: equal to gemmi's blurred map to R 0.004% once that blur is applied).
+#          A SLURM site sets srungpu in compute_settings.sourceme (e.g. "srun --partition=gpu --gres=gpu:1").  Not
+#          with Bfac_map (no field save / selresn on the GPU path yet).  Choose it when a run starts: avglast averages
+#          avg_*.mtz across iterations, and maps from the two engines differ by the blur.  Faster only for large
+#          supercells; for 1aho (1x1x1) a render takes ~45 s either way, mostly the map sums.
+set render_engine = gemmi
 # file for storing all atomic B factors
 set Bfac_file = Bfac.pdb
 set Bfac_maxmod = 2
@@ -441,6 +452,14 @@ if ( $test == "" ) set test = 0
 if( "$Badjust_itr" == "0" && $test ) then
   echo "WARNING: setting Badjust_itr = 1 because Bfac_maxmod = $Bfac_maxmod ( $Bfac_modmode mode )"
   set Badjust_itr = 1
+endif
+if( "$render_engine" != "gemmi" && "$render_engine" != "gpu" ) then
+  set BAD = "render_engine must be gemmi or gpu, not $render_engine"
+  goto exit
+endif
+if( "$render_engine" == "gpu" && "$Bfac_map" != "" ) then
+  set BAD = "render_engine=gpu cannot do Bfac_map=${Bfac_map} yet: use render_engine=gemmi"
+  goto exit
 endif
 
 # start the ramps
@@ -1217,7 +1236,7 @@ if(-e "$trajectory" && $needtraj ) then
   endif
   set nc2mtz_extraopt = ""
   if( -e avg_${prev}.mtz ) set nc2mtz_extraopt = "domaps=0"
-  echo "nc2mtz gemmi $trajectory  ${render_reso}A $Bfac_file "
+  echo "nc2mtz $render_engine $trajectory  ${render_reso}A $Bfac_file "
   set nc2mtz_Bmap = ""
   if( "$Bfac_map" != "" ) set nc2mtz_Bmap = "Bfac_map=$Bfac_map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB Bfac_map_selresn=$Bfac_map_selresn"
   if( "$Bfac_map" == "refine" ) then
@@ -1233,14 +1252,14 @@ if(-e "$trajectory" && $needtraj ) then
       set nc2mtz_Bmap = "Bfac_map=auto Bfac_map_save=$cwd/Bfac.map Bfac_map_sigma=$Bfac_map_sigma Bfac_map_grid=$Bfac_map_grid Bfac_map_farB=$Bfac_map_farB Bfac_map_selresn=$Bfac_map_selresn"
     endif
   endif
-  nc2mtz_gemmi.com $smallSG super_mult=$super_mult $trajectory \
+  nc2mtz_${render_engine}.com $smallSG super_mult=$super_mult $trajectory \
     reso=$render_reso B=$render_B \
     Bfac_file=$Bfac_file minB=$minB maxB=$maxB $nc2mtz_Bmap \
     keeptraj=1 wrap=1 rate=$render_rate \
     addmtzs=1 \
     tempfile=${scratch}/nc2mtz_$$_ $nc2mtz_extraopt >>& $nc2log
   if($status) then
-    set BAD = "nc2mtz gemmi failed"
+    set BAD = "nc2mtz $render_engine failed"
     goto exit
   endif
   if("$nc2mtz_extraopt" == "") cp avg.mtz avg_${prev}.mtz

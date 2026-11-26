@@ -18,7 +18,10 @@ and the restraint-class tests that follow from it.
   than in every topology built before 2026-11-05, so the cell needs different salt (amide build: ACY x8, no NH4).
   tleap snippet: `1aho_starter_kit/his64_amide.tleap`.  The amide fits better in every test.
 - **New waters take B 50**, not 999 (`leap2amber.com padwater_B`); B 999 renders as an ~8 A blob, not as nothing.
-- **B may go to 0** (`optimize_weights Bfac_min`, default 0); gemmi and the GPU sfcalc both render B = 0 exactly.
+- **B may go to 0** (`optimize_weights Bfac_min`, default 0).  The GPU sfcalc (`render_engine=gpu`) renders it
+  exactly; the default gemmi render does not: it sums gemmi sfcalc's `--write-map` maps, which keep gemmi's
+  anti-aliasing blur, every atom + max(0, 7.43 - lowest B) A^2 at 0.965 A, rate 1.5 (2.4 at uniform B 5).  Fitting
+  an overall B to Fobs absorbs it (same R), but rendered B is not the B in the file.
 - **Map probes go through `check_map_sites.com`** (mapman, else `Bfac_map peek` cubic, else phenix), one value per
   atom in atom order.  Do not count `phenix.map_value_at_point` output lines (it reorders atoms within a residue),
   and do not trust its 0.5 A default grid at high resolution (27% low at 0.965 A).  Since 1ec6916 rholabel, and so
