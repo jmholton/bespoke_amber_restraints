@@ -19,8 +19,17 @@ Runs started before these commits used the old behaviour (frozen code copies und
 
 AaH II is C-terminally amidated: UniProt P01484 (SCX2_ANDAU), MOD_RES His-83 = histidine amide, which is His64 in the
 mature numbering. `1aho.pdb` models a free carboxylate (O + OXT), and every 1aho topology before 2026-11-05 used CHIE
-(charge -1). With the amide, each protein copy is **one unit more positive**, so a neutral 1aho cell needs different
-salt: the carboxylate build had ACY x7 + NH4 x3 per cell, the amide build ACY x8 and no NH4.
+(charge -1). With the amide, each protein copy is **one unit more positive** (+4 per cell), so a neutral cell needs
+four more anions. Keep the crystallisation salt and change only the counterions: the crystal grew from ammonium
+acetate, 0.68 M in the example (`salt_conc`), which `add_salt_runme.com` turns into 11 NH4+ / acetate pairs per cell.
+That gives 11 NH4 + 15 ACY with the carboxylate and 11 NH4 + 19 ACY with the amide.
+
+The 2026-11-05 amide test below did not do that. Its carboxylate build had 0.2 M salt (ACY x7 + NH4 x3: 4 counter-
+acetates plus 3 salt pairs). For the amide build I removed all three NH4+ and added one acetate (ACY x8, no NH4): the
+neutral cell with the fewest new molecules to place. That was a convenience, not a requirement, and it took the salt
+out of the amide build, so those amide-vs-carboxylate comparisons changed the ion composition as well as the
+C-terminus. Salt alone moves pipeline R by about a point (0.05 vs 0.68 M: 32.5 vs 33.7% at uniform B). The 2026-11-25
+charge tests (end of this section) repeat the comparison at fixed 0.68 M salt.
 
 Evidence in the deposited model:
 - The deposited His64 "O" sits 3.04 A from a symmetry mate's Thr57 carbonyl O. Two acceptors that close make sense
@@ -31,14 +40,20 @@ Evidence in the deposited model:
   moved 1.3 A to Asp53 O (Fo-Fc -10 sigma at the atom, +14 at its crystal site) because the -1 carboxylate pulls
   Thr57 OG1 onto itself.
 
-Amide vs carboxylate in MD (same start, same protocol, 8 runs, itr 92-111):
+Amide vs carboxylate in MD (same start, same protocol, 8 runs; amide with ACY x8 and no salt, carboxylate with 0.2 M
+salt, see above). R and restraint energy over itr 112-268, the H-bond over itr 249-268 (first report, itr 92-111, in
+`amide/reports/`):
 
 | arm | R amide / cooh | restraint E | His64 "O" - Thr57' O (crystal 3.04 A), amide / cooh |
 |---|---|---|---|
-| weights frozen at k 1 | 38.71 / 39.00% | 383 / 393 | 3.0 A in 88-98% of frames / 3.3 A, ~50% |
-| junction released | 38.96 / 39.08% | 382 / 391 | 3.0 A, 86-98% / 3.3 A, 40-48% |
-| replicate | 38.78 / 39.08% | 382 / 390 | 3.0 A, 88-97% / 3.3 A, 40-54% |
-| weight convergence (b5) | 32.43 / 33.59% | 85 / 89 | 3.0 A, 84-93% / 3.4-3.6 A, 18-40% |
+| weights frozen at k 1 | 38.80 / 39.16% | 383 / 391 | 3.0 A in 88-98% of frames / 3.3 A, ~50% |
+| junction released | 38.96 / 39.09% | 379 / 391 | 3.0 A, 87-98% / 3.3-3.6 A, 5-51% |
+| replicate | 38.91 / 39.18% | 380 / 389 | 3.0 A, 90-98% / 3.3-3.6 A, 6-53% |
+| weight convergence (b5) | 32.86 / 33.53% | 80 / 90 | 3.0 A, 84-93% / 3.3-3.7 A, 12-45% |
+
+The carboxylate broke the junction completely in one copy of each released arm (OXT - Thr57' N 4.1 A, 0% of frames);
+the amide never did. In b5 the Lys2 NZ weight is 3.89 with the carboxylate (second highest of any protein atom) and
+1.21 with the amide.
 
 How the amide was built (`1aho_hurry_test/build_2s2r_amide`): `tleap_stub.in` redefines CHIE, the residue tleap uses
 for a chain-final HIE, as internal ff19SB HIE plus the atoms and charges of Amber's NHE cap (N -0.4630, HN1 and HN2
@@ -49,9 +64,41 @@ tleap also knows (aminoct12.lib), but that needs the deposited atoms renamed and
 Gotchas: leap2amber's protonation file only knows PROTON/DEPROTON/HID/HIE/HIP (a new residue name there is
 ignored), and leaprc.protein.ff19SB aliases CHIS to the library CHIE, so the snippet re-points CHIS too.
 
-Nothing else in 1aho points at a protonation change at pH 6.8 (REMARK 280): the high restraint weights sit on
-backbone H-bonds (helix 21-26, turns 40-43 and 52-55, the 47-35 sheet) and on the disulfide sulfurs. His54 and His64
-touch only waters, so no contact decides their tautomer.
+Nothing else in 1aho's restraint weights points at a protonation change at pH 6.8 (REMARK 280): the high weights sit
+on backbone H-bonds (helix 21-26, turns 40-43 and 52-55, the 47-35 sheet) and on the disulfide sulfurs; Asp3 and Asp8
+carry moderate weights but only receive H-bonds in the crystal. His54 and His64 touch only waters, so no contact
+decides their tautomer, but the density does. H omit maps from the phenix bxfield gb3 model (another session,
+2026-11-25; plain HIS with no ring N-H, re-refined without the H as a refined omit, plus add-H controls refined with
+HID, HIE, HIP and His54-HIP/His64-HID; fractions of a backbone amide H, null sd 0.33):
+- **His54 is doubly protonated (HIP).** Refined omit HD1 1.01, HE2 0.67. Whichever single H is modelled, the other
+  returns as positive residual (+0.82, +1.11); with both modelled both residuals sit at the fit's zero point.
+- **His64 is HID.** HE2 is absent (refined omit +0.13; modelled, it leaves -0.74 to -0.78). HD1 reads about 0.6 of
+  an H, partial or more mobile than a riding B allows.
+- R-free cannot see the ring N-H (within 0.0002); the difference density can. A second model (best_so_far, unrefined
+  omit) agrees. Ring angles carry no information: the restraints hold both rings at His+ geometry.
+
+All 2026 MD builds before these tests used HIE54 / HIE64, which the omit maps rule out for both residues.
+
+**Charge tests at the crystallisation salt (launched 2026-11-25).** One 0.68 M ammonium acetate placement
+(`add_salt_runme.com`, 11 NH4+ / acetate pairs per cell) shared by every arm; only the counter-acetates follow each
+arm's charge. Build directories `1aho_hurry_test/build_s68_<arm>`, runs `ff19_opc_s68_<arm>`, all run as the
+restraint-class reference arm (b5sd1 settings with `min_align_weight=0`, uniform B 5, 200 itr):
+
+| arm | C-terminus | His54 | His64 | cell charge before counterions | NH4 / ACY |
+|---|---|---|---|---|---|
+| `cEE` | carboxylate | HIE | HIE | +4 | 11 / 15 |
+| `EE` | amide | HIE | HIE | +8 | 11 / 19 |
+| `ED` | amide | HIE | HID | +8 | 11 / 19 |
+| `PD` | amide | HIP | HID | +12 | 11 / 23 |
+
+`PD` is the omit maps' answer; `EE` the old default; `EE` vs `cEE` is amide vs carboxylate at fixed salt, `ED` vs
+`EE` the His64 tautomer, `PD` vs `ED` the His54 charge. Two more builds were made but not run once the refined omit
+maps came in: `DD` (HID54 / HID64, +8) and `MD` (His54 HIP in copies 1 and 3, HID in 2 and 4; +10, 11 / 21).
+The extra counter-acetates sit on the placed waters farthest from protein and other salt (nested: `EE`'s 4 are `PD`'s
+first 4). For His64 as HID, `tleap_stub.in` redefines CHID as the amide the same way as CHIE (HID and HIE share their
+C and O template coordinates). Scripts: `amide/salt068_base.csh`, `setup_s68_builds.sh`, `build_s68.csh`,
+`launch_s68_tests.sh` next to `1aho_hurry_test`. Because the MD maps include hydrogens, Fo-Fc at the modelled ring N-H
+(negative where an H is wrong) is a direct check alongside R and the restraint weights.
 
 ## B factors
 
