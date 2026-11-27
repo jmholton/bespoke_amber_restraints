@@ -172,3 +172,64 @@ rms:
 
 His64 fits worst as the carboxylate, as expected. His54 fits worst as HIP so far, the opposite of the omit maps. The
 replicates decide whether gaps of this size are real.
+
+### Worst restraints moved with protonation (2026-11-26)
+
+Pipeline R is not the measure for one residue's chemistry; the restraints are. Per iteration optimize_weights logs
+each restrained atom's displacement d from its reference point and its weight w (`restraints_challenge_vs_weight_N.txt`);
+w d² is its restraint energy. `amide/worst_restraints.py` averages that over iterations and the 4 copies (waters
+labelled by the nearest protein atom to their reference point). Energy per copy, itr 101-199 (the leaders in every arm,
+about 0.4-0.6, are Arg62 CZ, Arg18 NH1, Asp8 OD2, Lys58 O, and do not depend on protonation):
+
+| restraint | `cEE` | `EE` | `ED` | `PD` |
+|---|---|---|---|---|
+| His64 O | 0.37 | 0.00 | 0.02 | 0.07 |
+| Thr57 O | 0.20 | 0.06 | 0.03 | 0.06 |
+| water at Cys63 O | 0.52 | 0.13 | 0.08 | 0.15 |
+| water at Asp8 OD2 | 0.50 | 0.14 | 0.01 | 0.03 |
+| Lys2 NZ | 0.49 | 0.43 | 0.29 | 0.38 |
+| His54 NE2 | 0.00 | 0.07 | 0.04 | 0.46 |
+| His54 CE1 | 0.00 | 0.05 | 0.02 | 0.31 |
+| His64 NE2 | 0.16 | 0.25 | 0.32 | 0.51 |
+| His64 CE1 | 0.20 | 0.19 | 0.29 | 0.38 |
+| total, whole cell | 151 | 135 | 137 | 135 |
+
+Checked in all eight runs over itr 101-119 (controls included):
+
+1. The amide fixes the C-terminal junction: His64 O ≤ 0.10 in all 7 amide runs vs 0.50 in `cEE`; Thr57 O and three
+   nearby waters likewise. Lys2 NZ improves only partly (0.24-0.46, weight 3.5-5; lowest in `ED` and `ED_r2`).
+2. HIP54 puts His54's outer ring edge (NE2, CE1) among the worst restraints: 0.41-0.46 in `PD`, `PD_r2` and `PDp`
+   vs ≤ 0.09 for HIE or HID54; weights rise from about 0.05 to 1.1-1.9 and the edge sits about 0.5 Å off its density
+   point. `PDp` shows it too, so it comes from the charge, not the ring labels. The charged ring draws more water
+   (`amide/his_neighbours_md.py`: 1.5 waters within 3.2 Å of NE2 vs 1.0 for HIE; 0.5 vs 0.2 at CE1); acetate touches
+   it in < 4 % of frames. So in ff19SB a fully charged His54 does not sit where the density puts it; the omit maps' HE2
+   of 0.6-0.7 allows a partly protonated His54.
+3. HID64 strains His64's ring edge, most with HIP or HID54: His64 NE2 0.24-0.35 with HIE54 (`ED`, `ED_r2`), 0.54
+   with HID54 (`DD`), 0.67-0.73 with HIP54 (`PD`, `PD_r2`), vs 0.22-0.25 with HIE64. His64's contacts do not change
+   between arms; the cause is open.
+
+Two crystal waters sit on His64 ND1 (3.04 and 3.12 Å, full occupancy, density rank 17 and 21 of 121 waters) and are
+held at weights 4-7. The refinement's partial "waters" 1.9-2.4 Å from His64 ND1 in best_so_far are not in the 1aho
+model; at those distances they could be ions (JH), which would also bear on His64's HD1 signal.
+
+**Restraint release.** These runs release every iteration (`release_itr=1`): restraints at the weight cap (> 9, up to
+10 per iteration) are reset to 0.01 with their symmetry mates and neighbours (shells 2.2 + 1.8 + 1.8 + 1.8 Å), then
+regrow. In practice about 3 seeds and 65 atoms per iteration, the seeds mostly disulfide SG (Cys16, 22, 46, 48), then
+His64's terminal O in the amide arms and Ser33 N; water is 0-1 % of what is released (`amide/release_stats.py`).
+Waters held at weights 6-8 never reach the cap, so they are never released. Water restraints change only by repick
+(every iteration, within 2 Å), teleport (one water per iteration) and hydration.
+
+### More His protonation arms (launched 2026-11-26)
+
+Complete His54 {HIE, HID, HIP, HIP/HID mixture} × His64 {HIE, HID}, all amide at 0.68 M, rc_dw_w settings
+(`amide/setup_s68_more.sh`, `amide/launch_s68_controls.sh`):
+
+| arm | His54 | His64 | NH4 / ACY per cell |
+|---|---|---|---|
+| `PE` | HIP | HIE | 11 / 23 |
+| `DE` | HID | HIE | 11 / 19 |
+| `ME` | HIP in copies 1+3, HID in 2+4 | HIE | 11 / 21 |
+| `MD` | HIP in copies 1+3, HID in 2+4 | HID | 11 / 21 |
+
+With `EE`, `ED`, `DD`, `PD` that is every cell. The mixtures stand for the omit maps' partial HE2 at His54 (HD1 1.0,
+HE2 0.6-0.7). Salt concentration is to be varied once protonation is settled (JH).
