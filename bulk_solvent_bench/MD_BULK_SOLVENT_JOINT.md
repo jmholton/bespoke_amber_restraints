@@ -233,3 +233,41 @@ Complete His54 {HIE, HID, HIP, HIP/HID mixture} × His64 {HIE, HID}, all amide a
 
 With `EE`, `ED`, `DD`, `PD` that is every cell. The mixtures stand for the omit maps' partial HE2 at His54 (HD1 1.0,
 HE2 0.6-0.7). Salt concentration is to be varied once protonation is settled (JH).
+
+Replicates of the four (`MD_r2`, `PE_r2`, `DE_r2`, `ME_r2`, same builds, new seeds) launched 2026-11-26 21:23 to fill
+voltron.
+
+### The eight finished runs over itr 101-199 (2026-11-26)
+
+Energy per copy (`amide/worst_restraints.py`; `amide/worst_restraints_s68_8arms_101-199.txt`):
+
+| restraint | `cEE` | `EE` | `ED` | `ED_r2` | `DD` | `PD` | `PD_r2` | `PDp` |
+|---|---|---|---|---|---|---|---|---|
+| His54 / His64 | HIE / HIE carboxylate | HIE / HIE | HIE / HID | HIE / HID | HID / HID | HIP / HID | HIP / HID | HIP (P labels) / HID |
+| His64 O | 0.37 | 0.00 | 0.02 | 0.04 | 0.02 | 0.07 | 0.03 | 0.03 |
+| Lys2 NZ | 0.49 | 0.43 | 0.29 | 0.27 | 0.35 | 0.38 | 0.40 | 0.33 |
+| His54 NE2 | 0.00 | 0.07 | 0.04 | 0.06 | 0.03 | 0.46 | 0.42 | 0.42 |
+| His54 CE1 | 0.00 | 0.05 | 0.02 | 0.05 | 0.03 | 0.31 | 0.29 | 0.36 |
+| His64 NE2 | 0.16 | 0.25 | 0.32 | 0.29 | 0.52 | 0.51 | 0.56 | 0.51 |
+| His64 CE1 | 0.20 | 0.19 | 0.29 | 0.30 | 0.42 | 0.38 | 0.39 | 0.38 |
+| water 2.9 Å from His64 ND1 | 0.02 | 0.05 | 0.30 | 0.15 | 0.23 | 0.23 | 0.17 | - |
+| water HOH75 at His54 CD2 | 0.44 | 0.21 | 0.00 | 0.17 | 0.24 | 0.18 | 0.04 | - |
+| total, whole cell | 151 | 135 | 137 | 148 | 143 | 135 | 137 | 150 |
+
+1. The HIP54 ring-edge strain holds over the full window and in both replicates.
+2. His64 NE2/CE1 strain goes with a proton on His54 ND1 (HID or HIP54: 0.51-0.56), not with the charge; HIE54 gives
+   0.29-0.32 and HIE64 0.16-0.25. (Over itr 101-119 `DD` was 0.54 vs 0.67-0.73 for HIP54; the full window puts `DD`
+   with `PD`.) It is not a rotamer change: His64 stays χ1 trans and χ2 +56 to +73 in every frame of every run
+   (`amide/his_chi_nc.py`, which now reports χ1 rotamer fractions; its old χ1 "mean" averaged across ±180° and was
+   meaningless). Nor is it the ring-label assignment: His64's CE1/NE2 reference points swap in 10-19 % of iterations
+   in every arm alike.
+3. With HID64, a water restraint sits about 2.9 Å from His64 ND1 (a repicked point, weight 6-8, in 19-31 % of
+   copy-iterations) and carries 0.15-0.30; with HIE64 it is rare (1-9 %) and carries ≤ 0.05. The two crystal waters on
+   ND1 (3.04, 3.12 Å) are nearer Tyr42 O and Arg62 NH2 and are not this one. The HIE64 arms `PE`, `DE`, `ME` test it.
+4. The crystal water HOH75 is 2.94 Å from His54 CD2, nearer than to any other protein atom: the side where the P
+   orientation would put ND1. In the M runs its restraint carries 0.04-0.44 (weights to 8); in `PDp`, where an N-H points
+   at it, none. That is a local case for P, but small and noisy (`ED` 0.00 vs `ED_r2` 0.17), and `PDp`'s whole-cell
+   energy is no better (150 vs 135-137).
+5. His54 stays g+ / M (χ2 about -100) in every copy of every run, except `cEE` copy 3, which flipped to P (χ2 +67 in
+   86 % of frames over itr 101-199): the first His54 flip seen in MD. `PDp` stays P as built.
+6. Whole-cell totals: replicates differ by up to 11 (`ED` 137, `ED_r2` 148), so the total does not rank the arms.

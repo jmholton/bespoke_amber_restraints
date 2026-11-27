@@ -32,6 +32,10 @@ for i in range(i0, i1 + 1):
 print('%s itr %d-%d, %d frames' % (os.path.basename(d.rstrip('/')), i0, i1, nf))
 for r, lab, _, _ in his:
     a2 = np.array(c2[r]); a1 = np.array(c1[r])
-    print('  res %4d (%d in copy %d) %-4s  chi1 mean %6.1f  chi2: frac>0 %.2f  mean(<0) %6.1f  mean(>0) %6.1f' %
-          (r, (r - 1) % 64 + 1, (r - 1) // 64 + 1, lab, a1.mean(), (a2 > 0).mean(),
+    # chi1 is circular: report rotamer fractions (g+ 0..120, t |chi1|>120, g- -120..0) and the circular mean
+    cm1 = np.degrees(np.arctan2(np.sin(np.radians(a1)).mean(), np.cos(np.radians(a1)).mean()))
+    gp, tt = ((a1 >= 0) & (a1 < 120)).mean(), (np.abs(a1) >= 120).mean()
+    print('  res %4d (%d in copy %d) %-4s  chi1 g+ %.2f t %.2f g- %.2f (circ mean %6.1f)  chi2: frac>0 %.2f  '
+          'mean(<0) %6.1f  mean(>0) %6.1f' %
+          (r, (r - 1) % 64 + 1, (r - 1) // 64 + 1, lab, gp, tt, 1 - gp - tt, cm1, (a2 > 0).mean(),
            a2[a2 < 0].mean() if (a2 < 0).any() else np.nan, a2[a2 > 0].mean() if (a2 > 0).any() else np.nan))
