@@ -271,3 +271,22 @@ Energy per copy (`amide/worst_restraints.py`; `amide/worst_restraints_s68_8arms_
 5. His54 stays g+ / M (χ2 about -100) in every copy of every run, except `cEE` copy 3, which flipped to P (χ2 +67 in
    86 % of frames over itr 101-199): the first His54 flip seen in MD. `PDp` stays P as built.
 6. Whole-cell totals: replicates differ by up to 11 (`ED` 137, `ED_r2` 148), so the total does not rank the arms.
+
+### All 16 runs over itr 101-199 (2026-11-27)
+
+His64 HIE removes the His64 strain whatever His54 is; His54 HIP strain scales with the number of HIP copies.
+Energy per copy, two runs per arm (`amide/worst_restraints_s68_16arms_101-199.txt`):
+
+| arm (His54 / His64) | His64 NE2 | water 2.9 Å from His64 ND1 | His54 NE2 | whole cell |
+|---|---|---|---|---|
+| `DE` HID / HIE | 0.19, 0.31 | -, 0.03 | 0.04, 0.13 | 127, 129 |
+| `PE` HIP / HIE | 0.25, 0.25 | -, 0.15 | 0.33, 0.42 | 136, 127 |
+| `ME` mix / HIE | 0.22, 0.21 | 0.01, 0.04 | 0.21, 0.23 | 139, 138 |
+| `EE` HIE / HIE | 0.25 | 0.05 | 0.07 | 135 |
+| `ED` HIE / HID | 0.32, 0.29 | 0.30, 0.15 | 0.04, 0.06 | 137, 148 |
+| `DD` HID / HID | 0.52 | 0.23 | 0.03 | 143 |
+| `MD` mix / HID | 0.45, 0.48 | 0.20, 0.21 | 0.20, 0.18 | 146, 139 |
+| `PD` HIP / HID | 0.51, 0.56 | 0.23, 0.17 | 0.46, 0.42 | 135, 137 |
+
+The restraints favour HID54 / HIE64 (`DE`, lowest whole-cell pair); the refinement's HD1 signal favours HIP54 / HID64.
+Crystallisation was from ammonium acetate (chloride possible, JH): an NH4+ donating to His64 ND1 would fit HIE64.

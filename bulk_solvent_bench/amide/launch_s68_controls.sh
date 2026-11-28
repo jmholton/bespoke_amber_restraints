@@ -7,10 +7,11 @@
 #   PD_r2  build_s68_PD   replicate of PD (new random seeds, ig=-1, same start): run-to-run scatter
 #   ED_r2  build_s68_ED   replicate of ED
 # Run on octamus1:  ssh octamus1 'bash /scratch/jamesh/projects/amber/amide/launch_s68_controls.sh [PDp:build_s68_PDp ...]'
+# A spec whose name starts with ff19_ is taken as the full run name (e.g. ff19_opc_s017_DD:build_s017_DD).
 S=/scratch/jamesh/projects/amber; H=$S/1aho_hurry_test; A=$S/amide; code=code_391d233
 arms="${*:-PDp:build_s68_PDp DD:build_s68_DD PD_r2:build_s68_PD ED_r2:build_s68_ED}"
 for spec in $arms; do
-  v=${spec%%:*}; b=${spec#*:}; name=ff19_opc_s68_$v
+  v=${spec%%:*}; b=${spec#*:}; name=ff19_opc_s68_$v; [[ $v == ff19_* ]] && name=$v   # full run name allowed
   if pgrep -f "run_local.csh $name " >/dev/null || pgrep -f "build_s68.csh $H/$b\$" >/dev/null; then
     echo "$name already running, skipping"; continue
   fi
